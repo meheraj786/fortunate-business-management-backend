@@ -4,10 +4,10 @@ const { dbConnect } = require("./database/db.config");
 const routers = require("./routes");
 const app = express();
 
-(() => {
+(async () => {
   try {
-    dbConnect();
-    app.use(routers)
+    await dbConnect();
+    app.use(routers);
     app.listen(process.env.PORT, () => console.log("Server is running"));
   } catch (error) {
     console.log("Something Wrong");
