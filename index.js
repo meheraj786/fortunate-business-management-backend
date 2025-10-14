@@ -31,9 +31,7 @@ app.use(limiter);
 (async () => {
   try {
     await dbConnect();
-
     app.use(routers);
-
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
   } catch (error) {

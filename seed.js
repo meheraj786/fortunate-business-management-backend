@@ -1301,6 +1301,7 @@ export   const products = [
       id: 1,
       name: "Mild Steel Rod",
       category: "Steel Rods",
+      LCNumber:"234hf3",
       size: "12mm x 12m",
       color: "Silver",
       quantity: 150,
