@@ -61,6 +61,8 @@ const loginUser = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse({ user }, "Logged in successfully"));
   } catch (error) {
+    console.log(error);
+    
     next(new ApiError(500, "Login failed", [error.message]));
   }
 };
@@ -92,6 +94,7 @@ const getProfile = async (req, res, next) => {
     next(new ApiError(500, "Failed to fetch profile", [error.message]));
   }
 };
+
 
 module.exports = {
   registerUser,
