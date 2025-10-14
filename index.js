@@ -24,14 +24,13 @@ app.use(
 const limiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 50,
-  message: "Too many requests, please try again after a minute.",
+  message: "Too many requests!!",
 });
 app.use(limiter);
 
 (async () => {
   try {
     await dbConnect();
-    console.log("Database connected");
 
     app.use(routers);
 
