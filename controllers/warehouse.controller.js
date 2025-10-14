@@ -20,7 +20,7 @@ const createWarehouse = async (req, res, next) => {
   }
 };
 
-const getAllWarehouses = async (req, res, next) => {
+const getAllWarehouses = async (_, res, next) => {
   try {
     const warehouses = await Warehouse.find()
       .populate("manager")

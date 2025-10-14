@@ -66,7 +66,7 @@ const loginUser = async (req, res, next) => {
     next(new ApiError(500, "Login failed", [error.message]));
   }
 };
-const logoutUser = async (req, res, next) => {
+const logoutUser = async (_, res, next) => {
   try {
     res.clearCookie("accessToken", {
       httpOnly: true,

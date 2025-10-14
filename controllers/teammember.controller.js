@@ -32,7 +32,7 @@ const createTeamMember = async (req, res, next) => {
   }
 };
 
-const getAllTeamMembers = async (req, res, next) => {
+const getAllTeamMembers = async (_, res, next) => {
   try {
     const members = await TeamMember.find().populate("warehouse");
     return res
