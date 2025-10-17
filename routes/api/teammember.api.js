@@ -6,7 +6,7 @@ teammemberRoutes.post("/create-teammember", createTeamMember)
 teammemberRoutes.get("/get-all-teammember", getAllTeamMembers)
 teammemberRoutes.get("/get-teammember/:id", getTeamMemberById)
 teammemberRoutes.patch("/update-teammember/:id", updateTeamMember)
-teammemberRoutes.delete("/update-teammember/:id", deleteTeamMember)
+teammemberRoutes.delete("/delete-teammember/:id", deleteTeamMember)
 
 
 module.exports=teammemberRoutes

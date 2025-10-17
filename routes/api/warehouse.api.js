@@ -6,7 +6,7 @@ warehouseRoutes.post("/create-warehouse", createWarehouse)
 warehouseRoutes.get("/get-all-warehouse", getAllWarehouses)
 warehouseRoutes.get("/get-warehouse/:id", getWarehouseById)
 warehouseRoutes.patch("/update-warehouse/:id", updateWarehouse)
-warehouseRoutes.delete("/update-warehouse/:id", deleteWarehouse)
+warehouseRoutes.delete("/delete-warehouse/:id", deleteWarehouse)
 
 
 module.exports=warehouseRoutes

@@ -6,7 +6,7 @@ salesRoutes.post("/create-sales", createSale)
 salesRoutes.get("/get-all-sales", getAllSales)
 salesRoutes.get("/get-sales/:id", getSaleById)
 salesRoutes.patch("/update-sales/:id", updateSale)
-salesRoutes.delete("/update-sales/:id", deleteSale)
+salesRoutes.delete("/delete-sales/:id", deleteSale)
 salesRoutes.get("/sales-summary", getSalesSummary)
 
 

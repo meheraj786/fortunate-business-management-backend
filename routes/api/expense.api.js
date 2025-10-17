@@ -6,7 +6,7 @@ expenseRoutes.post("/create-expense", createExpense)
 expenseRoutes.get("/get-all-expenses", getAllExpenses)
 expenseRoutes.get("/get-expense/:id", getExpenseById)
 expenseRoutes.patch("/update-expense/:id", updateExpense)
-expenseRoutes.delete("/update-expense/:id", deleteExpense)
+expenseRoutes.delete("/delete-expense/:id", deleteExpense)
 
 
 module.exports=expenseRoutes
