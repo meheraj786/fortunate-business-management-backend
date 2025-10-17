@@ -53,13 +53,13 @@ const loginUser = async (req, res, next) => {
 
     res.cookie("accessToken", token, {
       httpOnly: true,
-      secure: "production",
+      secure: false,
       sameSite: "strict",
     });
 
     return res
       .status(200)
-      .json(new ApiResponse({ user }, "Logged in successfully"));
+      .json(new ApiResponse({ user, token }, "Logged in successfully"));
   } catch (error) {
     console.log(error);
     
@@ -82,14 +82,14 @@ const logoutUser = async (_, res, next) => {
 
 const getProfile = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).populate("warehouse");
-    if (!user) {
+    const fetchedUser = await User.findById(req.user._id).populate("warehouse");
+    if (!fetchedUser) {
       return next(new ApiError(404, "User not found"));
     }
 
     return res
       .status(200)
-      .json(new ApiResponse(user, "Profile fetched successfully"));
+      .json(new ApiResponse(fetchedUser, "Profile fetched successfully"));
   } catch (error) {
     next(new ApiError(500, "Failed to fetch profile", [error.message]));
   }

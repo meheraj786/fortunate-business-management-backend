@@ -4,7 +4,7 @@ const User = require("../models/user.model");
 exports.authMiddleware = async (req, res, next) => {
   try {
     const token = req.cookies?.accessToken;
-    
+
     if (!token) {
       return res.status(401).json({ message: "No token provided" });
     }
@@ -15,9 +15,12 @@ exports.authMiddleware = async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ message: "User not found" });
     }
-
-    req.user = user;
-    next();
+    if (user.access == "admin") {
+      req.user = user;
+      next();
+    } else {
+      res.status(401).json({ message: "Unauthorized" });
+    }
   } catch (err) {
     console.error("Auth error:", err);
     res.status(401).json({ message: "Unauthorized" });

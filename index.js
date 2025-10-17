@@ -6,6 +6,7 @@ const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const { dbConnect } = require("./database/db.config");
 const routers = require("./routes");
+const cookieParser = require("cookie-parser");
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use(limiter);
 
 (async () => {
   try {
+    app.use(cookieParser());
     await dbConnect();
     app.use(routers);
     const PORT = process.env.PORT || 5000;
