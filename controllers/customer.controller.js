@@ -14,7 +14,7 @@ async function createCustomer(req, res, next) {
   }
 }
 
-async function getAllCustomers(req, res, next) {
+async function getAllCustomers(_, res, next) {
   try {
     const customers = await Customer.find().populate({
       path: "transactions",
