@@ -1,13 +1,51 @@
+const DailyCash = require("../models/dailyCash.model");
 const Expense = require("../models/expense.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
 async function createExpense(req, res, next) {
   try {
+    const { date = new Date(), type, amount } = req.body;
+
     const expense = await Expense.create(req.body);
+
+    const day = await DailyCash.findOne({
+      date: { $eq: new Date(date).setHours(0, 0, 0, 0) },
+    });
+
+    let dailyCash;
+    if (!day) {
+      const lastDay = await DailyCash.findOne().sort({ date: -1 });
+      const openingBalance = lastDay ? lastDay.runningBalance : 0;
+
+      dailyCash = await DailyCash.create({
+        date,
+        openingBalance,
+        runningBalance: openingBalance,
+      });
+    } else {
+      dailyCash = day;
+    }
+
+    if (type === "income") {
+      dailyCash.totalIncome += amount;
+      dailyCash.runningBalance += amount;
+    } else if (type === "expense") {
+      dailyCash.totalExpense += amount;
+      dailyCash.runningBalance -= amount;
+    }
+
+    dailyCash.transactions.push(expense._id);
+    await dailyCash.save();
+
     return res
       .status(201)
-      .json(new ApiResponse(expense, "Expense created successfully"));
+      .json(
+        new ApiResponse(
+          { expense, dailyCash },
+          "Transaction added successfully"
+        )
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -65,6 +103,32 @@ async function deleteExpense(req, res, next) {
     next(new ApiError(500, error.message));
   }
 }
+async function getExpenseStats(_, res, next) {
+  try {
+    const deleted = await Expense.findByIdAndDelete(id);
+    if (!deleted) return next(new ApiError(404, "Expense not found"));
+    return res
+      .status(200)
+      .json(new ApiResponse(deleted, "Expense deleted successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
+
+async function getDailyCash(req, res, next) {
+  try {
+    const { date } = req.query;
+    const today = new Date(date || new Date()).setHours(0, 0, 0, 0);
+    const data = await DailyCash.findOne({ date: today }).populate("transactions");
+
+    if (!data) return next(new ApiError(404, "No record found for this date"));
+
+    res.status(200).json(new ApiResponse(data, "Daily cash fetched successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
+
 
 module.exports = {
   createExpense,
@@ -72,4 +136,6 @@ module.exports = {
   getExpenseById,
   updateExpense,
   deleteExpense,
+  getExpenseStats,
+  getDailyCash
 };
