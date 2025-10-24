@@ -5,7 +5,6 @@ const customerSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     phone: {
       type: String,
-      required: true,
       trim: true,
       match: [
         /^\+880\s?\d{4,10}$/,
@@ -15,16 +14,10 @@ const customerSchema = new mongoose.Schema(
     location: { type: String, trim: true },
 
     basicInfo: {
-      customerId: { type: String, unique: true, required: true },
       type: { type: String, enum: ["Retail", "Wholesale"], default: "Retail" },
       status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
       profilePhoto: { type: String, default: null },
       joinDate: { type: Date },
-      customerTier: {
-        type: String,
-        enum: ["Bronze", "Silver", "Gold"],
-        default: "Bronze",
-      },
     },
 
     contactInfo: {

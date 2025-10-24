@@ -5,6 +5,8 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
 async function createSale(req, res, next) {
+  console.log(req.body);
+  
   try {
     const {
       product,
@@ -22,6 +24,16 @@ async function createSale(req, res, next) {
       return next(new ApiError(400, "Required fields are missing"));
     }
 
+    const transitionCustomer = await Customer.findOne({ _id: customer });
+    if (!transitionCustomer) {
+      return next(new ApiError(400, "Customer Not Found"));
+    }
+    const sellingProduct = await Product.findOne({ _id: product });
+
+    if (sellingProduct.quantity<quantity) {
+      return next(new ApiError(400, "Not Enough Product"));
+    }
+
     const sale = await Sales.create({
       product,
       customer,
@@ -33,6 +45,21 @@ async function createSale(req, res, next) {
       invoiceStatus,
       lcNumber,
     });
+
+await Product.findOneAndUpdate(
+  { _id: product },
+  { $inc: { quantity: -quantity } },
+  { new: true }
+);
+
+    await Customer.findOneAndUpdate(
+      { _id: customer },
+      {
+        $push: {
+          transactions: sale._id,
+        },
+      }
+    );
 
     return res
       .status(201)

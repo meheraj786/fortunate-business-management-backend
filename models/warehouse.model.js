@@ -22,7 +22,7 @@ const warehouseSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
     },
-  ]
+  ],
 });
 
 warehouseSchema.index({ manager: 1 });

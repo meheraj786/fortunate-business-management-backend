@@ -4,7 +4,7 @@ const expenseSchema = new mongoose.Schema(
   {
     date: { type: Date, required: true },
     time: { type: String, required: true },
-    category: {
+    category: { 
       type: String,
       required: true,
     },
@@ -13,6 +13,7 @@ const expenseSchema = new mongoose.Schema(
     paymentMethod: {
       type: String,
       required: true,
+      enum: ["cash", "bank", "mobile-banking"]
     },
     icon: { type: String, trim: true },
   },

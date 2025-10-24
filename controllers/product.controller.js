@@ -1,4 +1,5 @@
 const Product = require("../models/product.model");
+const Warehouse = require("../models/warehouse.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
@@ -16,8 +17,20 @@ async function createProduct(req, res, next) {
       warehouse,
     } = req.body;
 
-    if (!name || !category || !LC || !quantity || !unit || !unitPrice || !warehouse) {
+    if (
+      !name ||
+      !category ||
+      !LC ||
+      !quantity ||
+      !unit ||
+      !unitPrice ||
+      !warehouse
+    ) {
       return next(new ApiError(400, "All required fields must be provided"));
+    }
+    const productWarehouse = await Warehouse.findOne({ _id: warehouse });
+    if (!productWarehouse) {
+      return next(new ApiError(400, "Warehouse not found"));
     }
 
     const product = await Product.create({
@@ -31,6 +44,15 @@ async function createProduct(req, res, next) {
       unitPrice,
       warehouse,
     });
+
+    await Warehouse.findOneAndUpdate(
+      { _id: warehouse },
+      {
+        $push: {
+          product: product._id,
+        },
+      }
+    );
 
     return res
       .status(201)
@@ -115,7 +137,9 @@ async function getInventoryStats(_, res, next) {
     const stats = await Product.getInventoryStats();
     return res
       .status(200)
-      .json(new ApiResponse(stats, "Inventory statistics fetched successfully"));
+      .json(
+        new ApiResponse(stats, "Inventory statistics fetched successfully")
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
