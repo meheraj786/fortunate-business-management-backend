@@ -3,7 +3,11 @@ const mongoose = require("mongoose");
 const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    category: { type: String, required: true, trim: true },
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: true,
+    },
     LC: { type: mongoose.Schema.Types.ObjectId, ref: "LC", required: true },
     size: { type: String, trim: true },
     color: { type: String, trim: true },

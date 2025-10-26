@@ -24,12 +24,52 @@ const dailyCashSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    transactions: [
+    incomeList: [
       {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Expense", 
+        category: {
+          type: string,
+          required: true,
+        },
+        description: {
+          type: string,
+        },
+        amount: {
+          type: number,
+          required: true,
+        },
+        time: {
+          type: string,
+          required: true,
+        },
       },
     ],
+    expenseList: [
+      {
+        category: {
+          type: string,
+          required: true,
+        },
+        description: {
+          type: string,
+        },
+        amount: {
+          type: number,
+          required: true,
+        },
+        time: {
+          type: string,
+          required: true,
+        },
+      },
+    ],
+    lcId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Lc",
+    },
+    sales: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Sales",
+    },
     isClosed: {
       type: Boolean,
       default: false,
