@@ -118,12 +118,24 @@ async function getExpenseStats(_, res, next) {
 async function getDailyCash(req, res, next) {
   try {
     const { date } = req.query;
-    const today = new Date(date || new Date()).setHours(0, 0, 0, 0);
-    const data = await DailyCash.findOne({ date: today }).populate("transactions");
+
+    // যদি query তে date থাকে তাহলে set করো, না থাকলে আজকের তারিখ
+    const inputDate = date ? new Date(date) : new Date();
+    inputDate.setHours(0, 0, 0, 0);
+
+    // date matching করার সময় নিশ্চিত হও Date comparison ঠিকভাবে হচ্ছে
+    const data = await DailyCash.findOne({
+      date: {
+        $gte: inputDate,
+        $lt: new Date(inputDate.getTime() + 24 * 60 * 60 * 1000),
+      },
+    }).populate("transactions");
 
     if (!data) return next(new ApiError(404, "No record found for this date"));
 
-    res.status(200).json(new ApiResponse(data, "Daily cash fetched successfully"));
+    res
+      .status(200)
+      .json(new ApiResponse(data, "Daily cash fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
