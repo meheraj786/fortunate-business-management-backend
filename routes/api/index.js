@@ -7,6 +7,7 @@ const productRoutes = require("./product.api")
 const salesRoutes = require("./sales.api")
 const teammemberRoutes = require("./teammember.api")
 const warehouseRoutes = require("./warehouse.api")
+const categoryRouter = require("./category.api")
 const apiRoutes=express.Router()
 
 apiRoutes.use("/auth", userRoutes)
@@ -17,6 +18,7 @@ apiRoutes.use("/product", productRoutes)
 apiRoutes.use("/sales", salesRoutes)
 apiRoutes.use("/teammember", teammemberRoutes)
 apiRoutes.use("/warehouse", warehouseRoutes)
+apiRoutes.use("/category", categoryRouter)
 
 
 module.exports=apiRoutes
