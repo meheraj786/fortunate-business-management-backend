@@ -1,7 +1,7 @@
 
 const Category = require("../models/category.model");
-const ApiError = require("../utils/ApiError");
-const ApiResponse = require("../utils/ApiResponse");
+const { ApiError } = require("../utils/ApiError");
+const { ApiResponse } = require("../utils/ApiResponse");
 
 exports.createCategory = async (req, res, next) => {
   try {
