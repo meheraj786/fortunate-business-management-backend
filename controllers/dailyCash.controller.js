@@ -1,8 +1,8 @@
-const DailyCash = require("../models/DailyCash");
-const LC = require("../models/LC");
-const Sales = require("../models/Sales");
-const ApiError = require("../utils/ApiError");
-const ApiResponse = require("../utils/ApiResponse");
+const DailyCash = require("../models/dailyCash.model");
+const LC = require("../models/lc.model");
+const Sales = require("../models/sales.model");
+const { ApiError } = require("../utils/ApiError");
+const { ApiResponse } = require("../utils/ApiResponse");
 
 exports.openDailyCash = async (req, res, next) => {
   try {
@@ -323,6 +323,33 @@ exports.getTransactionsByDateRange = async (req, res, next) => {
     res
       .status(200)
       .json(new ApiResponse(transactions, "Transactions fetched successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+};
+exports.getDailyCash = async (req, res, next) => {
+  try {
+    let { date } = req.query;
+
+    let targetDate;
+    if (date) {
+      targetDate = new Date(date);
+    } else {
+      targetDate = new Date();
+    }
+    targetDate.setHours(0, 0, 0, 0);
+
+    const dailyCash = await DailyCash.findOne({
+      date: targetDate,
+    });
+
+    if (!dailyCash) {
+      return next(new ApiError(404, "No Daily Cash found for this date"));
+    }
+
+    res
+      .status(200)
+      .json(new ApiResponse(dailyCash, "Daily Cash fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }

@@ -5,4 +5,4 @@ class ApiResponse {
   }
 }
 
-export { ApiResponse };
+module.exports = { ApiResponse };

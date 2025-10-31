@@ -7,6 +7,7 @@ const {
   updateTransaction,
   toggleDailyCashStatus,
   getTransactionsByDateRange,
+  getDailyCash,
 } = require("../../controllers/dailyCash.controller");
 const dailyCashRouter = express.Router();
 
@@ -17,5 +18,6 @@ dailyCashRouter.post("/close", closeDailyCash);
 dailyCashRouter.put("/update/:date", updateTransaction);
 dailyCashRouter.patch("/toggle-status", toggleDailyCashStatus);
 dailyCashRouter.get("/filter", getTransactionsByDateRange);
+dailyCashRouter.get("/get-cash", getDailyCash);
 
 module.exports = dailyCashRouter;

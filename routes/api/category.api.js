@@ -1,12 +1,12 @@
 const express = require("express");
-const categoryRouter = express.Router();
 const {
   createCategory,
   getCategories,
   getCategoryById,
   updateCategory,
   deleteCategory,
-} = require("../controllers/category.controller");
+} = require("../../controllers/category.controller");
+const categoryRouter = express.Router();
 
 categoryRouter.post("/create", createCategory);
 categoryRouter.get("/get", getCategories);

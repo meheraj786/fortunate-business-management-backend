@@ -1,4 +1,5 @@
-const Category = require("../models/Category");
+
+const Category = require("../models/category.model");
 const ApiError = require("../utils/ApiError");
 const ApiResponse = require("../utils/ApiResponse");
 
