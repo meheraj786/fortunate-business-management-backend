@@ -5,13 +5,13 @@ const { ApiResponse } = require("../utils/ApiResponse");
 
 exports.createCategory = async (req, res, next) => {
   try {
-    const { name } = req.body;
+    const { name, description } = req.body;
     if (!name) return next(new ApiError(400, "Category name is required"));
 
     const existing = await Category.findOne({ name: name.trim() });
     if (existing) return next(new ApiError(400, "Category already exists"));
 
-    const category = await Category.create({ name: name.trim() });
+    const category = await Category.create({ name: name.trim(), description });
     res
       .status(201)
       .json(new ApiResponse(category, "Category created successfully"));
@@ -48,11 +48,11 @@ exports.getCategoryById = async (req, res, next) => {
 exports.updateCategory = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name } = req.body;
+    const { name, description } = req.body;
 
     const category = await Category.findByIdAndUpdate(
       id,
-      { name: name.trim() },
+      { name: name.trim(), description },
       { new: true, runValidators: true }
     );
 
