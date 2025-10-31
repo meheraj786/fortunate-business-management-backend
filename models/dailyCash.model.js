@@ -1,5 +1,57 @@
 const mongoose = require("mongoose");
 
+const incomeSchema = new mongoose.Schema({
+  category: {
+    type: String,
+    required: true,
+  },
+  description: {
+    type: String,
+  },
+  amount: {
+    type: Number,
+    required: true,
+  },
+  time: {
+    type: String,
+    required: true,
+  },
+  lcId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Lc",
+  },
+  sales: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Sales",
+  },
+});
+
+const expenseSchema = new mongoose.Schema({
+  category: {
+    type: String,
+    required: true,
+  },
+  description: {
+    type: String,
+  },
+  amount: {
+    type: Number,
+    required: true,
+  },
+  time: {
+    type: String,
+    required: true,
+  },
+  lcId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Lc",
+  },
+  sales: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Sales",
+  },
+});
+
 const dailyCashSchema = new mongoose.Schema(
   {
     date: {
@@ -24,52 +76,8 @@ const dailyCashSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    incomeList: [
-      {
-        category: {
-          type: string,
-          required: true,
-        },
-        description: {
-          type: string,
-        },
-        amount: {
-          type: number,
-          required: true,
-        },
-        time: {
-          type: string,
-          required: true,
-        },
-      },
-    ],
-    expenseList: [
-      {
-        category: {
-          type: string,
-          required: true,
-        },
-        description: {
-          type: string,
-        },
-        amount: {
-          type: number,
-          required: true,
-        },
-        time: {
-          type: string,
-          required: true,
-        },
-      },
-    ],
-    lcId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Lc",
-    },
-    sales: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Sales",
-    },
+    incomeList: [incomeSchema],
+    expenseList: [expenseSchema],
     isClosed: {
       type: Boolean,
       default: false,
