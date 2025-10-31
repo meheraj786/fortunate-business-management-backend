@@ -3,6 +3,15 @@ const mongoose = require("mongoose");
 const incomeSchema = new mongoose.Schema({
   category: {
     type: String,
+    enum: [
+      "sales",
+      "transport",
+      "commission",
+      "utilities",
+      "office",
+      "due",
+      "others",
+    ],
     required: true,
   },
   description: {
@@ -11,6 +20,17 @@ const incomeSchema = new mongoose.Schema({
   amount: {
     type: Number,
     required: true,
+  },
+  paymentMethod: {
+    type: String,
+    required: true,
+    enum: ["bank", "mobile-bank", "cash"],
+  },
+  bankNumber: {
+    type: String,
+  },
+  mobileBank: {
+    type: String,
   },
   time: {
     type: String,
@@ -30,6 +50,15 @@ const expenseSchema = new mongoose.Schema({
   category: {
     type: String,
     required: true,
+    enum: [
+      "sales",
+      "transport",
+      "commission",
+      "utilities",
+      "office",
+      "lc",
+      "others",
+    ],
   },
   description: {
     type: String,
@@ -37,6 +66,17 @@ const expenseSchema = new mongoose.Schema({
   amount: {
     type: Number,
     required: true,
+  },
+  paymentMethod: {
+    type: String,
+    required: true,
+    enum: ["bank", "mobile-bank", "cash"],
+  },
+  bankNumber: {
+    type: String,
+  },
+  mobileBank: {
+    type: String,
   },
   time: {
     type: String,

@@ -94,7 +94,7 @@ const lcSchema = new mongoose.Schema(
       ],
       lastUpdated: { type: Date },
     },
-    expenses: [{ type: mongoose.Schema.Types.ObjectId, ref: "Expense" }],
+    expenses: [],
   },
   { timestamps: true }
 );

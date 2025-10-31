@@ -1,5 +1,4 @@
 const express = require("express");
-const dailyCashRouter = express.Router();
 const {
   openDailyCash,
   addIncome,
@@ -8,7 +7,8 @@ const {
   updateTransaction,
   toggleDailyCashStatus,
   getTransactionsByDateRange,
-} = require("../controllers/dailyCash.controller");
+} = require("../../controllers/dailyCash.controller");
+const dailyCashRouter = express.Router();
 
 dailyCashRouter.post("/open", openDailyCash);
 dailyCashRouter.post("/income", addIncome);
