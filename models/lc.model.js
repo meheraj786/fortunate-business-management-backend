@@ -1,106 +1,63 @@
 const mongoose = require("mongoose");
 
-const goodsInfoSchema = new mongoose.Schema({
-  productName: { type: String, required: true, trim: true },
-  hsCode: { type: String, trim: true },
-  quantity: { type: Number, required: true, min: 0 },
-  unit: { type: String, trim: true },
-  unitPrice: { type: Number, required: true, min: 0 },
-  totalValue: { type: Number, required: true, min: 0 },
-  description: { type: String, trim: true },
+const specificationSchema = new mongoose.Schema({
+  thickness_mm: { type: Number },
+  width_mm: { type: Number },
+  length_mm: { type: Number },
+  grade: { type: String, trim: true },
 });
 
 const lcSchema = new mongoose.Schema(
   {
-    lcNumber: { type: String, required: true, unique: true, trim: true },
-    status: {
-      type: String,
-      required: true,
-      enum: ["Active", "Closed", "Expired"],
-    },
-    openDate: { type: Date, required: true },
-    dueDate: { type: Date, required: true },
-    products: { type: String, trim: true },
-    quantity: { type: String, trim: true },
-    totalAmount: { type: Number, required: true },
-    beneficiary: { type: String, trim: true },
-
-    basicInfo: {
-      lcNumber: { type: String, trim: true },
-      lcType: { type: String, trim: true },
-      issueDate: { type: Date },
-      expiryDate: { type: Date },
-      lcValue: { type: Number },
-      currency: { type: String, trim: true },
+    basic_info: {
+      lc_number: { type: String, required: true, unique: true, trim: true },
+      lc_opening_date: { type: Date, required: true },
       status: { type: String, trim: true },
+      bank_name: { type: String, trim: true },
+      supplier_name: { type: String, trim: true },
+      supplier_country: { type: String, trim: true },
     },
-    buyerInfo: {
-      name: { type: String, trim: true },
-      company: { type: String, trim: true },
-      address: { type: String, trim: true },
-      contactPerson: { type: String, trim: true },
-      phone: { type: String, trim: true },
-      email: { type: String, trim: true },
+    financial_info: {
+      lc_amount_usd: { type: Number },
+      exchange_rate: { type: Number },
+      lc_amount_bdt: { type: Number },
+      lc_margin_paid_bdt: { type: Number },
+      bank_charges_bdt: { type: Number },
+      insurance_cost_bdt: { type: Number },
     },
-    sellerInfo: {
-      name: { type: String, trim: true },
-      company: { type: String, trim: true },
-      address: { type: String, trim: true },
-      bankName: { type: String, trim: true },
-      accountNumber: { type: String, trim: true },
-      swiftCode: { type: String, trim: true },
-      email: { type: String, trim: true },
+    product_info: {
+      item_name: { type: String, trim: true },
+      specification: specificationSchema,
+      quantity_ton: { type: Number },
+      unit_price_usd: { type: Number },
+      total_value_usd: { type: Number },
+      total_value_bdt: { type: Number },
     },
-    bankInfo: {
-      issuingBank: { type: String, trim: true },
-      advisingBank: { type: String, trim: true },
-      correspondentBank: { type: String, trim: true },
-      swiftCode: { type: String, trim: true },
-      branch: { type: String, trim: true },
-      accountManager: { type: String, trim: true },
-      managerContact: { type: String, trim: true },
+    shipping_customs_info: {
+      port_of_shipment: { type: String, trim: true },
+      port_of_arrival: { type: String, trim: true },
+      expected_arrival_date: { type: Date },
+      customs_duty_bdt: { type: Number },
+      vat_bdt: { type: Number },
+      ait_bdt: { type: Number },
+      other_port_expenses_bdt: { type: Number },
     },
-    shipmentInfo: {
-      portOfLoading: { type: String, trim: true },
-      portOfDischarge: { type: String, trim: true },
-      shipmentDate: { type: Date },
-      lastShipmentDate: { type: Date },
-      transportType: { type: String, trim: true },
-      shippingCompany: { type: String, trim: true },
-      insurance: { type: String, trim: true },
-      incoterms: { type: String, trim: true },
+    agent_transport_info: {
+      cnf_agent_name: { type: String, trim: true },
+      cnf_agent_commission_bdt: { type: Number },
+      indenting_agent_commission_bdt: { type: Number },
+      transport_cost_bdt: { type: Number },
     },
-    goodsInfo: [goodsInfoSchema],
-    paymentInfo: {
-      terms: { type: String, trim: true },
-      marginAmount: { type: Number },
-      bankCharges: { type: Number },
-      commission: { type: Number },
-      dueDate: { type: Date },
-      status: { type: String, trim: true },
-      paidAmount: { type: Number },
-      paymentDate: { type: Date },
-    },
-    documentsRequired: [{ type: String, trim: true }],
-    tracking: {
-      status: { type: String, trim: true },
+    documents_notes: {
+      uploaded_documents: [{ type: String, trim: true }],
       remarks: { type: String, trim: true },
-      attachments: [
-        {
-          name: { type: String, trim: true },
-          type: { type: String, trim: true },
-          size: { type: String, trim: true },
-        },
-      ],
-      lastUpdated: { type: Date },
     },
-    expenses: [],
   },
   { timestamps: true }
 );
 
-lcSchema.index({ lcNumber: 1 });
-lcSchema.index({ status: 1 });
+lcSchema.index({ "basic_info.lc_number": 1 });
+lcSchema.index({ "basic_info.status": 1 });
 
 const LC = mongoose.model("LC", lcSchema);
 module.exports = LC;

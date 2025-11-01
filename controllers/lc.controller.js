@@ -1,6 +1,6 @@
 const LC = require("../models/lc.model");
-const { ApiError } = require("../utils/ApiError");
-const { ApiResponse } = require("../utils/ApiResponse");
+const ApiError = require("../utils/ApiError");
+const ApiResponse = require("../utils/ApiResponse");
 
 async function createLC(req, res, next) {
   try {
@@ -16,7 +16,7 @@ async function getAllLCs(_, res, next) {
     const lcs = await LC.find();
     return res
       .status(200)
-      .json(new ApiResponse(lcs, "LCs fetched successfully"));
+      .json(new ApiResponse(lcs, "All LCs fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -61,29 +61,6 @@ async function deleteLC(req, res, next) {
     next(new ApiError(500, error.message));
   }
 }
-async function addExpenseToLC(req, res, next) {
-  try {
-    const { lcId, expenseId } = req.body;
-
-    if (!lcId || !expenseId) {
-      return next(new ApiError(400, "lcId and expenseId are required"));
-    }
-
-    const lc = await LC.findByIdAndUpdate(
-      lcId,
-      { $push: { expenses: expenseId } },
-      { new: true }
-    );
-
-    if (!lc) return next(new ApiError(404, "LC not found"));
-
-    return res
-      .status(200)
-      .json(new ApiResponse(lc, "Expense added to LC successfully"));
-  } catch (error) {
-    next(new ApiError(500, error.message));
-  }
-}
 
 module.exports = {
   createLC,
@@ -91,5 +68,4 @@ module.exports = {
   getLCById,
   updateLC,
   deleteLC,
-  addExpenseToLC,
 };

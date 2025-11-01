@@ -14,7 +14,7 @@ const warehouseSchema = new mongoose.Schema({
   manager: [
     {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "TeamMember",
+      ref: "User",
     },
   ],
   product: [
