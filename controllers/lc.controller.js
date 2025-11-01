@@ -62,10 +62,45 @@ async function deleteLC(req, res, next) {
   }
 }
 
+async function addExpenseToLC(req, res, next) {
+  try {
+    const { lcId } = req.params;
+    const { description, amount, date } = req.body;
+
+    if (!description || !amount) {
+      throw new ApiError(400, "Description and amount are required");
+    }
+
+    const lc = await LC.findById(lcId);
+    if (!lc) {
+      throw new ApiError(404, "LC not found");
+    }
+
+    const newExpense = {
+      description,
+      amount,
+      date: date || new Date(),
+    };
+
+    lc.expenses.push(newExpense);
+
+    lc.totalExpense = (lc.totalExpense || 0) + amount;
+
+    await lc.save();
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, lc, "Expense added successfully"));
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createLC,
   getAllLCs,
   getLCById,
   updateLC,
   deleteLC,
+  addExpenseToLC,
 };

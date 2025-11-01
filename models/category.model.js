@@ -7,6 +7,10 @@ const categorySchema = new mongoose.Schema({
     unique: true,
     trim: true,
   },
+  description: {
+    type: String,
+    trim: true,
+  },
 });
 
 const Category = mongoose.model("Category", categorySchema);
