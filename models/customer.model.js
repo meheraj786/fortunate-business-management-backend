@@ -6,10 +6,10 @@ const customerSchema = new mongoose.Schema(
     phone: {
       type: String,
       trim: true,
-      match: [
-        /^\+880\s?\d{4,10}$/,
-        "Please enter a valid Bangladeshi phone number",
-      ],
+      // match: [
+      //   /^\+880\s?\d{4,10}$/,
+      //   "Please enter a valid Bangladeshi phone number",
+      // ],
     },
     location: { type: String, trim: true },
 
@@ -57,6 +57,7 @@ const customerSchema = new mongoose.Schema(
         type: { type: String },
         size: { type: String },
         uploadDate: { type: Date },
+        default: [],
       },
     ],
 
@@ -79,9 +80,9 @@ const customerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-customerSchema.index({ "basicInfo.customerId": 1 });
+// customerSchema.index({ "basicInfo.customerId": 1 });
 customerSchema.index({ phone: 1 });
-customerSchema.index({ "basicInfo.status": 1 });
+// customerSchema.index({ "basicInfo.status": 1 });
 
 const Customer = mongoose.model("Customer", customerSchema);
 module.exports = Customer;
