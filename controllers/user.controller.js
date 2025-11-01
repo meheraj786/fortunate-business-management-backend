@@ -5,7 +5,7 @@ const jwt = require("jsonwebtoken");
 
 const registerUser = async (req, res, next) => {
   try {
-    const { name, email, password, access, warehouse } = req.body;
+    const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
       return next(new ApiError(400, "All fields are required"));
@@ -16,12 +16,7 @@ const registerUser = async (req, res, next) => {
       return next(new ApiError(409, "User already exists with this email"));
     }
 
-    const user = new User({
-      name,
-      email,
-      password,
-      access,
-    });
+    const user = new User(req.body);
     await user.save();
 
     return res
@@ -62,7 +57,7 @@ const loginUser = async (req, res, next) => {
       .json(new ApiResponse({ user, token }, "Logged in successfully"));
   } catch (error) {
     console.log(error);
-    
+
     next(new ApiError(500, "Login failed", [error.message]));
   }
 };
@@ -80,6 +75,22 @@ const logoutUser = async (_, res, next) => {
   }
 };
 
+const getUser = async (req, res, next) => {
+  try {
+    const fetchedUser = await User.findById(req.params.id).populate(
+      "warehouse"
+    );
+    if (!fetchedUser) {
+      return next(new ApiError(404, "User not found"));
+    }
+
+    return res
+      .status(200)
+      .json(new ApiResponse(fetchedUser, "Profile fetched successfully"));
+  } catch (error) {
+    next(new ApiError(500, "Failed to fetch profile", [error.message]));
+  }
+};
 const getProfile = async (req, res, next) => {
   try {
     const fetchedUser = await User.findById(req.user._id).populate("warehouse");
@@ -94,11 +105,25 @@ const getProfile = async (req, res, next) => {
     next(new ApiError(500, "Failed to fetch profile", [error.message]));
   }
 };
-
+const getAllUser = async (req, res, next) => {
+  try {
+    const fetchedUser = await User.find({}).populate("warehouse");
+    if (!fetchedUser) {
+      return next(new ApiError(404, "User not found"));
+    }
+    return res
+      .status(200)
+      .json(new ApiResponse(fetchedUser, "Profile fetched successfully"));
+  } catch (error) {
+    next(new ApiError(500, "Failed to fetch profile", [error.message]));
+  }
+};
 
 module.exports = {
   registerUser,
   loginUser,
   getProfile,
   logoutUser,
+  getAllUser,
+  getUser,
 };

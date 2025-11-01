@@ -8,6 +8,11 @@ const userSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+  avatar: {
+    type: String,
+    default:
+      "https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png",
+  },
   email: {
     type: String,
     required: true,
@@ -21,6 +26,31 @@ const userSchema = new mongoose.Schema({
     required: true,
     select: false,
     minlength: [8, "Password must be at least 8 characters"],
+  },
+  phone: {
+    type: String,
+    default: "Not Provided",
+  },
+  role: {
+    type: String,
+    default: "No Role",
+    enum: [
+      "Admin",
+      "Manager",
+      "Warehouse Keeper",
+      "Accountant",
+      "Sales Executive",
+      "Operations Coordinator",
+      "Logistics Officer",
+      "Quality Inspector",
+      "Customs Officer",
+      "No Role",
+    ],
+  },
+  location: {
+    type: String,
+    required: true,
+    default: "Center",
   },
   access: [
     {
