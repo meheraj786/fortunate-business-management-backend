@@ -47,11 +47,11 @@ exports.getCategoryById = async (req, res, next) => {
 exports.updateCategory = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name } = req.body;
+    const { name, description } = req.body;
 
     const category = await Category.findByIdAndUpdate(
       id,
-      { name: name.trim() },
+      { name: name.trim(), description },
       { new: true, runValidators: true }
     );
 
