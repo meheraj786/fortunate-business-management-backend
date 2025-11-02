@@ -95,6 +95,16 @@ async function addExpenseToLC(req, res, next) {
     next(error);
   }
 }
+async function getAllCompletedLCs(_, res, next) {
+  try {
+    const lcs = await LC.find({ "basic_info.status": "Completed" });
+    return res
+      .status(200)
+      .json(new ApiResponse(lcs, "All LCs fetched successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
 
 module.exports = {
   createLC,
@@ -103,4 +113,5 @@ module.exports = {
   updateLC,
   deleteLC,
   addExpenseToLC,
+  getAllCompletedLCs
 };
