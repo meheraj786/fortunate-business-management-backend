@@ -10,7 +10,7 @@ const specificationSchema = new mongoose.Schema({
 const lcSchema = new mongoose.Schema(
   {
     basic_info: {
-      lc_number: { type: String, required: true, unique: true, trim: true },
+      lc_number: { type: String, required: true, trim: true },
       lc_opening_date: { type: Date, required: true },
       status: { type: String, trim: true },
       bank_name: { type: String, trim: true },
@@ -25,14 +25,14 @@ const lcSchema = new mongoose.Schema(
       bank_charges_bdt: { type: Number },
       insurance_cost_bdt: { type: Number },
     },
-    product_info: {
+    product_info: [{
       item_name: { type: String, trim: true },
       specification: specificationSchema,
       quantity_ton: { type: Number },
       unit_price_usd: { type: Number },
       total_value_usd: { type: Number },
       total_value_bdt: { type: Number },
-    },
+    }],
     shipping_customs_info: {
       port_of_shipment: { type: String, trim: true },
       port_of_arrival: { type: String, trim: true },
