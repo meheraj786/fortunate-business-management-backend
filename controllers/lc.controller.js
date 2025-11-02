@@ -1,6 +1,6 @@
 const LC = require("../models/lc.model");
-const ApiError = require("../utils/ApiError");
-const ApiResponse = require("../utils/ApiResponse");
+const { ApiError } = require("../utils/ApiError");
+const { ApiResponse } = require("../utils/ApiResponse");
 
 async function createLC(req, res, next) {
   try {

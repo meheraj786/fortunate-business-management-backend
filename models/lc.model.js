@@ -56,8 +56,8 @@ const lcSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-lcSchema.index({ "basic_info.lc_number": 1 });
-lcSchema.index({ "basic_info.status": 1 });
+// lcSchema.index({ "basic_info.lc_number": 1 });
+// lcSchema.index({ "basic_info.status": 1 });
 
 const LC = mongoose.model("LC", lcSchema);
 module.exports = LC;
