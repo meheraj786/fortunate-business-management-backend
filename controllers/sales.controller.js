@@ -5,14 +5,15 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
 async function createSale(req, res, next) {
-  console.log(req.body);
-  
   try {
     const {
       product,
       customer,
       quantity,
       price,
+      discount = 0,
+      due = 0,
+      paymentStatus,
       unit,
       category,
       size,
@@ -24,21 +25,31 @@ async function createSale(req, res, next) {
       return next(new ApiError(400, "Required fields are missing"));
     }
 
-    const transitionCustomer = await Customer.findOne({ _id: customer });
+    const transitionCustomer = await Customer.findById(customer);
     if (!transitionCustomer) {
-      return next(new ApiError(400, "Customer Not Found"));
+      return next(new ApiError(400, "Customer not found"));
     }
-    const sellingProduct = await Product.findOne({ _id: product });
 
-    if (sellingProduct.quantity<quantity) {
-      return next(new ApiError(400, "Not Enough Product"));
+    const sellingProduct = await Product.findById(product);
+    if (!sellingProduct) {
+      return next(new ApiError(400, "Product not found"));
     }
+
+    if (sellingProduct.quantity < quantity) {
+      return next(new ApiError(400, "Not enough product in stock"));
+    }
+
+    const totalAmount = quantity * price - discount;
 
     const sale = await Sales.create({
       product,
       customer,
       quantity,
       price,
+      discount,
+      due,
+      paymentStatus,
+      totalAmount,
       unit,
       category,
       size,
@@ -46,20 +57,15 @@ async function createSale(req, res, next) {
       lcNumber,
     });
 
-await Product.findOneAndUpdate(
-  { _id: product },
-  { $inc: { quantity: -quantity } },
-  { new: true }
-);
-
-    await Customer.findOneAndUpdate(
-      { _id: customer },
-      {
-        $push: {
-          transactions: sale._id,
-        },
-      }
+    await Product.findByIdAndUpdate(
+      product,
+      { $inc: { quantity: -quantity } },
+      { new: true }
     );
+
+    await Customer.findByIdAndUpdate(customer, {
+      $push: { transactions: sale._id },
+    });
 
     return res
       .status(201)
@@ -99,11 +105,26 @@ async function getSaleById(req, res, next) {
     next(new ApiError(500, error.message));
   }
 }
+
 async function updateSale(req, res, next) {
   try {
     const { id } = req.params;
+    const updateData = req.body;
 
-    const updated = await Sales.findByIdAndUpdate(id, req.body, {
+    // If quantity or price updated, recalculate totalAmount
+    if (updateData.quantity || updateData.price || updateData.discount) {
+      const existingSale = await Sales.findById(id);
+      if (!existingSale)
+        return next(new ApiError(404, "Sale not found for update"));
+
+      const newQuantity = updateData.quantity ?? existingSale.quantity;
+      const newPrice = updateData.price ?? existingSale.price;
+      const newDiscount = updateData.discount ?? existingSale.discount;
+
+      updateData.totalAmount = newQuantity * newPrice - newDiscount;
+    }
+
+    const updated = await Sales.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
     });
@@ -138,14 +159,14 @@ async function getSalesSummary(_, res, next) {
   try {
     const sales = await Sales.find();
 
-    const totalSales = sales.reduce((acc, sale) => acc + sale.totalAmount, 0);
+    const totalSales = sales.reduce((acc, s) => acc + (s.totalAmount || 0), 0);
     const totalTransactions = sales.length;
 
     const dailySummary = {};
     sales.forEach((sale) => {
       const day = sale.date.toISOString().split("T")[0];
       if (!dailySummary[day]) dailySummary[day] = 0;
-      dailySummary[day] += sale.totalAmount;
+      dailySummary[day] += sale.totalAmount || 0;
     });
 
     return res.status(200).json(
