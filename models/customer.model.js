@@ -1,88 +1,44 @@
 const mongoose = require("mongoose");
+const { Schema } = mongoose;
 
-const customerSchema = new mongoose.Schema(
+const documentSchema = new Schema({
+  name: { type: String, required: true },
+  type: { type: String, required: true },
+  size: { type: String, required: true },
+  uploadDate: { type: Date, default: Date.now },
+});
+
+const customerSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
+    companyName: { type: String, trim: true },
     phone: {
       type: String,
       trim: true,
-      // match: [
-      //   /^\+880\s?\d{4,10}$/,
-      //   "Please enter a valid Bangladeshi phone number",
-      // ],
+      required: true,
+      unique: true,
     },
-    location: { type: String, trim: true },
-
-    basicInfo: {
-      type: { type: String, enum: ["Retail", "Wholesale"], default: "Retail" },
-      status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
-      profilePhoto: { type: String, default: null },
-      joinDate: { type: Date },
+    email: { type: String, trim: true, lowercase: true },
+    billingAddress: { type: String, trim: true },
+    creditLimit: { type: Number, default: 0 },
+    customerNote: { type: String, trim: true },
+    customerId: { type: String, required: true, unique: true, trim: true },
+    customerType: {
+      type: String,
+      enum: ["Retail", "Wholesale"],
+      default: "Retail",
     },
-
-    contactInfo: {
-      phone: { type: String },
-      email: { type: String },
-      website: { type: String, default: null },
-      billingAddress: { type: String },
-      shippingAddress: { type: String },
-      contactPerson: { type: String },
-      contactPersonPhone: { type: String },
-      contactPersonEmail: { type: String },
+    customerStatus: {
+      type: String,
+      enum: ["Active", "Suspense"],
+      default: "Active",
     },
-
-    businessInfo: {
-      companyName: { type: String },
-      businessType: { type: String },
-      tradeLicense: { type: String },
-      tin: { type: String },
-      vatInfo: { type: String },
-      creditLimit: { type: Number, default: 0 },
-      paymentTerms: { type: String },
-      currency: { type: String, default: "BDT" },
-    },
-
-    bankInfo: {
-      bankName: { type: String },
-      branch: { type: String },
-      accountNumber: { type: String },
-      routingNumber: { type: String },
-      swiftCode: { type: String },
-      iban: { type: String },
-    },
-
-    documents: [
-      {
-        name: { type: String },
-        type: { type: String },
-        size: { type: String },
-        uploadDate: { type: Date },
-        default: [],
-      },
-    ],
-
-    notes: {
-      remarks: { type: String },
-      assignedManager: { type: String },
-      managerContact: { type: String },
-      lastContact: { type: Date },
-      nextFollowUp: { type: Date },
-      specialInstructions: { type: String },
-    },
-
-    transactions: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Sales",
-      },
-    ],
+    joinDate: { type: Date, default: Date.now },
+    documents: [documentSchema],
   },
   { timestamps: true }
 );
 
-// customerSchema.index({ "basicInfo.customerId": 1 });
-customerSchema.index({ phone: 1 });
-// customerSchema.index({ "basicInfo.status": 1 });
-
 const Customer = mongoose.model("Customer", customerSchema);
+
 module.exports = Customer;

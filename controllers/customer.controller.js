@@ -1,10 +1,28 @@
 const Customer = require("../models/customer.model");
-const Sales = require("../models/sales.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
 async function createCustomer(req, res, next) {
   try {
+    const currentYear = new Date().getFullYear();
+    const lastCustomer = await Customer.findOne({
+      customerId: new RegExp(`^CUST-${currentYear}-`, "i"),
+    }).sort({ customerId: -1 });
+
+    let lastCustomerIdNumber = 0;
+    if (lastCustomer && lastCustomer.customerId) {
+      const match = lastCustomer.customerId.match(/(\d+)$/);
+      if (match) {
+        lastCustomerIdNumber = parseInt(match[1], 10);
+      }
+    }
+
+    const newCustomerId = `CUST-${currentYear}-${(lastCustomerIdNumber + 1)
+      .toString()
+      .padStart(4, "0")}`;
+
+    req.body.customerId = newCustomerId;
+
     const customer = await Customer.create(req.body);
     return res
       .status(201)
@@ -16,10 +34,7 @@ async function createCustomer(req, res, next) {
 
 async function getAllCustomers(_, res, next) {
   try {
-    const customers = await Customer.find().populate({
-      path: "transactions",
-      select: "totalAmount date status",
-    });
+    const customers = await Customer.find();
 
     return res
       .status(200)
@@ -33,41 +48,15 @@ async function getCustomerById(req, res, next) {
   try {
     const { id } = req.params;
 
-    const customer = await Customer.findById(id).populate({
-      path: "transactions",
-      select: "totalAmount date items status",
-    });
+    const customer = await Customer.findById(id);
 
     if (!customer) {
       return next(new ApiError(404, "Customer not found"));
     }
 
-    const totalPurchased = customer.transactions.reduce(
-      (acc, sale) => acc + sale.totalAmount,
-      0
-    );
-    const lastPurchase = customer.transactions.sort(
-      (a, b) => new Date(b.date) - new Date(a.date)
-    )[0];
-
-    const summary = {
-      totalPurchased,
-      lastPurchase: lastPurchase ? lastPurchase.date : null,
-      totalTransactions: customer.transactions.length,
-      averageOrderValue:
-        customer.transactions.length > 0
-          ? totalPurchased / customer.transactions.length
-          : 0,
-    };
-
     return res
       .status(200)
-      .json(
-        new ApiResponse(
-          { ...customer.toObject(), transactionSummary: summary },
-          "Customer fetched successfully"
-        )
-      );
+      .json(new ApiResponse(customer, "Customer fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -112,27 +101,13 @@ async function deleteCustomer(req, res, next) {
 
 async function getCustomerStats(_, res, next) {
   try {
-    const customers = await Customer.find().populate({
-      path: "transactions",
-      select: "totalAmount date",
-    });
+    const customers = await Customer.find();
 
     const stats = customers.map((customer) => {
-      const totalPurchased = customer.transactions.reduce(
-        (acc, sale) => acc + sale.totalAmount,
-        0
-      );
-      const lastPurchase = customer.transactions.sort(
-        (a, b) => new Date(b.date) - new Date(a.date)
-      )[0];
-
       return {
         id: customer._id,
         name: customer.name,
         phone: customer.phone,
-        location: customer.location,
-        totalPurchased,
-        lastPurchase: lastPurchase ? lastPurchase.date : null,
       };
     });
 
