@@ -58,7 +58,15 @@ const lcSchema = new mongoose.Schema(
       other_expenses: [otherExpenseSchema],
     },
     documents_notes: {
-      uploaded_documents: [{ type: String, trim: true }],
+      uploaded_documents: [
+        {
+          original_name: { type: String, trim: true },
+          stored_name: { type: String, trim: true },
+          mime_type: { type: String, trim: true },
+          size_bytes: { type: Number },
+          hash_sha256: { type: String, trim: true },
+        },
+      ],
       remarks: { type: String, trim: true },
     },
     other_expenses: [otherExpenseSchema],
