@@ -1,11 +1,49 @@
 const LC = require("../models/lc.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+
+// Ensure the uploads directory exists
+const uploadDir = path.join(__dirname, "../uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
+});
+
+const upload = multer({ storage: storage });
 
 async function createLC(req, res, next) {
   try {
-    const lc = await LC.create(req.body);
-    return res.status(201).json(new ApiResponse(lc, "LC created successfully"));
+    let lcData;
+    if (req.body.lc_data) {
+      // Handle multipart/form-data
+      lcData = JSON.parse(req.body.lc_data);
+    } else {
+      // Handle application/json
+      lcData = req.body;
+    }
+
+    // If there are uploaded files, add them to the document
+    if (req.files && req.files.length > 0) {
+      const uploadedDocuments = req.files.map((file) => file.path);
+      if (!lcData.documents_notes) {
+        lcData.documents_notes = {};
+      }
+      lcData.documents_notes.uploaded_documents = uploadedDocuments;
+    }
+
+    const lc = await LC.create(lcData);
+    return res.status(201).json(new ApiResponse(201, lc, "LC created successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -16,7 +54,7 @@ async function getAllLCs(_, res, next) {
     const lcs = await LC.find();
     return res
       .status(200)
-      .json(new ApiResponse(lcs, "All LCs fetched successfully"));
+      .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -27,7 +65,7 @@ async function getLCById(req, res, next) {
     const { id } = req.params;
     const lc = await LC.findById(id);
     if (!lc) return next(new ApiError(404, "LC not found"));
-    return res.status(200).json(new ApiResponse(lc, "LC fetched successfully"));
+    return res.status(200).json(new ApiResponse(200, lc, "LC fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -43,7 +81,7 @@ async function updateLC(req, res, next) {
     if (!updated) return next(new ApiError(404, "LC not found"));
     return res
       .status(200)
-      .json(new ApiResponse(updated, "LC updated successfully"));
+      .json(new ApiResponse(200, updated, "LC updated successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -56,7 +94,7 @@ async function deleteLC(req, res, next) {
     if (!deleted) return next(new ApiError(404, "LC not found"));
     return res
       .status(200)
-      .json(new ApiResponse(deleted, "LC deleted successfully"));
+      .json(new ApiResponse(200, deleted, "LC deleted successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -95,16 +133,18 @@ async function addExpenseToLC(req, res, next) {
     next(error);
   }
 }
+
+
 async function getAllCompletedLCs(_, res, next) {
-  try {
-    const lcs = await LC.find({ "basic_info.status": "Completed" });
-    return res
-      .status(200)
-      .json(new ApiResponse(lcs, "All LCs fetched successfully"));
-  } catch (error) {
-    next(new ApiError(500, error.message));
+    try {
+      const lcs = await LC.find({ "basic_info.status": "Completed" });
+      return res
+        .status(200)
+        .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
+    } catch (error) {
+      next(new ApiError(500, error.message));
+    }
   }
-}
 
 module.exports = {
   createLC,
@@ -113,5 +153,6 @@ module.exports = {
   updateLC,
   deleteLC,
   addExpenseToLC,
-  getAllCompletedLCs
+  getAllCompletedLCs,
+  upload
 };

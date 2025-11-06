@@ -7,10 +7,11 @@ const {
   deleteLC,
   addExpenseToLC,
   getAllCompletedLCs,
+  upload,
 } = require("../../controllers/lc.controller");
 const lcRoutes = express.Router();
 
-lcRoutes.post("/create-lc", createLC);
+lcRoutes.post("/create-lc", upload.array('documents'), createLC);
 lcRoutes.get("/get-all-lc", getAllLCs);
 lcRoutes.get("/get-lc/:id", getLCById);
 lcRoutes.patch("/update-lc/:id", updateLC);
