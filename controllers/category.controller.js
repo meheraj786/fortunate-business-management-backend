@@ -13,7 +13,7 @@ exports.createCategory = async (req, res, next) => {
     const category = await Category.create({ name: name.trim(), description });
     res
       .status(201)
-      .json(new ApiResponse(category, "Category created successfully"));
+      .json(new ApiResponse(201, category, "Category created successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -24,7 +24,7 @@ exports.getCategories = async (_, res, next) => {
     const categories = await Category.find().sort({ name: 1 });
     res
       .status(200)
-      .json(new ApiResponse(categories, "Categories fetched successfully"));
+      .json(new ApiResponse(200, categories, "Categories fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -38,7 +38,7 @@ exports.getCategoryById = async (req, res, next) => {
 
     res
       .status(200)
-      .json(new ApiResponse(category, "Category fetched successfully"));
+      .json(new ApiResponse(200, category, "Category fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -59,7 +59,7 @@ exports.updateCategory = async (req, res, next) => {
 
     res
       .status(200)
-      .json(new ApiResponse(category, "Category updated successfully"));
+      .json(new ApiResponse(200, category, "Category updated successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -73,7 +73,7 @@ exports.deleteCategory = async (req, res, next) => {
 
     res
       .status(200)
-      .json(new ApiResponse(category, "Category deleted successfully"));
+      .json(new ApiResponse(200, category, "Category deleted successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }

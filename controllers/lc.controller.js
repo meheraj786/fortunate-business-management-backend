@@ -195,7 +195,9 @@ async function addExpenseToLC(req, res, next) {
 
 async function getAllCompletedLCs(_, res, next) {
   try {
-    const lcs = await LC.find({ "basic_info.status": "Completed" });
+    const lcs = await LC.find({ "basic_info.status": /^Completed$/i }).select(
+      "_id basic_info.lc_number basic_info.status product_info"
+    );
     return res
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));

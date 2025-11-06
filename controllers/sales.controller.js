@@ -69,7 +69,7 @@ async function createSale(req, res, next) {
 
     return res
       .status(201)
-      .json(new ApiResponse(sale, "Sale created successfully"));
+      .json(new ApiResponse(201, sale, "Sale created successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -83,7 +83,7 @@ async function getAllSales(_, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(sales, "Sales fetched successfully"));
+      .json(new ApiResponse(200, sales, "Sales fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -100,7 +100,7 @@ async function getSaleById(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(sale, "Sale fetched successfully"));
+      .json(new ApiResponse(200, sale, "Sale fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -133,7 +133,7 @@ async function updateSale(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(updated, "Sale updated successfully"));
+      .json(new ApiResponse(200, updated, "Sale updated successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -149,7 +149,7 @@ async function deleteSale(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(deleted, "Sale deleted successfully"));
+      .json(new ApiResponse(200, deleted, "Sale deleted successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -171,6 +171,7 @@ async function getSalesSummary(_, res, next) {
 
     return res.status(200).json(
       new ApiResponse(
+        200,
         {
           totalSales,
           totalTransactions,

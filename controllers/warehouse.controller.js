@@ -14,7 +14,9 @@ const createWarehouse = async (req, res, next) => {
 
     return res
       .status(201)
-      .json(new ApiResponse(warehouse, "Warehouse created successfully"));
+      .json(
+        new ApiResponse(201, warehouse, "Warehouse created successfully")
+      );
   } catch (error) {
     next(new ApiError(500, "Failed to create warehouse", [error.message]));
   }
@@ -28,7 +30,9 @@ const getAllWarehouses = async (_, res, next) => {
 
     return res
       .status(200)
-      .json(new ApiResponse(warehouses, "Warehouses fetched successfully"));
+      .json(
+        new ApiResponse(200, warehouses, "Warehouses fetched successfully")
+      );
   } catch (error) {
     next(new ApiError(500, "Failed to fetch warehouses", [error.message]));
   }
@@ -47,7 +51,9 @@ const getWarehouseById = async (req, res, next) => {
 
     return res
       .status(200)
-      .json(new ApiResponse(warehouse, "Warehouse fetched successfully"));
+      .json(
+        new ApiResponse(200, warehouse, "Warehouse fetched successfully")
+      );
   } catch (error) {
     next(new ApiError(500, "Failed to fetch warehouse", [error.message]));
   }
@@ -71,7 +77,9 @@ const updateWarehouse = async (req, res, next) => {
 
     return res
       .status(200)
-      .json(new ApiResponse(warehouse, "Warehouse updated successfully"));
+      .json(
+        new ApiResponse(200, warehouse, "Warehouse updated successfully")
+      );
   } catch (error) {
     next(new ApiError(500, "Failed to update warehouse", [error.message]));
   }
@@ -88,7 +96,7 @@ const deleteWarehouse = async (req, res, next) => {
 
     return res
       .status(200)
-      .json(new ApiResponse({}, "Warehouse deleted successfully"));
+      .json(new ApiResponse(200, {}, "Warehouse deleted successfully"));
   } catch (error) {
     next(new ApiError(500, "Failed to delete warehouse", [error.message]));
   }

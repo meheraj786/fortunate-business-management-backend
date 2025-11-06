@@ -31,7 +31,9 @@ exports.openDailyCash = async (req, res, next) => {
 
     res
       .status(201)
-      .json(new ApiResponse(dailyCash, "Daily cash opened successfully"));
+      .json(
+        new ApiResponse(201, dailyCash, "Daily cash opened successfully")
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -85,7 +87,7 @@ exports.addIncome = async (req, res, next) => {
 
     res
       .status(200)
-      .json(new ApiResponse(dailyCash, "Income added successfully"));
+      .json(new ApiResponse(200, dailyCash, "Income added successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -157,7 +159,7 @@ exports.addExpense = async (req, res, next) => {
 
     res
       .status(200)
-      .json(new ApiResponse(dailyCash, "Expense added successfully"));
+      .json(new ApiResponse(200, dailyCash, "Expense added successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -186,7 +188,9 @@ exports.closeDailyCash = async (req, res, next) => {
 
     res
       .status(200)
-      .json(new ApiResponse(dailyCash, "Daily cash closed successfully"));
+      .json(
+        new ApiResponse(200, dailyCash, "Daily cash closed successfully")
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -251,7 +255,9 @@ exports.updateTransaction = async (req, res, next) => {
 
     res
       .status(200)
-      .json(new ApiResponse(dailyCash, "Transaction updated successfully"));
+      .json(
+        new ApiResponse(200, dailyCash, "Transaction updated successfully")
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -273,6 +279,7 @@ exports.toggleDailyCashStatus = async (req, res, next) => {
       .status(200)
       .json(
         new ApiResponse(
+          200,
           dailyCash,
           dailyCash.isClosed
             ? "Daily cash closed successfully"
@@ -322,7 +329,9 @@ exports.getTransactionsByDateRange = async (req, res, next) => {
 
     res
       .status(200)
-      .json(new ApiResponse(transactions, "Transactions fetched successfully"));
+      .json(
+        new ApiResponse(200, transactions, "Transactions fetched successfully")
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -349,7 +358,7 @@ exports.getDailyCash = async (req, res, next) => {
 
     res
       .status(200)
-      .json(new ApiResponse(dailyCash, "Daily Cash fetched successfully"));
+      .json(new ApiResponse(200, dailyCash, "Daily Cash fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }

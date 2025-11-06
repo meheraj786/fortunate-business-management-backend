@@ -56,7 +56,7 @@ async function createProduct(req, res, next) {
 
     return res
       .status(201)
-      .json(new ApiResponse(product, "Product created successfully"));
+      .json(new ApiResponse(201, product, "Product created successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -70,7 +70,7 @@ async function getAllProducts(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(products, "Products fetched successfully"));
+      .json(new ApiResponse(200, products, "Products fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -89,7 +89,7 @@ async function getProductById(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(product, "Product fetched successfully"));
+      .json(new ApiResponse(200, product, "Product fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -109,7 +109,7 @@ async function updateProduct(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(updated, "Product updated successfully"));
+      .json(new ApiResponse(200, updated, "Product updated successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -126,7 +126,7 @@ async function deleteProduct(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(deleted, "Product deleted successfully"));
+      .json(new ApiResponse(200, deleted, "Product deleted successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -138,7 +138,7 @@ async function getInventoryStats(_, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(stats, "Inventory statistics fetched successfully")
+        new ApiResponse(200, stats, "Inventory statistics fetched successfully")
       );
   } catch (error) {
     next(new ApiError(500, error.message));
@@ -159,6 +159,7 @@ async function getStockStatus(_, res, next) {
       .status(200)
       .json(
         new ApiResponse(
+          200,
           { lowStock, outOfStock },
           "Low stock and out of stock products fetched successfully"
         )

@@ -26,7 +26,7 @@ async function createCustomer(req, res, next) {
     const customer = await Customer.create(req.body);
     return res
       .status(201)
-      .json(new ApiResponse(customer, "Customer created successfully"));
+      .json(new ApiResponse(201, customer, "Customer created successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -38,7 +38,7 @@ async function getAllCustomers(_, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(customers, "Customers fetched successfully"));
+      .json(new ApiResponse(200, customers, "Customers fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -56,7 +56,7 @@ async function getCustomerById(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(customer, "Customer fetched successfully"));
+      .json(new ApiResponse(200, customer, "Customer fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -76,7 +76,7 @@ async function updateCustomer(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(updated, "Customer updated successfully"));
+      .json(new ApiResponse(200, updated, "Customer updated successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -93,7 +93,7 @@ async function deleteCustomer(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(deleted, "Customer deleted successfully"));
+      .json(new ApiResponse(200, deleted, "Customer deleted successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -114,7 +114,7 @@ async function getCustomerStats(_, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(stats, "Customer statistics fetched successfully")
+        new ApiResponse(200, stats, "Customer statistics fetched successfully")
       );
   } catch (error) {
     next(new ApiError(500, error.message));
