@@ -7,10 +7,15 @@ async function createProduct(req, res, next) {
   try {
     const {
       name,
+      productDescription,
       category,
       LC,
-      size,
+      supplierName,
+      thickness,
+      width,
+      length,
       color,
+      grade,
       quantity,
       unit,
       unitPrice,
@@ -37,8 +42,11 @@ async function createProduct(req, res, next) {
       name,
       category,
       LC,
-      size,
+      thickness,
+      width,
+      length,
       color,
+      grade,
       quantity,
       unit,
       unitPrice,
@@ -66,7 +74,8 @@ async function getAllProducts(req, res, next) {
   try {
     const products = await Product.find()
       .populate("LC", "LCNumber supplier amount")
-      .populate("warehouse", "name location");
+      .populate("warehouse", "name location")
+      .populate("category", "name description");
 
     return res
       .status(200)
@@ -80,8 +89,12 @@ async function getProductById(req, res, next) {
   try {
     const { id } = req.params;
     const product = await Product.findById(id)
-      .populate("LC", "LCNumber supplier amount")
-      .populate("warehouse", "name location");
+      .populate(
+        "LC",
+        "basic_info.lc_number basic_info.supplier_name financial_info.lc_amount_bdt"
+      )
+      .populate("warehouse", "name location")
+      .populate("category", "name description");
 
     if (!product) {
       return next(new ApiError(404, "Product not found"));

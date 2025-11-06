@@ -3,14 +3,19 @@ const mongoose = require("mongoose");
 const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+    productDescription: { type: String, trim: true },
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
       required: true,
     },
     LC: { type: mongoose.Schema.Types.ObjectId, ref: "LC", required: true },
-    size: { type: String, trim: true },
+    supplierName: { type: String, trim: true },
+    thickness: { type: Number, trim: true },
+    width: { type: Number, trim: true },
+    length: { type: Number, trim: true },
     color: { type: String, trim: true },
+    grade: { type: String, trim: true },
     quantity: { type: Number, required: true, min: 0 },
     unit: { type: String, required: true, trim: true },
     unitPrice: { type: Number, required: true, min: 0 },
