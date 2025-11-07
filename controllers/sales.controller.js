@@ -7,30 +7,37 @@ const { ApiResponse } = require("../utils/ApiResponse");
 async function createSale(req, res, next) {
   try {
     const {
-      product,
-      customer,
-      quantity,
-      price,
-      discount = 0,
-      due = 0,
-      paymentStatus,
-      unit,
+      product: productId,
+      customer: customerInfo, // { customerId, name, phone, address }
+      warehouse,
       category,
-      size,
+      quantity,
+      unit,
+      pricePerUnit,
+      deliveryCharge = 0,
+      otherCharges = [],
+      discount = 0,
       invoiceStatus,
-      lcNumber,
+      paymentStatus,
+      payments = [],
+      notes,
+      saleDate,
     } = req.body;
 
-    if (!product || !customer || !quantity || !price || !unit) {
+    if (
+      !productId ||
+      !customerInfo ||
+      !customerInfo.name ||
+      !warehouse ||
+      !category ||
+      !quantity ||
+      !unit ||
+      !pricePerUnit
+    ) {
       return next(new ApiError(400, "Required fields are missing"));
     }
 
-    const transitionCustomer = await Customer.findById(customer);
-    if (!transitionCustomer) {
-      return next(new ApiError(400, "Customer not found"));
-    }
-
-    const sellingProduct = await Product.findById(product);
+    const sellingProduct = await Product.findById(productId);
     if (!sellingProduct) {
       return next(new ApiError(400, "Product not found"));
     }
@@ -39,33 +46,53 @@ async function createSale(req, res, next) {
       return next(new ApiError(400, "Not enough product in stock"));
     }
 
-    const totalAmount = quantity * price - discount;
+    const finalCustomerInfo = {
+      name: customerInfo.name,
+      phone: customerInfo.phone,
+      address: customerInfo.address,
+      customerId: null,
+    };
+
+    if (customerInfo.customerId) {
+      const existingCustomer = await Customer.findById(customerInfo.customerId);
+      if (!existingCustomer) {
+        return next(new ApiError(400, "Customer not found"));
+      }
+      finalCustomerInfo.customerId = existingCustomer._id;
+      finalCustomerInfo.name = existingCustomer.name;
+      finalCustomerInfo.phone = existingCustomer.phone;
+      finalCustomerInfo.address = existingCustomer.location; // Assuming 'location' in Customer model
+    }
 
     const sale = await Sales.create({
-      product,
-      customer,
-      quantity,
-      price,
-      discount,
-      due,
-      paymentStatus,
-      totalAmount,
-      unit,
+      product: productId,
+      customer: finalCustomerInfo,
+      warehouse,
       category,
-      size,
+      quantity,
+      unit,
+      pricePerUnit,
+      deliveryCharge,
+      otherCharges,
+      discount,
       invoiceStatus,
-      lcNumber,
+      paymentStatus,
+      payments,
+      notes,
+      saleDate,
     });
 
     await Product.findByIdAndUpdate(
-      product,
+      productId,
       { $inc: { quantity: -quantity } },
       { new: true }
     );
 
-    await Customer.findByIdAndUpdate(customer, {
-      $push: { transactions: sale._id },
-    });
+    if (finalCustomerInfo.customerId) {
+      await Customer.findByIdAndUpdate(finalCustomerInfo.customerId, {
+        $push: { transactions: sale._id },
+      });
+    }
 
     return res
       .status(201)
@@ -78,8 +105,10 @@ async function createSale(req, res, next) {
 async function getAllSales(_, res, next) {
   try {
     const sales = await Sales.find()
-      .populate("product", "name category size unit")
-      .populate("customer", "name phone location");
+      .populate("product", "name category unit")
+      .populate("customer.customerId", "name phone location")
+      .populate("warehouse", "name")
+      .populate("category", "name");
 
     return res
       .status(200)
@@ -93,8 +122,10 @@ async function getSaleById(req, res, next) {
   try {
     const { id } = req.params;
     const sale = await Sales.findById(id)
-      .populate("product", "name category size unit")
-      .populate("customer", "name phone location");
+      .populate("product", "name category unit")
+      .populate("customer.customerId", "name phone location")
+      .populate("warehouse", "name")
+      .populate("category", "name description");
 
     if (!sale) return next(new ApiError(404, "Sale not found"));
 
@@ -111,29 +142,35 @@ async function updateSale(req, res, next) {
     const { id } = req.params;
     const updateData = req.body;
 
-    // If quantity or price updated, recalculate totalAmount
-    if (updateData.quantity || updateData.price || updateData.discount) {
-      const existingSale = await Sales.findById(id);
-      if (!existingSale)
-        return next(new ApiError(404, "Sale not found for update"));
-
-      const newQuantity = updateData.quantity ?? existingSale.quantity;
-      const newPrice = updateData.price ?? existingSale.price;
-      const newDiscount = updateData.discount ?? existingSale.discount;
-
-      updateData.totalAmount = newQuantity * newPrice - newDiscount;
+    const sale = await Sales.findById(id);
+    if (!sale) {
+      return next(new ApiError(404, "Sale not found"));
     }
 
-    const updated = await Sales.findByIdAndUpdate(id, updateData, {
-      new: true,
-      runValidators: true,
-    });
+    // Adjust product stock if quantity changes
+    if (updateData.quantity && updateData.quantity !== sale.quantity) {
+      const product = await Product.findById(sale.product);
+      if (!product) {
+        return next(new ApiError(404, "Associated product not found"));
+      }
+      const quantityChange = updateData.quantity - sale.quantity;
+      if (product.quantity < quantityChange) {
+        return next(
+          new ApiError(400, "Not enough product in stock for update")
+        );
+      }
+      await Product.findByIdAndUpdate(sale.product, {
+        $inc: { quantity: -quantityChange },
+      });
+    }
 
-    if (!updated) return next(new ApiError(404, "Sale not found"));
+    Object.assign(sale, updateData);
+
+    const updatedSale = await sale.save();
 
     return res
       .status(200)
-      .json(new ApiResponse(200, updated, "Sale updated successfully"));
+      .json(new ApiResponse(200, updatedSale, "Sale updated successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -143,13 +180,27 @@ async function deleteSale(req, res, next) {
   try {
     const { id } = req.params;
 
-    const deleted = await Sales.findByIdAndDelete(id);
+    const deletedSale = await Sales.findByIdAndDelete(id);
 
-    if (!deleted) return next(new ApiError(404, "Sale not found"));
+    if (!deletedSale) {
+      return next(new ApiError(404, "Sale not found"));
+    }
+
+    // Restore product quantity
+    await Product.findByIdAndUpdate(deletedSale.product, {
+      $inc: { quantity: deletedSale.quantity },
+    });
+
+    // Remove sale from customer's transactions if it's a registered customer
+    if (deletedSale.customer && deletedSale.customer.customerId) {
+      await Customer.findByIdAndUpdate(deletedSale.customer.customerId, {
+        $pull: { transactions: deletedSale._id },
+      });
+    }
 
     return res
       .status(200)
-      .json(new ApiResponse(200, deleted, "Sale deleted successfully"));
+      .json(new ApiResponse(200, deletedSale, "Sale deleted successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -164,7 +215,7 @@ async function getSalesSummary(_, res, next) {
 
     const dailySummary = {};
     sales.forEach((sale) => {
-      const day = sale.date.toISOString().split("T")[0];
+      const day = sale.saleDate.toISOString().split("T")[0];
       if (!dailySummary[day]) dailySummary[day] = 0;
       dailySummary[day] += sale.totalAmount || 0;
     });
@@ -185,6 +236,21 @@ async function getSalesSummary(_, res, next) {
   }
 }
 
+// Get all not-invoiced sales list
+async function getAll_not_invoices(req, res) {}
+
+// Get all paid-invoice sales list
+async function getAll_paid_invoices(req, res) {}
+
+// Get all due-invoice sales list
+async function getAll_due_invoices(req, res) {}
+
+// Get all cancelled-invoice sales list
+async function getAll_cancelled_invoices(req, res) {}
+
+// get all sales invoices count in respose - suppose, total not invoiced sales (2), total paid {paid invoices are those, those's payment is completed} invoices sales (5)
+async function getAll_invoices_status_count(req, res) {}
+
 module.exports = {
   createSale,
   getAllSales,
@@ -192,4 +258,8 @@ module.exports = {
   updateSale,
   deleteSale,
   getSalesSummary,
+  getAll_cancelled_invoices,
+  getAll_due_invoices,
+  getAll_paid_invoices,
+  getAll_not_invoices,
 };
