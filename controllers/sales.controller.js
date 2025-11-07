@@ -105,7 +105,11 @@ async function createSale(req, res, next) {
 async function getAllSales(_, res, next) {
   try {
     const sales = await Sales.find()
-      .populate("product", "name category unit")
+      .populate({
+        path: "product",
+        select: "name category unit LC",
+        populate: { path: "LC", select: "basic_info.lc_number" },
+      })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
       .populate("category", "name");
@@ -122,7 +126,7 @@ async function getSaleById(req, res, next) {
   try {
     const { id } = req.params;
     const sale = await Sales.findById(id)
-      .populate("product", "name category unit")
+    .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
       .populate("category", "name description");
@@ -162,6 +166,11 @@ async function updateSale(req, res, next) {
       await Product.findByIdAndUpdate(sale.product, {
         $inc: { quantity: -quantityChange },
       });
+    }
+
+    // Ensure paymentStatus is not manually updated
+    if (updateData.paymentStatus) {
+      delete updateData.paymentStatus;
     }
 
     Object.assign(sale, updateData);
@@ -236,20 +245,136 @@ async function getSalesSummary(_, res, next) {
   }
 }
 
-// Get all not-invoiced sales list
-async function getAll_not_invoices(req, res) {}
+async function getAll_not_invoices(req, res, next) {
+  try {
+    const sales = await Sales.find({ invoiceStatus: "Not-invoiced" })
+      .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
+      .populate("customer.customerId", "name phone location")
+      .populate("warehouse", "name")
+      .populate("category", "name");
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, sales, "Not-invoiced sales fetched successfully")
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
 
 // Get all paid-invoice sales list
-async function getAll_paid_invoices(req, res) {}
+async function getAll_paid_invoices(req, res, next) {
+  try {
+    const sales = await Sales.find({
+      invoiceStatus: "Invoiced",
+      paymentStatus: "Paid payment",
+    })
+      .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
+      .populate("customer.customerId", "name phone location")
+      .populate("warehouse", "name")
+      .populate("category", "name");
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, sales, "Paid invoice sales fetched successfully")
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
 
 // Get all due-invoice sales list
-async function getAll_due_invoices(req, res) {}
+async function getAll_due_invoices(req, res, next) {
+  try {
+    const sales = await Sales.find({
+      invoiceStatus: "Invoiced",
+      paymentStatus: "Due payment",
+    })
+      .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
+      .populate("customer.customerId", "name phone location")
+      .populate("warehouse", "name")
+      .populate("category", "name");
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, sales, "Due invoice sales fetched successfully")
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
 
 // Get all cancelled-invoice sales list
-async function getAll_cancelled_invoices(req, res) {}
+async function getAll_cancelled_invoices(req, res, next) {
+  try {
+    const sales = await Sales.find({ invoiceStatus: "cancelled" })
+      .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
+      .populate("customer.customerId", "name phone location")
+      .populate("warehouse", "name")
+      .populate("category", "name");
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          sales,
+          "Cancelled invoice sales fetched successfully"
+        )
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
 
 // get all sales invoices count in respose - suppose, total not invoiced sales (2), total paid {paid invoices are those, those's payment is completed} invoices sales (5)
-async function getAll_invoices_status_count(req, res) {}
+async function getAll_invoices_status_count(req, res, next) {
+  try {
+    const stats = await Sales.aggregate([
+      {
+        $group: {
+          _id: {
+            invoiceStatus: "$invoiceStatus",
+            paymentStatus: "$paymentStatus",
+          },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const counts = {
+      notInvoiced: 0,
+      paid: 0,
+      due: 0,
+      cancelled: 0,
+    };
+
+    stats.forEach((stat) => {
+      if (stat._id.invoiceStatus === "Not-invoiced") {
+        counts.notInvoiced += stat.count;
+      } else if (stat._id.invoiceStatus === "cancelled") {
+        counts.cancelled += stat.count;
+      } else if (stat._id.invoiceStatus === "Invoiced") {
+        if (stat._id.paymentStatus === "Paid payment") {
+          counts.paid += stat.count;
+        } else if (stat._id.paymentStatus === "Due payment") {
+          counts.due += stat.count;
+        }
+      }
+    });
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          counts,
+          "Invoice status count fetched successfully"
+        )
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
 
 module.exports = {
   createSale,
@@ -262,4 +387,5 @@ module.exports = {
   getAll_due_invoices,
   getAll_paid_invoices,
   getAll_not_invoices,
+  getAll_invoices_status_count,
 };

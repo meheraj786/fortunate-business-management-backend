@@ -10,6 +10,7 @@ const {
   getAll_due_invoices,
   getAll_paid_invoices,
   getAll_not_invoices,
+  getAll_invoices_status_count,
 } = require("../../controllers/sales.controller");
 const salesRoutes = express.Router();
 
@@ -25,5 +26,6 @@ salesRoutes.get("/get-all-not-invoices", getAll_not_invoices);
 salesRoutes.get("/get-all-paid-invoices", getAll_paid_invoices);
 salesRoutes.get("/get-all-due-invoices", getAll_due_invoices);
 salesRoutes.get("/get-all-cancelled-invoices", getAll_cancelled_invoices);
+salesRoutes.get("/get-all-invoices-status-count", getAll_invoices_status_count);
 
 module.exports = salesRoutes;

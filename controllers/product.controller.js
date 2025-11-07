@@ -73,7 +73,7 @@ async function createProduct(req, res, next) {
 async function getAllProducts(req, res, next) {
   try {
     const products = await Product.find()
-      .populate("LC", "LCNumber supplier amount")
+      .populate("LC", "basic_info.lc_number basic_info.supplier_name financial_info.lc_amount_bdt")
       .populate("warehouse", "name location")
       .populate("category", "name description");
 
@@ -162,11 +162,11 @@ async function getStockStatus(_, res, next) {
   try {
     const lowStock = await Product.find({ quantity: { $gt: 0, $lt: 20 } })
       .populate("warehouse", "name location")
-      .populate("LC", "LCNumber supplier");
+      .populate("LC", "basic_info.lc_number basic_info.supplier_name");
 
     const outOfStock = await Product.find({ quantity: 0 })
       .populate("warehouse", "name location")
-      .populate("LC", "LCNumber supplier");
+      .populate("LC", "basic_info.lc_number basic_info.supplier_name");
 
     return res
       .status(200)

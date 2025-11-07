@@ -63,11 +63,14 @@ const salesSchema = new mongoose.Schema(
     otherCharges: [otherChargeSchema],
     discount: { type: Number, default: 0 },
     totalAmountToBePaid: { type: Number, required: true },
-    invoiceStatus: { type: String, enum: ["Invoiced", "Not Invoiced"], default: "Not Invoiced" },
+    invoiceStatus: {
+      type: String,
+      enum: ["Not-invoiced", "Invoiced", "cancelled"],
+      default: "Not-invoiced",
+    },
     paymentStatus: {
       type: String,
-      enum: ["Due Payment", "Paid Payment", "N/A"],
-      default: "N/A",
+      enum: ["Paid payment", "Due payment"],
     },
     payments: [paymentSchema],
     notes: { type: String, trim: true },
@@ -87,6 +90,31 @@ salesSchema.pre("validate", function (next) {
   const otherChargesTotal = this.otherCharges.reduce((acc, charge) => acc + charge.amount, 0);
   this.totalAmountToBePaid = this.totalAmount + this.deliveryCharge + otherChargesTotal - this.discount;
 
+  next();
+});
+
+/*
+ * Pre-save hook for payment status calculation.
+ *
+ * 1. If `invoiceStatus` is "Invoiced" and `paymentStatus` is not "Paid payment":
+ *    a. Calculate the total paid amount from the `payments` array.
+ *    b. If `totalPaid` is greater than or equal to `totalAmountToBePaid`, set `paymentStatus` to "Paid payment".
+ *    c. Otherwise, set `paymentStatus` to "Due payment".
+ * 2. If `invoiceStatus` is not "Invoiced", remove the `paymentStatus`.
+ */
+salesSchema.pre("save", function (next) {
+  if (this.invoiceStatus === "Invoiced") {
+    if (this.paymentStatus !== "Paid payment") {
+      const totalPaid = this.payments.reduce((acc, payment) => acc + payment.amount, 0);
+      if (totalPaid >= this.totalAmountToBePaid) {
+        this.paymentStatus = "Paid payment";
+      } else {
+        this.paymentStatus = "Due payment";
+      }
+    }
+  } else {
+    this.paymentStatus = undefined;
+  }
   next();
 });
 
