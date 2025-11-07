@@ -7,6 +7,7 @@ const salesRoutes = require("./sales.api")
 const warehouseRoutes = require("./warehouse.api")
 const categoryRouter = require("./category.api")
 const dailyCashRouter = require("./dailyCash.api")
+const invoiceRouter = require("./invoice.api")
 const apiRoutes=express.Router()
 
 apiRoutes.use("/auth", userRoutes)
@@ -17,6 +18,7 @@ apiRoutes.use("/sales", salesRoutes)
 apiRoutes.use("/warehouse", warehouseRoutes)
 apiRoutes.use("/category", categoryRouter)
 apiRoutes.use("/cash", dailyCashRouter)
+apiRoutes.use("/invoice", invoiceRouter)
 
 
 module.exports=apiRoutes
