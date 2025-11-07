@@ -1,5 +1,6 @@
 const Product = require("../models/product.model");
 const Warehouse = require("../models/warehouse.model");
+const Sales = require("../models/sales.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
@@ -100,9 +101,50 @@ async function getProductById(req, res, next) {
       return next(new ApiError(404, "Product not found"));
     }
 
+    const salesStats = await Sales.aggregate([
+      { $match: { product: product._id } },
+      {
+        $group: {
+          _id: "$product",
+          totalUnitsSold: { $sum: "$quantity" },
+          totalRevenue: { $sum: "$totalAmount" },
+        },
+      },
+    ]);
+
+    const totalDueInvoices = await Sales.countDocuments({
+      product: id,
+      invoiceStatus: "Invoiced",
+      paymentStatus: "Due payment",
+    });
+
+    const totalNotInvoiced = await Sales.countDocuments({
+      product: id,
+      invoiceStatus: "Not-invoiced",
+    });
+
+    const recentSales = await Sales.find({ product: id })
+      .sort({ saleDate: -1 })
+      .limit(5);
+
+    const productWithSales = {
+      ...product.toObject(),
+      recentSales,
+      totalUnitsSold: salesStats[0]?.totalUnitsSold || 0,
+      totalRevenue: salesStats[0]?.totalRevenue || 0,
+      totalDueInvoices,
+      totalNotInvoiced,
+    };
+
     return res
       .status(200)
-      .json(new ApiResponse(200, product, "Product fetched successfully"));
+      .json(
+        new ApiResponse(
+          200,
+          productWithSales,
+          "Product fetched successfully"
+        )
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
