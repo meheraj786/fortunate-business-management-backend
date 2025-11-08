@@ -4,6 +4,10 @@ const Customer = require("../models/customer.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
+const BankAccount = require("../models/bank.model");
+
+const Transaction = require("../models/transaction.model");
+
 async function createSale(req, res, next) {
   try {
     const {
@@ -64,7 +68,7 @@ async function createSale(req, res, next) {
       finalCustomerInfo.address = existingCustomer.location; // Assuming 'location' in Customer model
     }
 
-    const sale = await Sales.create({
+    const sale = new Sales({
       product: productId,
       customer: finalCustomerInfo,
       warehouse,
@@ -81,6 +85,32 @@ async function createSale(req, res, next) {
       notes,
       saleDate,
     });
+
+    // Handle payments and update bank accounts
+    for (const payment of payments) {
+      if (payment.method === "bank" || payment.method === "mobile-banking") {
+        const bankAccount = await BankAccount.findById(payment.bankAccount);
+        if (!bankAccount) {
+          return next(
+            new ApiError(404, `Bank account not found for payment`)
+          );
+        }
+        bankAccount.balance += payment.amount;
+        await bankAccount.save();
+
+        await Transaction.create({
+          bankAccount: bankAccount._id,
+          date: payment.date,
+          description: `Sale to ${finalCustomerInfo.name}`,
+          type: "Credit",
+          amount: payment.amount,
+          source: "Sale",
+          reference: sale._id,
+        });
+      }
+    }
+
+    await sale.save();
 
     await Product.findByIdAndUpdate(
       productId,
@@ -112,7 +142,11 @@ async function getAllSales(_, res, next) {
       })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
-      .populate("category", "name");
+      .populate("category", "name")
+      .populate({
+        path: "payments.bankAccount",
+        model: "BankAccount",
+      });
 
     return res
       .status(200)
@@ -126,10 +160,18 @@ async function getSaleById(req, res, next) {
   try {
     const { id } = req.params;
     const sale = await Sales.findById(id)
-    .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
+      .populate({
+        path: "product",
+        select: "name category unit LC",
+        populate: { path: "LC", select: "basic_info.lc_number" },
+      })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
-      .populate("category", "name description");
+      .populate("category", "name description")
+      .populate({
+        path: "payments.bankAccount",
+        model: "BankAccount",
+      });
 
     if (!sale) return next(new ApiError(404, "Sale not found"));
 
@@ -391,7 +433,7 @@ async function getAll_invoices_status_count(req, res, next) {
 async function addPartialPayment(req, res, next) {
   try {
     const { id } = req.params;
-    const { amount, date, method } = req.body;
+    const { amount, date, method, bankAccount: bankAccountId } = req.body;
 
     if (!amount || !date || !method) {
       return next(new ApiError(400, "Amount, date, and method are required"));
@@ -402,7 +444,35 @@ async function addPartialPayment(req, res, next) {
       return next(new ApiError(404, "Sale not found"));
     }
 
-    sale.payments.push({ amount, date, method });
+    const payment = { amount, date, method };
+
+    if (method === "bank" || method === "mobile-banking") {
+      if (!bankAccountId) {
+        return next(
+          new ApiError(400, "Bank account is required for this payment method")
+        );
+      }
+      const bankAccount = await BankAccount.findById(bankAccountId);
+      if (!bankAccount) {
+        return next(new ApiError(404, "Bank account not found"));
+      }
+      payment.bankAccount = bankAccountId;
+
+      bankAccount.balance += amount;
+      await bankAccount.save();
+
+      await Transaction.create({
+        bankAccount: bankAccountId,
+        date,
+        description: `Partial payment for sale to ${sale.customer.name}`,
+        type: "Credit",
+        amount,
+        source: "Sale",
+        reference: sale._id,
+      });
+    }
+
+    sale.payments.push(payment);
     await sale.save();
 
     return res
