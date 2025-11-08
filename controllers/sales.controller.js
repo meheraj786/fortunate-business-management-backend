@@ -145,6 +145,7 @@ async function updateSale(req, res, next) {
   try {
     const { id } = req.params;
     const updateData = req.body;
+    console.log(updateData);
 
     const sale = await Sales.findById(id);
     if (!sale) {
@@ -171,6 +172,17 @@ async function updateSale(req, res, next) {
     // Ensure paymentStatus is not manually updated
     if (updateData.paymentStatus) {
       delete updateData.paymentStatus;
+    }
+
+    // Prevent changing the product, warehouse, or category
+    if (updateData.product) {
+      delete updateData.product;
+    }
+    if (updateData.warehouse) {
+      delete updateData.warehouse;
+    }
+    if (updateData.category) {
+      delete updateData.category;
     }
 
     Object.assign(sale, updateData);
@@ -307,7 +319,7 @@ async function getAll_due_invoices(req, res, next) {
 // Get all cancelled-invoice sales list
 async function getAll_cancelled_invoices(req, res, next) {
   try {
-    const sales = await Sales.find({ invoiceStatus: "cancelled" })
+    const sales = await Sales.find({ invoiceStatus: "Cancelled" })
       .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
@@ -351,7 +363,7 @@ async function getAll_invoices_status_count(req, res, next) {
     stats.forEach((stat) => {
       if (stat._id.invoiceStatus === "Not-invoiced") {
         counts.notInvoiced += stat.count;
-      } else if (stat._id.invoiceStatus === "cancelled") {
+      } else if (stat._id.invoiceStatus === "Cancelled") {
         counts.cancelled += stat.count;
       } else if (stat._id.invoiceStatus === "Invoiced") {
         if (stat._id.paymentStatus === "Paid payment") {
@@ -414,4 +426,43 @@ module.exports = {
   getAll_not_invoices,
   getAll_invoices_status_count,
   addPartialPayment,
+  cancelSale,
 };
+
+async function cancelSale(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    const saleToCancel = await Sales.findById(id);
+
+    if (!saleToCancel) {
+      return next(new ApiError(404, "Sale not found"));
+    }
+
+    if (saleToCancel.invoiceStatus === "Cancelled") {
+      return next(new ApiError(400, "Sale is already cancelled"));
+    }
+
+    // Restore product quantity
+    await Product.findByIdAndUpdate(saleToCancel.product, {
+      $inc: { quantity: saleToCancel.quantity },
+    });
+
+    // Remove sale from customer's transactions if it's a registered customer
+    if (saleToCancel.customer && saleToCancel.customer.customerId) {
+      await Customer.findByIdAndUpdate(saleToCancel.customer.customerId, {
+        $pull: { transactions: saleToCancel._id },
+      });
+    }
+
+    saleToCancel.invoiceStatus = "Cancelled";
+    saleToCancel.paymentStatus = undefined; // Clear payment status for cancelled sales
+    await saleToCancel.save();
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, saleToCancel, "Sale cancelled successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}

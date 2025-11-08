@@ -16,7 +16,11 @@ const otherChargeSchema = new mongoose.Schema({
 const paymentSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   date: { type: Date, required: true },
-  method: { type: String, enum: ["cash", "bank", "mobile-banking"], required: true },
+  method: {
+    type: String,
+    enum: ["cash", "bank", "mobile-banking"],
+    required: true,
+  },
 });
 
 /*
@@ -65,12 +69,13 @@ const salesSchema = new mongoose.Schema(
     totalAmountToBePaid: { type: Number, required: true },
     invoiceStatus: {
       type: String,
-      enum: ["Not-invoiced", "Invoiced", "cancelled"],
-      default: "Not-invoiced",
+      enum: ["Not-invoiced", "Invoiced", "Cancelled"],
+      default: "Not invoiced",
     },
     paymentStatus: {
       type: String,
-      enum: ["Paid payment", "Due payment"],
+      enum: ["Paid payment", "Due payment", "N/A"],
+      default: "N/A",
     },
     payments: [paymentSchema],
     notes: { type: String, trim: true },
@@ -87,8 +92,12 @@ const salesSchema = new mongoose.Schema(
  */
 salesSchema.pre("validate", function (next) {
   this.totalAmount = this.quantity * this.pricePerUnit;
-  const otherChargesTotal = this.otherCharges.reduce((acc, charge) => acc + charge.amount, 0);
-  this.totalAmountToBePaid = this.totalAmount + this.deliveryCharge + otherChargesTotal - this.discount;
+  const otherChargesTotal = this.otherCharges.reduce(
+    (acc, charge) => acc + charge.amount,
+    0
+  );
+  this.totalAmountToBePaid =
+    this.totalAmount + this.deliveryCharge + otherChargesTotal - this.discount;
 
   next();
 });
@@ -105,7 +114,10 @@ salesSchema.pre("validate", function (next) {
 salesSchema.pre("save", function (next) {
   if (this.invoiceStatus === "Invoiced") {
     if (this.paymentStatus !== "Paid payment") {
-      const totalPaid = this.payments.reduce((acc, payment) => acc + payment.amount, 0);
+      const totalPaid = this.payments.reduce(
+        (acc, payment) => acc + payment.amount,
+        0
+      );
       if (totalPaid >= this.totalAmountToBePaid) {
         this.paymentStatus = "Paid payment";
       } else {
