@@ -376,6 +376,31 @@ async function getAll_invoices_status_count(req, res, next) {
   }
 }
 
+async function addPartialPayment(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { amount, date, method } = req.body;
+
+    if (!amount || !date || !method) {
+      return next(new ApiError(400, "Amount, date, and method are required"));
+    }
+
+    const sale = await Sales.findById(id);
+    if (!sale) {
+      return next(new ApiError(404, "Sale not found"));
+    }
+
+    sale.payments.push({ amount, date, method });
+    await sale.save();
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, sale, "Partial payment added successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
+
 module.exports = {
   createSale,
   getAllSales,
@@ -388,4 +413,5 @@ module.exports = {
   getAll_paid_invoices,
   getAll_not_invoices,
   getAll_invoices_status_count,
+  addPartialPayment,
 };
