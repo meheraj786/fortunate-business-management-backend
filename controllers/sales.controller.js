@@ -6,9 +6,12 @@ const { ApiResponse } = require("../utils/ApiResponse");
 
 const BankAccount = require("../models/bank.model");
 
+const mongoose = require("mongoose");
 const Transaction = require("../models/transaction.model");
 
 async function createSale(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const {
       product: productId,
@@ -38,16 +41,16 @@ async function createSale(req, res, next) {
       !unit ||
       !pricePerUnit
     ) {
-      return next(new ApiError(400, "Required fields are missing"));
+      throw new ApiError(400, "Required fields are missing");
     }
 
-    const sellingProduct = await Product.findById(productId);
+    const sellingProduct = await Product.findById(productId).session(session);
     if (!sellingProduct) {
-      return next(new ApiError(400, "Product not found"));
+      throw new ApiError(400, "Product not found");
     }
 
     if (sellingProduct.quantity < quantity) {
-      return next(new ApiError(400, "Not enough product in stock"));
+      throw new ApiError(400, "Not enough product in stock");
     }
 
     const finalCustomerInfo = {
@@ -58,14 +61,16 @@ async function createSale(req, res, next) {
     };
 
     if (customerInfo.customerId) {
-      const existingCustomer = await Customer.findById(customerInfo.customerId);
+      const existingCustomer = await Customer.findById(
+        customerInfo.customerId
+      ).session(session);
       if (!existingCustomer) {
-        return next(new ApiError(400, "Customer not found"));
+        throw new ApiError(400, "Customer not found");
       }
       finalCustomerInfo.customerId = existingCustomer._id;
       finalCustomerInfo.name = existingCustomer.name;
       finalCustomerInfo.phone = existingCustomer.phone;
-      finalCustomerInfo.address = existingCustomer.location; // Assuming 'location' in Customer model
+      finalCustomerInfo.address = existingCustomer.location;
     }
 
     const sale = new Sales({
@@ -89,46 +94,60 @@ async function createSale(req, res, next) {
     // Handle payments and update bank accounts
     for (const payment of payments) {
       if (payment.method === "bank" || payment.method === "mobile-banking") {
-        const bankAccount = await BankAccount.findById(payment.bankAccount);
+        const bankAccount = await BankAccount.findById(
+          payment.bankAccount
+        ).session(session);
         if (!bankAccount) {
-          return next(
-            new ApiError(404, `Bank account not found for payment`)
-          );
+          throw new ApiError(404, `Bank account not found for payment`);
         }
         bankAccount.balance += payment.amount;
-        await bankAccount.save();
+        await bankAccount.save({ session });
 
-        await Transaction.create({
-          bankAccount: bankAccount._id,
-          date: payment.date,
-          description: `Sale to ${finalCustomerInfo.name}`,
-          type: "Credit",
-          amount: payment.amount,
-          source: "Sale",
-          reference: sale._id,
-        });
+        await Transaction.create(
+          [
+            {
+              bankAccount: bankAccount._id,
+              date: payment.date,
+              description: `Sale to ${finalCustomerInfo.name}`,
+              type: "Credit",
+              amount: payment.amount,
+              source: "Sale",
+              reference: sale._id,
+            },
+          ],
+          { session }
+        );
       }
     }
 
-    await sale.save();
+    await sale.save({ session });
 
     await Product.findByIdAndUpdate(
       productId,
       { $inc: { quantity: -quantity } },
-      { new: true }
+      { new: true, session }
     );
 
     if (finalCustomerInfo.customerId) {
-      await Customer.findByIdAndUpdate(finalCustomerInfo.customerId, {
-        $push: { transactions: sale._id },
-      });
+      await Customer.findByIdAndUpdate(
+        finalCustomerInfo.customerId,
+        {
+          $push: { transactions: sale._id },
+        },
+        { session }
+      );
     }
+
+    await session.commitTransaction();
+    session.endSession();
 
     return res
       .status(201)
       .json(new ApiResponse(201, sale, "Sale created successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    await session.abortTransaction();
+    session.endSession();
+    next(new ApiError(error.statusCode || 500, error.message));
   }
 }
 
@@ -253,6 +272,19 @@ async function deleteSale(req, res, next) {
     await Product.findByIdAndUpdate(deletedSale.product, {
       $inc: { quantity: deletedSale.quantity },
     });
+
+    // Reverse financial transactions and delete them
+    for (const payment of deletedSale.payments) {
+      if (payment.method === "bank" || payment.method === "mobile-banking") {
+        const bankAccount = await BankAccount.findById(payment.bankAccount);
+        if (bankAccount) {
+          bankAccount.balance -= payment.amount;
+          await bankAccount.save();
+        }
+      }
+    }
+    // Delete all transaction documents associated with this sale
+    await Transaction.deleteMany({ reference: deletedSale._id });
 
     // Remove sale from customer's transactions if it's a registered customer
     if (deletedSale.customer && deletedSale.customer.customerId) {
@@ -431,55 +463,70 @@ async function getAll_invoices_status_count(req, res, next) {
 }
 
 async function addPartialPayment(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { id } = req.params;
     const { amount, date, method, bankAccount: bankAccountId } = req.body;
 
     if (!amount || !date || !method) {
-      return next(new ApiError(400, "Amount, date, and method are required"));
+      throw new ApiError(400, "Amount, date, and method are required");
     }
 
-    const sale = await Sales.findById(id);
+    const sale = await Sales.findById(id).session(session);
     if (!sale) {
-      return next(new ApiError(404, "Sale not found"));
+      throw new ApiError(404, "Sale not found");
     }
 
     const payment = { amount, date, method };
 
     if (method === "bank" || method === "mobile-banking") {
       if (!bankAccountId) {
-        return next(
-          new ApiError(400, "Bank account is required for this payment method")
+        throw new ApiError(
+          400,
+          "Bank account is required for this payment method"
         );
       }
-      const bankAccount = await BankAccount.findById(bankAccountId);
+      const bankAccount = await BankAccount.findById(bankAccountId).session(
+        session
+      );
       if (!bankAccount) {
-        return next(new ApiError(404, "Bank account not found"));
+        throw new ApiError(404, "Bank account not found");
       }
       payment.bankAccount = bankAccountId;
 
       bankAccount.balance += amount;
-      await bankAccount.save();
+      await bankAccount.save({ session });
 
-      await Transaction.create({
-        bankAccount: bankAccountId,
-        date,
-        description: `Partial payment for sale to ${sale.customer.name}`,
-        type: "Credit",
-        amount,
-        source: "Sale",
-        reference: sale._id,
-      });
+      await Transaction.create(
+        [
+          {
+            bankAccount: bankAccountId,
+            date,
+            description: `Partial payment for sale to ${sale.customer.name}`,
+            type: "Credit",
+            amount,
+            source: "Sale",
+            reference: sale._id,
+          },
+        ],
+        { session }
+      );
     }
 
     sale.payments.push(payment);
-    await sale.save();
+    await sale.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
 
     return res
       .status(200)
       .json(new ApiResponse(200, sale, "Partial payment added successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    await session.abortTransaction();
+    session.endSession();
+    next(new ApiError(error.statusCode || 500, error.message));
   }
 }
 
@@ -511,6 +558,27 @@ async function cancelSale(req, res, next) {
 
     if (saleToCancel.invoiceStatus === "Cancelled") {
       return next(new ApiError(400, "Sale is already cancelled"));
+    }
+
+    // Reverse financial transactions by creating counter-transactions
+    for (const payment of saleToCancel.payments) {
+      if (payment.method === "bank" || payment.method === "mobile-banking") {
+        const bankAccount = await BankAccount.findById(payment.bankAccount);
+        if (bankAccount) {
+          bankAccount.balance -= payment.amount;
+          await bankAccount.save();
+
+          await Transaction.create({
+            bankAccount: bankAccount._id,
+            date: new Date(),
+            description: `Reversal for cancelled sale to ${saleToCancel.customer.name}`,
+            type: "Debit",
+            amount: payment.amount,
+            source: "Sale Cancellation",
+            reference: saleToCancel._id,
+          });
+        }
+      }
     }
 
     // Restore product quantity
