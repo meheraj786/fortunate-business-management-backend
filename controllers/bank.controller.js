@@ -56,7 +56,6 @@ async function getAllAccounts(req, res, next) {
   }
 }
 
-const Transaction = require("../models/transaction.model");
 
 async function getAccountById(req, res, next) {
   try {

@@ -6,27 +6,36 @@ const { ApiResponse } = require("../utils/ApiResponse");
 
 exports.openDailyCash = async (req, res, next) => {
   try {
-    const { openingBalance = 0 } = req.body;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { date } = req.body;
+    const targetDate = date ? new Date(date) : new Date();
+    targetDate.setHours(0, 0, 0, 0);
 
-    const existing = await DailyCash.findOne({
-      date: {
-        $gte: today,
-        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-      },
+    const existing = await DailyCash.findOne({ date: targetDate });
+
+    if (existing) {
+      return next(
+        new ApiError(
+          400,
+          `Cash for ${targetDate.toDateString()} is already open.`
+        )
+      );
+    }
+
+    const lastDay = await DailyCash.findOne({ date: { $lt: targetDate } }).sort({
+      date: -1,
     });
 
-    if (existing)
-      return next(new ApiError(400, "Today's cash is already opened"));
-
-    const lastDay = await DailyCash.findOne().sort({ date: -1 });
-    const prevBalance = lastDay ? lastDay.runningBalance : 0;
+    const openingBalance = lastDay ? lastDay.runningBalance : 0;
 
     const dailyCash = await DailyCash.create({
-      date: today,
-      openingBalance,
-      runningBalance: prevBalance || openingBalance,
+      date: targetDate,
+      openingBalance: openingBalance,
+      runningBalance: openingBalance,
+      totalIncome: 0,
+      totalExpense: 0,
+      incomeList: [],
+      expenseList: [],
+      isClosed: false,
     });
 
     res
@@ -350,15 +359,43 @@ exports.getDailyCash = async (req, res, next) => {
 
     const dailyCash = await DailyCash.findOne({
       date: targetDate,
-    });
+    }).lean();
 
     if (!dailyCash) {
       return next(new ApiError(404, "No Daily Cash found for this date"));
     }
 
+    const incomeTransactions = dailyCash.incomeList.map((item) => ({
+      ...item,
+      type: "income",
+    }));
+    const expenseTransactions = dailyCash.expenseList.map((item) => ({
+      ...item,
+      type: "expense",
+    }));
+
+    const allTransactions = [...incomeTransactions, ...expenseTransactions];
+
+    allTransactions.sort((a, b) => b._id.getTimestamp() - a._id.getTimestamp());
+
+    const responseData = {
+      _id: dailyCash._id,
+      date: dailyCash.date,
+      openingBalance: dailyCash.openingBalance,
+      totalIncome: dailyCash.totalIncome,
+      totalExpense: dailyCash.totalExpense,
+      runningBalance: dailyCash.runningBalance,
+      isClosed: dailyCash.isClosed,
+      transactions: allTransactions,
+      createdAt: dailyCash.createdAt,
+      updatedAt: dailyCash.updatedAt,
+    };
+
     res
       .status(200)
-      .json(new ApiResponse(200, dailyCash, "Daily Cash fetched successfully"));
+      .json(
+        new ApiResponse(200, responseData, "Daily Cash fetched successfully")
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }

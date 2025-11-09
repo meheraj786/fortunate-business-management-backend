@@ -13,6 +13,7 @@ const {
   getAll_invoices_status_count,
   addPartialPayment,
   cancelSale,
+  getSalesByCustomerId,
 } = require("../../controllers/sales.controller");
 const salesRoutes = express.Router();
 
@@ -23,6 +24,7 @@ salesRoutes.patch("/update-sale/:id", updateSale);
 salesRoutes.delete("/delete-sale/:id", deleteSale);
 salesRoutes.patch("/cancel-sale/:id", cancelSale);
 salesRoutes.get("/sales-summary", getSalesSummary);
+salesRoutes.get("/customer/:customerId", getSalesByCustomerId);
 
 // filtered invoices
 salesRoutes.get("/get-all-not-invoices", getAll_not_invoices);

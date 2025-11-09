@@ -5,9 +5,51 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
 const BankAccount = require("../models/bank.model");
+const DailyCash = require("../models/dailyCash.model");
 
 const mongoose = require("mongoose");
 const Transaction = require("../models/transaction.model");
+
+async function addCashIncomeFromSale(
+  saleDate,
+  amount,
+  description,
+  saleId,
+  session
+) {
+  const targetDate = new Date(saleDate);
+  targetDate.setHours(0, 0, 0, 0);
+
+  const dailyCash = await DailyCash.findOne({ date: targetDate }).session(
+    session
+  );
+
+  if (!dailyCash) {
+    throw new ApiError(
+      404,
+      `Daily cash for ${targetDate.toDateString()} is not open. Cannot record cash payment.`
+    );
+  }
+  if (dailyCash.isClosed) {
+    throw new ApiError(
+      400,
+      `Daily cash for ${targetDate.toDateString()} is closed. Cannot record cash payment.`
+    );
+  }
+
+  dailyCash.totalIncome += amount;
+  dailyCash.runningBalance += amount;
+  dailyCash.incomeList.push({
+    category: "Sale",
+    description: description,
+    amount: amount,
+    paymentMethod: "cash",
+    sales: saleId,
+    time: new Date().toLocaleTimeString(),
+  });
+
+  await dailyCash.save({ session });
+}
 
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
@@ -91,7 +133,7 @@ async function createSale(req, res, next) {
       saleDate,
     });
 
-    // Handle payments and update bank accounts
+    // Handle payments and update bank/cash accounts
     for (const payment of payments) {
       if (payment.method === "bank" || payment.method === "mobile-banking") {
         const bankAccount = await BankAccount.findById(
@@ -116,6 +158,14 @@ async function createSale(req, res, next) {
             },
           ],
           { session }
+        );
+      } else if (payment.method === "cash") {
+        await addCashIncomeFromSale(
+          sale.saleDate,
+          payment.amount,
+          `Payment for new sale to ${finalCustomerInfo.name}`,
+          sale._id,
+          session
         );
       }
     }
@@ -334,7 +384,11 @@ async function getSalesSummary(_, res, next) {
 async function getAll_not_invoices(req, res, next) {
   try {
     const sales = await Sales.find({ invoiceStatus: "Not-invoiced" })
-      .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
+      .populate({
+        path: "product",
+        select: "name category unit LC",
+        populate: { path: "LC", select: "basic_info.lc_number" },
+      })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
       .populate("category", "name");
@@ -355,7 +409,11 @@ async function getAll_paid_invoices(req, res, next) {
       invoiceStatus: "Invoiced",
       paymentStatus: "Paid payment",
     })
-      .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
+      .populate({
+        path: "product",
+        select: "name category unit LC",
+        populate: { path: "LC", select: "basic_info.lc_number" },
+      })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
       .populate("category", "name");
@@ -376,7 +434,11 @@ async function getAll_due_invoices(req, res, next) {
       invoiceStatus: "Invoiced",
       paymentStatus: "Due payment",
     })
-      .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
+      .populate({
+        path: "product",
+        select: "name category unit LC",
+        populate: { path: "LC", select: "basic_info.lc_number" },
+      })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
       .populate("category", "name");
@@ -394,7 +456,11 @@ async function getAll_due_invoices(req, res, next) {
 async function getAll_cancelled_invoices(req, res, next) {
   try {
     const sales = await Sales.find({ invoiceStatus: "Cancelled" })
-      .populate({ path: "product", select: "name category unit LC", populate: { path: "LC", select: "basic_info.lc_number" } })
+      .populate({
+        path: "product",
+        select: "name category unit LC",
+        populate: { path: "LC", select: "basic_info.lc_number" },
+      })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
       .populate("category", "name");
@@ -512,6 +578,14 @@ async function addPartialPayment(req, res, next) {
         ],
         { session }
       );
+    } else if (method === "cash") {
+      await addCashIncomeFromSale(
+        sale.saleDate,
+        amount,
+        `Partial payment for sale to ${sale.customer.name}`,
+        sale._id,
+        session
+      );
     }
 
     sale.payments.push(payment);
@@ -530,6 +604,53 @@ async function addPartialPayment(req, res, next) {
   }
 }
 
+async function getSalesByCustomerId(req, res, next) {
+  try {
+    const { customerId } = req.params;
+    const { invoiceStatus, paymentStatus } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return next(new ApiError(400, "Invalid customer ID"));
+    }
+
+    const query = { "customer.customerId": customerId };
+
+    if (invoiceStatus) {
+      query.invoiceStatus = invoiceStatus;
+    }
+
+    if (paymentStatus) {
+      query.paymentStatus = paymentStatus;
+    }
+
+    const sales = await Sales.find(query)
+      .populate({
+        path: "product",
+        select: "name category unit LC",
+        populate: { path: "LC", select: "basic_info.lc_number" },
+      })
+      .populate("warehouse", "name")
+      .populate("category", "name")
+      .populate({
+        path: "payments.bankAccount",
+        model: "BankAccount",
+      })
+      .sort({ saleDate: -1 });
+
+    if (!sales) {
+      return next(new ApiError(404, "No sales found for this customer"));
+    }
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, sales, "Customer sales fetched successfully")
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
+
 module.exports = {
   createSale,
   getAllSales,
@@ -544,6 +665,7 @@ module.exports = {
   getAll_invoices_status_count,
   addPartialPayment,
   cancelSale,
+  getSalesByCustomerId,
 };
 
 async function cancelSale(req, res, next) {
