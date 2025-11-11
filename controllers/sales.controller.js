@@ -580,7 +580,7 @@ async function addPartialPayment(req, res, next) {
       );
     } else if (method === "cash") {
       await addCashIncomeFromSale(
-        sale.saleDate,
+        date,
         amount,
         `Partial payment for sale to ${sale.customer.name}`,
         sale._id,

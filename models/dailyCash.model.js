@@ -4,6 +4,7 @@ const incomeSchema = new mongoose.Schema({
   category: {
     type: String,
     enum: [
+      "Sale",
       "sales",
       "transport",
       "commission",
@@ -24,7 +25,7 @@ const incomeSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     required: true,
-    enum: ["bank", "mobile-bank", "cash"],
+    enum: ["bank", "mobile-banking", "cash"],
   },
   bankNumber: {
     type: String,
@@ -70,7 +71,7 @@ const expenseSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     required: true,
-    enum: ["bank", "mobile-bank", "cash"],
+    enum: ["bank", "mobile-banking", "cash"],
   },
   bankNumber: {
     type: String,
