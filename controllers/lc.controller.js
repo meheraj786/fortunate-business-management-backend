@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs").promises;
 const path = require("path");
 const multer = require("multer");
+const { generateLCPDF } = require("../utils/LC_pdfGenerator");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const LC = require("../models/lc.model");
@@ -312,6 +313,22 @@ async function downloadDocument(req, res, next) {
   }
 }
 
+async function exportLCAsPDF(req, res, next) {
+  try {
+    const { id } = req.params;
+    const lc = await LC.findById(id);
+
+    if (!lc) {
+      return next(new ApiError(404, "LC not found"));
+    }
+
+    generateLCPDF(lc, res);
+
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
+
 module.exports = {
   createLC,
   getAllLCs,
@@ -324,4 +341,5 @@ module.exports = {
   getLCCountsByStatus,
   getTotalLCCount,
   downloadDocument,
+  exportLCAsPDF,
 };

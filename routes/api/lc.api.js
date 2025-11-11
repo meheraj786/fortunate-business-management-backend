@@ -11,6 +11,7 @@ const {
   getLCCountsByStatus, // Add this
   getTotalLCCount,
   downloadDocument, 
+  exportLCAsPDF,
 } = require("../../controllers/lc.controller");
 
 const lcRoutes = express.Router();
@@ -24,6 +25,7 @@ lcRoutes.delete("/delete-lc/:id", deleteLC);
 lcRoutes.post("/add-lc-expense/:lcId", addExpenseToLC);
 lcRoutes.get("/completed-lc", getAllCompletedLCs);
 lcRoutes.get("/:lcId/documents/:filename", downloadDocument);
+lcRoutes.get("/export-lc/:id", exportLCAsPDF);
 
 // New routes for LC counts
 lcRoutes.get("/counts/status", getLCCountsByStatus); // Get all status counts
