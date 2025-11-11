@@ -31,7 +31,9 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: "Not Provided",
   },
-  role: {
+
+  // The role name is just for display purposes, just a name.
+  roleName: {
     type: String,
     default: "No Role",
     enum: [

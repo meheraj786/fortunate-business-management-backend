@@ -30,7 +30,7 @@ const customerSchema = new Schema(
     },
     customerStatus: {
       type: String,
-      enum: ["Active", "Suspense"],
+      enum: ["Active", "Suspended"],
       default: "Active",
     },
     joinDate: { type: Date, default: Date.now },

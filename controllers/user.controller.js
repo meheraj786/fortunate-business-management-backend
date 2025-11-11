@@ -21,7 +21,7 @@ const registerUser = async (req, res, next) => {
 
     return res
       .status(201)
-      .json(new ApiResponse(user, "User registered successfully"));
+      .json(new ApiResponse(201, user, "User registered successfully"));
   } catch (error) {
     next(new ApiError(500, "Registration failed", [error.message]));
   }
@@ -54,7 +54,7 @@ const loginUser = async (req, res, next) => {
 
     return res
       .status(200)
-      .json(new ApiResponse({ user, token }, "Logged in successfully"));
+      .json(new ApiResponse(200, { user, token }, "Logged in successfully"));
   } catch (error) {
     console.log(error);
 
@@ -69,7 +69,7 @@ const logoutUser = async (_, res, next) => {
       sameSite: "strict",
     });
 
-    return res.status(200).json(new ApiResponse({}, "Logged out successfully"));
+    return res.status(200).json(new ApiResponse(200, {}, "Logged out successfully"));
   } catch (error) {
     next(new ApiError(500, "Logout failed", [error.message]));
   }
@@ -86,7 +86,7 @@ const getUser = async (req, res, next) => {
 
     return res
       .status(200)
-      .json(new ApiResponse(fetchedUser, "Profile fetched successfully"));
+      .json(new ApiResponse(200, fetchedUser, "Profile fetched successfully"));
   } catch (error) {
     next(new ApiError(500, "Failed to fetch profile", [error.message]));
   }
@@ -100,7 +100,7 @@ const getProfile = async (req, res, next) => {
 
     return res
       .status(200)
-      .json(new ApiResponse(fetchedUser, "Profile fetched successfully"));
+      .json(new ApiResponse(200, fetchedUser, "Profile fetched successfully"));
   } catch (error) {
     next(new ApiError(500, "Failed to fetch profile", [error.message]));
   }
@@ -113,7 +113,7 @@ const getAllUser = async (req, res, next) => {
     }
     return res
       .status(200)
-      .json(new ApiResponse(fetchedUser, "Profile fetched successfully"));
+      .json(new ApiResponse(200, fetchedUser, "Profile fetched successfully"));
   } catch (error) {
     next(new ApiError(500, "Failed to fetch profile", [error.message]));
   }
