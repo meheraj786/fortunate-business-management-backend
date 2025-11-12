@@ -1,12 +1,29 @@
-const express=require("express")
-const { createWarehouse, getAllWarehouses, getWarehouseById, updateWarehouse, deleteWarehouse } = require("../../controllers/warehouse.controller")
-const warehouseRoutes=express.Router()
+const express = require("express");
+const {
+  createWarehouse,
+  getAllWarehouses,
+  getWarehouseById,
+  updateWarehouse,
+  deleteWarehouse,
+} = require("../../controllers/warehouse.controller");
+const {
+  getWarehouseInventoryStats,
+} = require("../../controllers/product.controller");
+const productRoutes = require("./product.api");
 
-warehouseRoutes.post("/create-warehouse", createWarehouse)
-warehouseRoutes.get("/get-all-warehouse", getAllWarehouses)
-warehouseRoutes.get("/get-warehouse/:id", getWarehouseById)
-warehouseRoutes.patch("/update-warehouse/:id", updateWarehouse)
-warehouseRoutes.delete("/delete-warehouse/:id", deleteWarehouse)
+const warehouseRoutes = express.Router();
 
+// CRUD for warehouses
+warehouseRoutes.post("/", createWarehouse);
+warehouseRoutes.get("/", getAllWarehouses);
+warehouseRoutes.get("/:id", getWarehouseById);
+warehouseRoutes.patch("/:id", updateWarehouse);
+warehouseRoutes.delete("/:id", deleteWarehouse);
 
-module.exports=warehouseRoutes
+// Stats for a specific warehouse
+warehouseRoutes.get("/:warehouseId/stats", getWarehouseInventoryStats);
+
+// Nest the product routes under a specific warehouse
+warehouseRoutes.use("/:warehouseId/products", productRoutes);
+
+module.exports = warehouseRoutes;

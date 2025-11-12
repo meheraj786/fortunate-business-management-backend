@@ -107,11 +107,22 @@ const updateWarehouse = async (req, res, next) => {
 const deleteWarehouse = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const warehouse = await Warehouse.findByIdAndDelete(id);
+    const warehouse = await Warehouse.findById(id);
 
     if (!warehouse) {
       return next(new ApiError(404, "Warehouse not found"));
     }
+
+    if (warehouse.product && warehouse.product.length > 0) {
+      return next(
+        new ApiError(
+          400,
+          "Cannot delete warehouse with associated products. Please move or delete them first."
+        )
+      );
+    }
+
+    await Warehouse.findByIdAndDelete(id);
 
     return res
       .status(200)

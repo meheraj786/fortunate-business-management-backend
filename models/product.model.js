@@ -28,21 +28,38 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-productSchema.statics.getInventoryStats = async function () {
-  const totalProducts = await this.countDocuments();
+productSchema.statics.getInventoryStats = async function (warehouseId) {
+  const matchQuery = warehouseId
+    ? { warehouse: new mongoose.Types.ObjectId(warehouseId) }
+    : {};
+
+  const totalProductsCount = await this.countDocuments(matchQuery); // Total number of product documents (regardless of stock)
+
+  const inStockProductsCount = await this.countDocuments({ // Count of products with quantity > 0
+    ...matchQuery,
+    quantity: { $gt: 0 },
+  });
 
   const totalQuantity = await this.aggregate([
+    { $match: matchQuery },
     { $group: { _id: null, totalQuantity: { $sum: "$quantity" } } },
   ]);
 
-  const lowStock = await this.countDocuments({ quantity: { $gt: 0, $lt: 20 } });
-  const outOfStock = await this.countDocuments({ quantity: 0 });
+  const lowStockProductsCount = await this.countDocuments({
+    ...matchQuery,
+    quantity: { $gt: 0, $lt: 20 },
+  });
+  const outOfStockProductsCount = await this.countDocuments({
+    ...matchQuery,
+    quantity: 0,
+  });
 
   return {
-    totalProducts,
-    totalQuantity: totalQuantity[0]?.totalQuantity || 0,
-    lowStock,
-    outOfStock,
+    totalProductsCount, // Total number of distinct product documents (including out of stock)
+    inStockProductsCount, // Number of distinct product documents with quantity > 0
+    totalQuantity: totalQuantity[0]?.totalQuantity || 0, // Sum of quantities
+    lowStockProductsCount, // Number of products in low stock
+    outOfStockProductsCount, // Number of products out of stock
   };
 };
 

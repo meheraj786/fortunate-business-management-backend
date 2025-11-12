@@ -4,8 +4,10 @@ const Sales = require("../models/sales.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
-async function createProduct(req, res, next) {
+// New function to create a product within a specific warehouse
+async function createProductInWarehouse(req, res, next) {
   try {
+    const { warehouseId } = req.params;
     const {
       name,
       productDescription,
@@ -20,23 +22,15 @@ async function createProduct(req, res, next) {
       quantity,
       unit,
       unitPrice,
-      warehouse,
     } = req.body;
 
-    if (
-      !name ||
-      !category ||
-      !LC ||
-      !quantity ||
-      !unit ||
-      !unitPrice ||
-      !warehouse
-    ) {
+    if (!name || !category || !LC || !quantity || !unit || !unitPrice) {
       return next(new ApiError(400, "All required fields must be provided"));
     }
-    const productWarehouse = await Warehouse.findOne({ _id: warehouse });
+
+    const productWarehouse = await Warehouse.findById(warehouseId);
     if (!productWarehouse) {
-      return next(new ApiError(400, "Warehouse not found"));
+      return next(new ApiError(404, "Warehouse not found"));
     }
 
     const product = await Product.create({
@@ -51,17 +45,12 @@ async function createProduct(req, res, next) {
       quantity,
       unit,
       unitPrice,
-      warehouse,
+      warehouse: warehouseId, // Assign warehouse from URL params
     });
 
-    await Warehouse.findOneAndUpdate(
-      { _id: warehouse },
-      {
-        $push: {
-          product: product._id,
-        },
-      }
-    );
+    // Add product reference to the warehouse
+    productWarehouse.product.push(product._id);
+    await productWarehouse.save();
 
     return res
       .status(201)
@@ -71,12 +60,13 @@ async function createProduct(req, res, next) {
   }
 }
 
-async function getAllProducts(req, res, next) {
+// New function to get all products for a specific warehouse
+async function getProductsByWarehouse(req, res, next) {
   try {
-    const products = await Product.find()
-      .populate("LC", "basic_info.lc_number basic_info.supplier_name financial_info.lc_amount_bdt")
-      .populate("warehouse", "name location")
-      .populate("category", "name description");
+    const { warehouseId } = req.params;
+    const products = await Product.find({ warehouse: warehouseId })
+      .populate("LC", "basic_info.lc_number basic_info.supplier_name")
+      .populate("category", "name");
 
     return res
       .status(200)
@@ -86,10 +76,14 @@ async function getAllProducts(req, res, next) {
   }
 }
 
-async function getProductById(req, res, next) {
+// New function to get a single product, ensuring it's in the correct warehouse
+async function getProductInWarehouse(req, res, next) {
   try {
-    const { id } = req.params;
-    const product = await Product.findById(id)
+    const { warehouseId, productId } = req.params;
+    const product = await Product.findOne({
+      _id: productId,
+      warehouse: warehouseId,
+    })
       .populate(
         "LC",
         "basic_info.lc_number basic_info.supplier_name financial_info.lc_amount_bdt"
@@ -98,9 +92,12 @@ async function getProductById(req, res, next) {
       .populate("category", "name description");
 
     if (!product) {
-      return next(new ApiError(404, "Product not found"));
+      return next(
+        new ApiError(404, "Product not found in this warehouse")
+      );
     }
 
+    // The rest of the stats logic can remain the same
     const salesStats = await Sales.aggregate([
       { $match: { product: product._id } },
       {
@@ -111,19 +108,16 @@ async function getProductById(req, res, next) {
         },
       },
     ]);
-
     const totalDueInvoices = await Sales.countDocuments({
-      product: id,
+      product: productId,
       invoiceStatus: "Invoiced",
       paymentStatus: "Due payment",
     });
-
     const totalNotInvoiced = await Sales.countDocuments({
-      product: id,
+      product: productId,
       invoiceStatus: "Not-invoiced",
     });
-
-    const recentSales = await Sales.find({ product: id })
+    const recentSales = await Sales.find({ product: productId })
       .sort({ saleDate: -1 })
       .limit(5);
 
@@ -150,16 +144,34 @@ async function getProductById(req, res, next) {
   }
 }
 
-async function updateProduct(req, res, next) {
+// New function to update a product within its warehouse
+async function updateProductInWarehouse(req, res, next) {
   try {
-    const { id } = req.params;
-    const updated = await Product.findByIdAndUpdate(id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const { warehouseId, productId } = req.params;
+
+    // Prevent changing the warehouse via this endpoint
+    if (req.body.warehouse && req.body.warehouse !== warehouseId) {
+      return next(
+        new ApiError(
+          400,
+          "Cannot change a product's warehouse from this endpoint. Please use a dedicated 'move' endpoint."
+        )
+      );
+    }
+
+    const updated = await Product.findOneAndUpdate(
+      { _id: productId, warehouse: warehouseId },
+      req.body,
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
 
     if (!updated) {
-      return next(new ApiError(404, "Product not found"));
+      return next(
+        new ApiError(404, "Product not found in this warehouse")
+      );
     }
 
     return res
@@ -170,31 +182,74 @@ async function updateProduct(req, res, next) {
   }
 }
 
-async function deleteProduct(req, res, next) {
+// New function to delete a product, ensuring data consistency
+async function deleteProductInWarehouse(req, res, next) {
   try {
-    const { id } = req.params;
-    const deleted = await Product.findByIdAndDelete(id);
+    const { warehouseId, productId } = req.params;
 
-    if (!deleted) {
-      return next(new ApiError(404, "Product not found"));
+    // First, ensure the product exists and is in the specified warehouse
+    const product = await Product.findOne({
+      _id: productId,
+      warehouse: warehouseId,
+    });
+    if (!product) {
+      return next(
+        new ApiError(404, "Product not found in this warehouse")
+      );
     }
+
+    // Remove the product reference from the warehouse's product array
+    await Warehouse.findByIdAndUpdate(warehouseId, {
+      $pull: { product: productId },
+    });
+
+    // Then, delete the product
+    const deleted = await Product.findByIdAndDelete(productId);
 
     return res
       .status(200)
       .json(new ApiResponse(200, deleted, "Product deleted successfully"));
   } catch (error) {
+    // Note: Add transaction logic here in a real-world scenario for atomicity
     next(new ApiError(500, error.message));
   }
 }
 
-async function getInventoryStats(_, res, next) {
+// New function for warehouse-specific inventory stats
+async function getWarehouseInventoryStats(req, res, next) {
   try {
-    const stats = await Product.getInventoryStats();
+    const { warehouseId } = req.params;
+    const stats = await Product.getInventoryStats(warehouseId);
+
+    const formattedStats = {
+      totalinstockproductcount: stats.inStockProductsCount,
+      totalstockcount: stats.totalQuantity,
+      totallowstockproductscount: stats.lowStockProductsCount,
+      totalstockoutproductscount: stats.outOfStockProductsCount,
+      totalproductdocuments: stats.totalProductsCount, // Including this for completeness, as it was the original 'totalProducts'
+    };
+
     return res
       .status(200)
       .json(
-        new ApiResponse(200, stats, "Inventory statistics fetched successfully")
+        new ApiResponse(200, formattedStats, "Inventory statistics fetched successfully")
       );
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
+
+// (The old global functions can be kept for admin overview purposes if needed, but won't be wired to the new routes)
+async function getAllProducts(req, res, next) {
+  try {
+    const products = await Product.find()
+      .populate("LC", "basic_info.lc_number basic_info.supplier_name financial_info.lc_amount_bdt")
+      .populate("warehouse", "name location")
+      .populate("category", "name description");
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, products, "Products fetched successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -224,12 +279,15 @@ async function getStockStatus(_, res, next) {
   }
 }
 
+
 module.exports = {
-  createProduct,
+  createProductInWarehouse,
+  getProductsByWarehouse,
+  getProductInWarehouse,
+  updateProductInWarehouse,
+  deleteProductInWarehouse,
+  getWarehouseInventoryStats,
+  // Exporting old functions in case they are needed elsewhere
   getAllProducts,
-  getProductById,
-  updateProduct,
-  deleteProduct,
-  getInventoryStats,
   getStockStatus,
 };

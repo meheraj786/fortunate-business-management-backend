@@ -15,7 +15,7 @@ const apiRoutes=express.Router()
 apiRoutes.use("/auth", userRoutes)
 apiRoutes.use("/customer", customerRoutes)
 apiRoutes.use("/lc", lcRoutes)
-apiRoutes.use("/product", productRoutes)
+
 apiRoutes.use("/sales", salesRoutes)
 apiRoutes.use("/warehouse", warehouseRoutes)
 apiRoutes.use("/category", categoryRouter)
