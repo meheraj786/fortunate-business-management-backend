@@ -6,8 +6,17 @@ const createWarehouse = async (req, res, next) => {
   try {
     const { name, location } = req.body;
 
-    if (!name || !location) {
-      return next(new ApiError(400, "Name and location are required"));
+    const validationErrors = [];
+    if (!name)
+      validationErrors.push({ field: "name", message: "Name is required" });
+    if (!location)
+      validationErrors.push({
+        field: "location",
+        message: "Location is required",
+      });
+
+    if (validationErrors.length > 0) {
+      return next(new ApiError(400, "Validation failed", validationErrors));
     }
 
     const warehouse = await Warehouse.create({ name, location });

@@ -17,7 +17,7 @@ const productSchema = new mongoose.Schema(
     color: { type: String, trim: true },
     grade: { type: String, trim: true },
     quantity: { type: Number, required: true, min: 0 },
-    unit: { type: String, required: true, trim: true },
+    unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
     unitPrice: { type: Number, required: true, min: 0 },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,

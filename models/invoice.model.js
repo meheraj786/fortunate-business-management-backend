@@ -39,7 +39,7 @@ const invoiceSchema = new mongoose.Schema(
       name: { type: String, required: true },
       category: { type: String, required: true },
       quantity: { type: Number, required: true },
-      unit: { type: String, required: true },
+      unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
       pricePerUnit: { type: Number, required: true },
     },
     customerDetails: {

@@ -6,6 +6,7 @@ const { generateLCPDF } = require("../utils/LC_pdfGenerator");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const LC = require("../models/lc.model");
+const Unit = require("../models/unit.model"); // Import Unit model
 
 // Ensure the uploads directory exists
 const uploadDir = path.join(__dirname, "../uploads");
@@ -38,10 +39,33 @@ const upload = multer({ storage: storage });
 async function createLC(req, res, next) {
   try {
     let lcData;
-    if (req.body.lc_data) {
+    // Handle data sent as a stringified field in multipart/form-data
+    if (req.body.lcData) {
+      lcData = JSON.parse(req.body.lcData);
+    } else if (req.body.lc_data) {
+      // Also check for snake_case
       lcData = JSON.parse(req.body.lc_data);
     } else {
       lcData = req.body;
+    }
+
+    // Add validation for productInfo.quantityUnit
+    if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
+      for (const product of lcData.productInfo) {
+        if (product.quantityUnit) {
+          const existingUnit = await Unit.findById(product.quantityUnit);
+          if (!existingUnit) {
+            return next(
+              new ApiError(400, "Validation failed", [
+                {
+                  field: "quantityUnit",
+                  message: `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
+                },
+              ])
+            );
+          }
+        }
+      }
     }
 
     const lc = new LC(lcData);
@@ -55,23 +79,26 @@ async function createLC(req, res, next) {
           .update(fileBuffer)
           .digest("hex");
 
-        const sanitizedOriginalName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const sanitizedOriginalName = file.originalname.replace(
+          /[^a-zA-Z0-9.-]/g,
+          "_"
+        );
         const storedName = `${Date.now()}-${sanitizedOriginalName}`;
 
         const documentData = {
-          original_name: file.originalname,
-          stored_name: storedName,
-          mime_type: file.mimetype,
-          size_bytes: file.size,
-          hash_sha256: hash,
+          originalName: file.originalname,
+          storedName: storedName,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+          hashSha256: hash,
         };
         uploadedDocuments.push(documentData);
       }
 
-      if (!lc.documents_notes) {
-        lc.documents_notes = {};
+      if (!lc.documentsNotes) {
+        lc.documentsNotes = {};
       }
-      lc.documents_notes.uploaded_documents = uploadedDocuments;
+      lc.documentsNotes.uploadedDocuments = uploadedDocuments;
     }
 
     await lc.save();
@@ -91,6 +118,16 @@ async function createLC(req, res, next) {
       .status(201)
       .json(new ApiResponse(201, lc, "LC created successfully"));
   } catch (error) {
+    // Handle Mongoose validation errors specifically
+    if (error.name === "ValidationError") {
+      const validationErrors = Object.values(error.errors).map((err) => ({
+        field: err.path,
+        message: err.message,
+      }));
+      return next(new ApiError(400, "LC validation failed", validationErrors));
+    }
+
+    // Cleanup uploaded files on any other error
     if (req.files) {
       for (const file of req.files) {
         try {
@@ -103,13 +140,14 @@ async function createLC(req, res, next) {
         }
       }
     }
+    // Pass other errors to the generic error handler
     next(new ApiError(500, error.message));
   }
 }
 
 async function getAllLCs(_, res, next) {
   try {
-    const lcs = await LC.find();
+    const lcs = await LC.find().populate("productInfo.quantityUnit", "name type conversionFactor");
     return res
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
@@ -121,7 +159,7 @@ async function getAllLCs(_, res, next) {
 async function getLCById(req, res, next) {
   try {
     const { id } = req.params;
-    const lc = await LC.findById(id);
+    const lc = await LC.findById(id).populate("productInfo.quantityUnit", "name type conversionFactor");
     if (!lc) return next(new ApiError(404, "LC not found"));
     return res
       .status(200)
@@ -165,8 +203,19 @@ async function addExpenseToLC(req, res, next) {
     const { lcId } = req.params;
     const { description, amount, date } = req.body;
 
-    if (!description || !amount) {
-      throw new ApiError(400, "Description and amount are required");
+    const validationErrors = [];
+    if (!description) {
+      validationErrors.push({
+        field: "description",
+        message: "Description is required",
+      });
+    }
+    if (!amount) {
+      validationErrors.push({ field: "amount", message: "Amount is required" });
+    }
+
+    if (validationErrors.length > 0) {
+      return next(new ApiError(400, "Validation failed", validationErrors));
     }
 
     const lc = await LC.findById(lcId);
@@ -196,9 +245,9 @@ async function addExpenseToLC(req, res, next) {
 
 async function getAllCompletedLCs(_, res, next) {
   try {
-    const lcs = await LC.find({ "basic_info.status": /^Completed$/i }).select(
-      "_id basic_info.lc_number basic_info.status product_info"
-    );
+    const lcs = await LC.find({ "basicInfo.status": /^Completed$/i })
+      .populate("productInfo.quantityUnit", "name type conversionFactor")
+      .select("_id basicInfo.lcNumber basicInfo.status productInfo");
     return res
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
@@ -214,7 +263,7 @@ async function getLCCountsByStatus(req, res, next) {
     const counts = await LC.aggregate([
       {
         $group: {
-          _id: "$basic_info.status",
+          _id: "$basicInfo.status",
           count: { $sum: 1 },
         },
       },
@@ -342,4 +391,74 @@ module.exports = {
   getTotalLCCount,
   downloadDocument,
   exportLCAsPDF,
+  getLCSummary,
 };
+
+async function getLCSummary(req, res, next) {
+  try {
+    const lcs = await LC.find().populate("productInfo.quantityUnit", "name");
+
+    const calculateTotalCost = (lc) => {
+      const { financialInfo, shippingCustomsInfo, agentTransportInfo } = lc;
+      if (!financialInfo) {
+        return 0;
+      }
+
+      const financialOtherExpenses =
+        financialInfo.otherExpenses?.reduce(
+          (sum, expense) => sum + (expense.amount || 0),
+          0
+        ) || 0;
+      const shippingOtherExpenses =
+        shippingCustomsInfo?.otherExpenses?.reduce(
+          (sum, expense) => sum + (expense.amount || 0),
+          0
+        ) || 0;
+      const agentTransportOtherExpenses =
+        agentTransportInfo?.otherExpenses?.reduce(
+          (sum, expense) => sum + (expense.amount || 0),
+          0
+        ) || 0;
+
+      const customsTotalBdt =
+        (shippingCustomsInfo?.customsDutyBdt || 0) +
+        (shippingCustomsInfo?.vatBdt || 0) +
+        (shippingCustomsInfo?.aitBdt || 0) +
+        shippingOtherExpenses;
+
+      const totalLcCostBdt =
+        (financialInfo.lcAmountBdt || 0) +
+        (financialInfo.bankChargesBdt || 0) +
+        (financialInfo.insuranceCostBdt || 0) +
+        financialOtherExpenses +
+        customsTotalBdt +
+        (agentTransportInfo?.cnfAgentCommissionBdt || 0) +
+        (agentTransportInfo?.indentingAgentCommissionBdt || 0) +
+        (agentTransportInfo?.transportCostBdt || 0) +
+        agentTransportOtherExpenses;
+
+      return totalLcCostBdt;
+    };
+
+    const summary = lcs.map((lc) => ({
+      _id: lc._id,
+      lcNumber: lc.basicInfo.lcNumber,
+      lcOpeningDate: lc.basicInfo.lcOpeningDate,
+      status: lc.basicInfo.status,
+      supplierName: lc.basicInfo.supplierName,
+      dueDate: lc.shippingCustomsInfo?.expectedArrivalDate,
+      products: lc.productInfo.map((p) => ({
+        itemName: p.itemName,
+        quantity: p.quantityValue,
+        unit: p.quantityUnit?.name || "N/A",
+      })),
+      totalCost: calculateTotalCost(lc),
+    }));
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, summary, "LCs summary fetched successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}

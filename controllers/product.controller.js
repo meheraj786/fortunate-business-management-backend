@@ -1,6 +1,7 @@
 const Product = require("../models/product.model");
 const Warehouse = require("../models/warehouse.model");
 const Sales = require("../models/sales.model");
+const Unit = require("../models/unit.model"); // Import Unit model
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
@@ -24,8 +25,35 @@ async function createProductInWarehouse(req, res, next) {
       unitPrice,
     } = req.body;
 
-    if (!name || !category || !LC || !quantity || !unit || !unitPrice) {
-      return next(new ApiError(400, "All required fields must be provided"));
+    const validationErrors = [];
+    if (!name)
+      validationErrors.push({ field: "name", message: "Name is required" });
+    if (!category)
+      validationErrors.push({
+        field: "category",
+        message: "Category is required",
+      });
+    if (!LC) validationErrors.push({ field: "LC", message: "LC is required" });
+    if (!quantity)
+      validationErrors.push({
+        field: "quantity",
+        message: "Quantity is required",
+      });
+    if (!unit)
+      validationErrors.push({ field: "unit", message: "Unit is required" });
+    if (!unitPrice)
+      validationErrors.push({
+        field: "unitPrice",
+        message: "Unit price is required",
+      });
+
+    if (validationErrors.length > 0) {
+      return next(new ApiError(400, "Validation failed", validationErrors));
+    }
+
+    const existingUnit = await Unit.findById(unit);
+    if (!existingUnit) {
+      return next(new ApiError(404, "Unit not found"));
     }
 
     const productWarehouse = await Warehouse.findById(warehouseId);
@@ -65,8 +93,9 @@ async function getProductsByWarehouse(req, res, next) {
   try {
     const { warehouseId } = req.params;
     const products = await Product.find({ warehouse: warehouseId })
-      .populate("LC", "basic_info.lc_number basic_info.supplier_name")
-      .populate("category", "name");
+      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1 })
+      .populate("category", "name")
+      .populate("unit", "name type conversionFactor");
 
     return res
       .status(200)
@@ -86,10 +115,11 @@ async function getProductInWarehouse(req, res, next) {
     })
       .populate(
         "LC",
-        "basic_info.lc_number basic_info.supplier_name financial_info.lc_amount_bdt"
+        { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1, "financialInfo.lcAmountBdt": 1 }
       )
       .populate("warehouse", "name location")
-      .populate("category", "name description");
+      .populate("category", "name description")
+      .populate("unit", "name type conversionFactor");
 
     if (!product) {
       return next(
@@ -157,6 +187,20 @@ async function updateProductInWarehouse(req, res, next) {
           "Cannot change a product's warehouse from this endpoint. Please use a dedicated 'move' endpoint."
         )
       );
+    }
+
+    if (req.body.unit) {
+      const existingUnit = await Unit.findById(req.body.unit);
+      if (!existingUnit) {
+        return next(
+          new ApiError(404, "Validation failed", [
+            {
+              field: "unit",
+              message: "The provided unit ID was not found",
+            },
+          ])
+        );
+      }
     }
 
     const updated = await Product.findOneAndUpdate(
@@ -243,7 +287,7 @@ async function getWarehouseInventoryStats(req, res, next) {
 async function getAllProducts(req, res, next) {
   try {
     const products = await Product.find()
-      .populate("LC", "basic_info.lc_number basic_info.supplier_name financial_info.lc_amount_bdt")
+      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1, "financialInfo.lcAmountBdt": 1 })
       .populate("warehouse", "name location")
       .populate("category", "name description");
 
@@ -259,11 +303,11 @@ async function getStockStatus(_, res, next) {
   try {
     const lowStock = await Product.find({ quantity: { $gt: 0, $lt: 20 } })
       .populate("warehouse", "name location")
-      .populate("LC", "basic_info.lc_number basic_info.supplier_name");
+      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1 });
 
     const outOfStock = await Product.find({ quantity: 0 })
       .populate("warehouse", "name location")
-      .populate("LC", "basic_info.lc_number basic_info.supplier_name");
+      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1 });
 
     return res
       .status(200)

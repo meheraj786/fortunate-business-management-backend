@@ -12,6 +12,7 @@ const {
   getTotalLCCount,
   downloadDocument, 
   exportLCAsPDF,
+  getLCSummary, // Import the new function
 } = require("../../controllers/lc.controller");
 
 const lcRoutes = express.Router();
@@ -30,5 +31,8 @@ lcRoutes.get("/export-lc/:id", exportLCAsPDF);
 // New routes for LC counts
 lcRoutes.get("/counts/status", getLCCountsByStatus); // Get all status counts
 lcRoutes.get("/counts/total", getTotalLCCount); // Get total LC count
+
+// New route for LC summary
+lcRoutes.get("/summary", getLCSummary); // Get summary of all LCs
 
 module.exports = lcRoutes;

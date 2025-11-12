@@ -218,46 +218,61 @@ exports.updateTransaction = async (req, res, next) => {
     if (dailyCash.isClosed)
       return next(new ApiError(400, "Daily cash is closed for this date"));
 
-    let list = type === "income" ? dailyCash.incomeList : dailyCash.expenseList;
-    const index = list.findIndex((item) => item._id.toString() === id);
-    if (index === -1) return next(new ApiError(404, "Transaction not found"));
+    const incomeIndex = dailyCash.incomeList.findIndex((item) => item._id.toString() === id);
+    const expenseIndex = dailyCash.expenseList.findIndex((item) => item._id.toString() === id);
 
-    const oldAmount = list[index].amount;
-
-    if (type === "income") {
-      dailyCash.totalIncome -= oldAmount;
-      dailyCash.totalIncome += amount;
-      dailyCash.runningBalance += amount - oldAmount;
-    } else {
-      dailyCash.totalExpense -= oldAmount;
-      dailyCash.totalExpense += amount;
-      dailyCash.runningBalance -= amount - oldAmount;
+    if (incomeIndex === -1 && expenseIndex === -1) {
+      return next(new ApiError(404, "Transaction not found"));
     }
 
-    list[index] = {
-      ...list[index]._doc,
-      category: category ?? list[index].category,
-      description: description ?? list[index].description,
-      amount: amount ?? list[index].amount,
-      lcId: lcId ?? list[index].lcId,
-      time: new Date().toLocaleTimeString(),
-    };
+    const originalType = incomeIndex !== -1 ? 'income' : 'expense';
+    if (type && type !== originalType) {
+      return next(new ApiError(400, `Cannot change transaction type. Original type was '${originalType}'.`));
+    }
 
-    if (type === "expense" && category === "lc" && lcId) {
-      const LC = require("../models/lc.model");
-      await LC.findByIdAndUpdate(
-        lcId,
-        {
-          $push: {
-            expenses: {
-              description: description ?? list[index].description,
-              amount: amount ?? list[index].amount,
-              date: new Date(),
+    if (originalType === 'income') {
+      const oldAmount = dailyCash.incomeList[incomeIndex].amount;
+      dailyCash.totalIncome = dailyCash.totalIncome - oldAmount + amount;
+      dailyCash.runningBalance = dailyCash.runningBalance - oldAmount + amount;
+      
+      dailyCash.incomeList[incomeIndex] = {
+        ...dailyCash.incomeList[incomeIndex]._doc,
+        category: category ?? dailyCash.incomeList[incomeIndex].category,
+        description: description ?? dailyCash.incomeList[incomeIndex].description,
+        amount: amount ?? dailyCash.incomeList[incomeIndex].amount,
+        lcId: lcId ?? dailyCash.incomeList[incomeIndex].lcId,
+        time: new Date().toLocaleTimeString(),
+      };
+    } else { // originalType is 'expense'
+      const oldAmount = dailyCash.expenseList[expenseIndex].amount;
+      dailyCash.totalExpense = dailyCash.totalExpense - oldAmount + amount;
+      dailyCash.runningBalance = dailyCash.runningBalance + oldAmount - amount;
+
+      dailyCash.expenseList[expenseIndex] = {
+        ...dailyCash.expenseList[expenseIndex]._doc,
+        category: category ?? dailyCash.expenseList[expenseIndex].category,
+        description: description ?? dailyCash.expenseList[expenseIndex].description,
+        amount: amount ?? dailyCash.expenseList[expenseIndex].amount,
+        lcId: lcId ?? dailyCash.expenseList[expenseIndex].lcId,
+        time: new Date().toLocaleTimeString(),
+      };
+
+      if (category === "lc" && lcId) {
+        const LC = require("../models/lc.model");
+        await LC.findByIdAndUpdate(
+          lcId,
+          {
+            $push: {
+              expenses: {
+                description: description ?? dailyCash.expenseList[expenseIndex].description,
+                amount: amount ?? dailyCash.expenseList[expenseIndex].amount,
+                date: new Date(),
+              },
             },
           },
-        },
-        { new: true }
-      );
+          { new: true }
+        );
+      }
     }
 
     await dailyCash.save();

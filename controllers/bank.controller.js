@@ -19,8 +19,22 @@ async function createAccount(req, res, next) {
       routingNumber,
     } = req.body;
 
-    if (!accountType || !accountName) {
-      return next(new ApiError(400, "Account type and name are required"));
+    const validationErrors = [];
+    if (!accountType) {
+      validationErrors.push({
+        field: "accountType",
+        message: "Account type is required",
+      });
+    }
+    if (!accountName) {
+      validationErrors.push({
+        field: "accountName",
+        message: "Account name is required",
+      });
+    }
+
+    if (validationErrors.length > 0) {
+      return next(new ApiError(400, "Validation failed", validationErrors));
     }
 
     const account = await BankAccount.create({

@@ -9,10 +9,14 @@ async function generateInvoice(req, res, next) {
     const { saleId } = req.body;
 
     if (!saleId) {
-      return next(new ApiError(400, "Sale ID is required"));
+      return next(
+        new ApiError(400, "Validation failed", [
+          { field: "saleId", message: "Sale ID is required" },
+        ])
+      );
     }
 
-    const sale = await Sales.findById(saleId).populate("product category");
+    const sale = await Sales.findById(saleId).populate("product category unit");
 
     if (!sale) {
       return next(new ApiError(404, "Sale not found"));
@@ -21,6 +25,21 @@ async function generateInvoice(req, res, next) {
     if (sale.invoiceStatus !== "Invoiced") {
       return next(
         new ApiError(400, "Invoice can only be generated for confirmed sales.")
+      );
+    }
+
+    // Find the most recent invoice for this sale to check for changes.
+    const latestInvoice = await Invoice.findOne({ salesId: sale._id }).sort({
+      createdAt: -1,
+    });
+
+    // If an invoice already exists, check if the sale has been updated since.
+    if (latestInvoice && sale.updatedAt <= latestInvoice.createdAt) {
+      return next(
+        new ApiError(
+          400,
+          "No changes detected since the last invoice was generated. A new invoice will not be created."
+        )
       );
     }
 
@@ -77,7 +96,7 @@ async function generateInvoice(req, res, next) {
 
 async function getAllInvoices(req, res, next) {
   try {
-    const invoices = await Invoice.find().sort({ createdAt: -1 });
+    const invoices = await Invoice.find().populate("productDetails.unit").sort({ createdAt: -1 });
     return res
       .status(200)
       .json(new ApiResponse(200, invoices, "Invoices fetched successfully"));
@@ -89,7 +108,7 @@ async function getAllInvoices(req, res, next) {
 async function getInvoiceById(req, res, next) {
   try {
     const { id } = req.params;
-    const invoice = await Invoice.findById(id);
+    const invoice = await Invoice.findById(id).populate("productDetails.unit");
 
     if (!invoice) {
       return next(new ApiError(404, "Invoice not found"));
@@ -106,7 +125,7 @@ async function getInvoiceById(req, res, next) {
 async function getInvoicesBySaleId(req, res, next) {
   try {
     const { saleId } = req.params;
-    const invoices = await Invoice.find({ salesId: saleId }).sort({
+    const invoices = await Invoice.find({ salesId: saleId }).populate("productDetails.unit").sort({
       createdAt: -1,
     });
 

@@ -15,13 +15,31 @@ async function createTransaction(req, res, next) {
       reference,
     } = req.body;
 
-    if (!bankAccountId || !date || !description || !type || !amount) {
-      return next(
-        new ApiError(
-          400,
-          "Bank account, date, description, type, and amount are required"
-        )
-      );
+    const validationErrors = [];
+    if (!bankAccountId) {
+      validationErrors.push({
+        field: "bankAccount",
+        message: "Bank account is required",
+      });
+    }
+    if (!date) {
+      validationErrors.push({ field: "date", message: "Date is required" });
+    }
+    if (!description) {
+      validationErrors.push({
+        field: "description",
+        message: "Description is required",
+      });
+    }
+    if (!type) {
+      validationErrors.push({ field: "type", message: "Type is required" });
+    }
+    if (!amount) {
+      validationErrors.push({ field: "amount", message: "Amount is required" });
+    }
+
+    if (validationErrors.length > 0) {
+      return next(new ApiError(400, "Validation failed", validationErrors));
     }
 
     const bankAccount = await BankAccount.findById(bankAccountId);
@@ -117,10 +135,26 @@ async function getTransactionsByAccountId(req, res, next) {
 async function deleteTransaction(req, res, next) {
   try {
     const { id } = req.params;
-    const transaction = await Transaction.findByIdAndDelete(id);
+    const transaction = await Transaction.findById(id);
 
     if (!transaction) {
       return next(new ApiError(404, "Transaction not found"));
+    }
+
+    // Prevent deletion if the transaction is not a manual entry
+    if (transaction.source !== "Manual Entry") {
+      return next(
+        new ApiError(
+          400,
+          `Cannot delete an automatic transaction. This transaction originated from '${transaction.source}'.`
+        )
+      );
+    }
+
+    const deletedTransaction = await Transaction.findByIdAndDelete(id);
+    if (!deletedTransaction) {
+      // This case is unlikely if the first findById succeeded, but it's good practice
+      return next(new ApiError(404, "Transaction not found for deletion"));
     }
 
     const bankAccount = await BankAccount.findById(transaction.bankAccount);
@@ -135,7 +169,7 @@ async function deleteTransaction(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, transaction, "Transaction deleted successfully"));
+      .json(new ApiResponse(200, deletedTransaction, "Transaction deleted successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }

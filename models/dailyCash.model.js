@@ -39,7 +39,7 @@ const incomeSchema = new mongoose.Schema({
   },
   lcId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Lc",
+    ref: "LC",
   },
   sales: {
     type: mongoose.Schema.Types.ObjectId,
@@ -85,7 +85,7 @@ const expenseSchema = new mongoose.Schema({
   },
   lcId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Lc",
+    ref: "LC",
   },
   sales: {
     type: mongoose.Schema.Types.ObjectId,

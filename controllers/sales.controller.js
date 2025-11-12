@@ -1,6 +1,7 @@
 const Sales = require("../models/sales.model");
 const Product = require("../models/product.model");
 const Customer = require("../models/customer.model");
+const Unit = require("../models/unit.model"); // Import Unit model
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
@@ -73,27 +74,76 @@ async function createSale(req, res, next) {
       saleDate,
     } = req.body;
 
-    if (
-      !productId ||
-      !customerInfo ||
-      !customerInfo.name ||
-      !warehouse ||
-      !category ||
-      !quantity ||
-      !unit ||
-      !pricePerUnit
-    ) {
-      throw new ApiError(400, "Required fields are missing");
+    const validationErrors = [];
+    if (!productId)
+      validationErrors.push({
+        field: "product",
+        message: "Product ID is required",
+      });
+    if (!customerInfo || !customerInfo.name)
+      validationErrors.push({
+        field: "customer.name",
+        message: "Customer name is required",
+      });
+    if (!warehouse)
+      validationErrors.push({
+        field: "warehouse",
+        message: "Warehouse is required",
+      });
+    if (!category)
+      validationErrors.push({
+        field: "category",
+        message: "Category is required",
+      });
+    if (!quantity)
+      validationErrors.push({
+        field: "quantity",
+        message: "Quantity is required",
+      });
+    if (!unit)
+      validationErrors.push({ field: "unit", message: "Unit is required" });
+    if (!pricePerUnit)
+      validationErrors.push({
+        field: "pricePerUnit",
+        message: "Price per unit is required",
+      });
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, "Validation failed", validationErrors);
     }
 
-    const sellingProduct = await Product.findById(productId).session(session);
+    const sellingProduct = await Product.findById(productId).session(session).populate('unit');
     if (!sellingProduct) {
       throw new ApiError(400, "Product not found");
     }
 
-    if (sellingProduct.quantity < quantity) {
+    const saleUnit = await Unit.findById(unit).session(session);
+    if (!saleUnit) {
+      throw new ApiError(400, "Sale unit not found");
+    }
+
+    // Check if units are compatible (same type)
+    if (sellingProduct.unit.type !== saleUnit.type) {
+      throw new ApiError(
+        400,
+        `Cannot sell product. Incompatible units: Product is in '${sellingProduct.unit.type}' while sale is in '${saleUnit.type}'.`
+      );
+    }
+
+    // Calculate the quantity to deduct from stock in the product's base unit
+    // First, convert the sale quantity to the common base unit (e.g., grams for weight, pieces for count)
+    const saleQuantityInBaseUnit = quantity * saleUnit.conversionFactor;
+
+    // Then, convert the product's current stock quantity to the common base unit
+    const productStockInBaseUnit = sellingProduct.quantity * sellingProduct.unit.conversionFactor;
+
+    // Now, check if there's enough stock in the common base unit
+    if (productStockInBaseUnit < saleQuantityInBaseUnit) {
       throw new ApiError(400, "Not enough product in stock");
     }
+
+    // Calculate the actual quantity to deduct from the product's stock (in its own unit)
+    const quantityToDeductFromProduct = saleQuantityInBaseUnit / sellingProduct.unit.conversionFactor;
 
     const finalCustomerInfo = {
       name: customerInfo.name,
@@ -174,7 +224,7 @@ async function createSale(req, res, next) {
 
     await Product.findByIdAndUpdate(
       productId,
-      { $inc: { quantity: -quantity } },
+      { $inc: { quantity: -quantityToDeductFromProduct } },
       { new: true, session }
     );
 
@@ -207,7 +257,10 @@ async function getAllSales(_, res, next) {
       .populate({
         path: "product",
         select: "name category unit LC",
-        populate: { path: "LC", select: "basic_info.lc_number" },
+        populate: [
+          { path: "LC", select: "basicInfo.lcNumber" },
+          { path: "unit", select: "name type conversionFactor" }
+        ]
       })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
@@ -232,7 +285,10 @@ async function getSaleById(req, res, next) {
       .populate({
         path: "product",
         select: "name category unit LC",
-        populate: { path: "LC", select: "basic_info.lc_number" },
+        populate: [
+          { path: "LC", select: "basicInfo.lcNumber" },
+          { path: "unit", select: "name type conversionFactor" }
+        ]
       })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
@@ -258,25 +314,54 @@ async function updateSale(req, res, next) {
     const updateData = req.body;
     console.log(updateData);
 
-    const sale = await Sales.findById(id);
+    const sale = await Sales.findById(id).populate('unit').populate({
+      path: 'product',
+      populate: {
+        path: 'unit'
+      }
+    });
     if (!sale) {
       return next(new ApiError(404, "Sale not found"));
     }
 
     // Adjust product stock if quantity changes
     if (updateData.quantity && updateData.quantity !== sale.quantity) {
-      const product = await Product.findById(sale.product);
+      const product = sale.product; // Product is already populated
       if (!product) {
         return next(new ApiError(404, "Associated product not found"));
       }
-      const quantityChange = updateData.quantity - sale.quantity;
-      if (product.quantity < quantityChange) {
+
+      // Check if units are compatible (same type)
+      if (product.unit.type !== sale.unit.type) {
         return next(
-          new ApiError(400, "Not enough product in stock for update")
+          new ApiError(
+            400,
+            `Cannot update sale. Incompatible units: Product is in '${product.unit.type}' while sale is in '${sale.unit.type}'.`
+          )
         );
       }
-      await Product.findByIdAndUpdate(sale.product, {
-        $inc: { quantity: -quantityChange },
+
+      // Calculate old and new sale quantities in a common base unit
+      const oldSaleQuantityInBaseUnit = sale.quantity * sale.unit.conversionFactor;
+      const newSaleQuantityInBaseUnit = updateData.quantity * sale.unit.conversionFactor;
+
+      // Determine the net change in base units
+      const netChangeInBaseUnit = newSaleQuantityInBaseUnit - oldSaleQuantityInBaseUnit;
+
+      // Convert this net change to the product's unit
+      const quantityChangeInProductUnit = netChangeInBaseUnit / product.unit.conversionFactor;
+
+      // If quantityChangeInProductUnit is positive, it means we are increasing the sale quantity,
+      // so we need to check if there's enough stock to deduct more.
+      // If it's negative, we are decreasing the sale quantity, so stock will be returned.
+      if (quantityChangeInProductUnit > 0 && product.quantity < quantityChangeInProductUnit) {
+        return next(
+          new ApiError(400, "Not enough product in stock for this quantity increase")
+        );
+      }
+
+      await Product.findByIdAndUpdate(product._id, {
+        $inc: { quantity: -quantityChangeInProductUnit },
       });
     }
 
@@ -312,16 +397,44 @@ async function deleteSale(req, res, next) {
   try {
     const { id } = req.params;
 
-    const deletedSale = await Sales.findByIdAndDelete(id);
+    const deletedSale = await Sales.findByIdAndDelete(id).populate('unit').populate({
+      path: 'product',
+      populate: {
+        path: 'unit'
+      }
+    });
 
     if (!deletedSale) {
       return next(new ApiError(404, "Sale not found"));
     }
 
-    // Restore product quantity
-    await Product.findByIdAndUpdate(deletedSale.product, {
-      $inc: { quantity: deletedSale.quantity },
-    });
+    // Restore product quantity with unit conversion
+    if (deletedSale.product && deletedSale.unit) {
+      const product = deletedSale.product; // Product is already populated
+      const saleUnit = deletedSale.unit; // Sale unit is already populated
+
+      // Check if units are compatible (same type)
+      if (product.unit.type !== saleUnit.type) {
+        // Log an error or handle this case, as it indicates a data inconsistency
+        console.error(
+          `Data inconsistency: Product unit type (${product.unit.type}) does not match sale unit type (${saleUnit.type}) during sale deletion.`
+        );
+        // Proceed with a direct quantity restoration as a fallback, or throw an error
+        await Product.findByIdAndUpdate(product._id, {
+          $inc: { quantity: deletedSale.quantity },
+        });
+      } else {
+        // Convert the deleted sale quantity to the product's base unit
+        const deletedSaleQuantityInBaseUnit = deletedSale.quantity * saleUnit.conversionFactor;
+
+        // Convert this quantity to the product's unit
+        const quantityToRestoreToProduct = deletedSaleQuantityInBaseUnit / product.unit.conversionFactor;
+
+        await Product.findByIdAndUpdate(product._id, {
+          $inc: { quantity: quantityToRestoreToProduct },
+        });
+      }
+    }
 
     // Reverse financial transactions and delete them
     for (const payment of deletedSale.payments) {
@@ -387,7 +500,10 @@ async function getAll_not_invoices(req, res, next) {
       .populate({
         path: "product",
         select: "name category unit LC",
-        populate: { path: "LC", select: "basic_info.lc_number" },
+        populate: [
+          { path: "LC", select: "basicInfo.lcNumber" },
+          { path: "unit", select: "name type conversionFactor" }
+        ]
       })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
@@ -412,7 +528,10 @@ async function getAll_paid_invoices(req, res, next) {
       .populate({
         path: "product",
         select: "name category unit LC",
-        populate: { path: "LC", select: "basic_info.lc_number" },
+        populate: [
+          { path: "LC", select: "basicInfo.lcNumber" },
+          { path: "unit", select: "name type conversionFactor" }
+        ]
       })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
@@ -437,7 +556,10 @@ async function getAll_due_invoices(req, res, next) {
       .populate({
         path: "product",
         select: "name category unit LC",
-        populate: { path: "LC", select: "basic_info.lc_number" },
+        populate: [
+          { path: "LC", select: "basicInfo.lcNumber" },
+          { path: "unit", select: "name type conversionFactor" }
+        ]
       })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
@@ -459,7 +581,10 @@ async function getAll_cancelled_invoices(req, res, next) {
       .populate({
         path: "product",
         select: "name category unit LC",
-        populate: { path: "LC", select: "basic_info.lc_number" },
+        populate: [
+          { path: "LC", select: "basicInfo.lcNumber" },
+          { path: "unit", select: "name type conversionFactor" }
+        ]
       })
       .populate("customer.customerId", "name phone location")
       .populate("warehouse", "name")
@@ -535,8 +660,25 @@ async function addPartialPayment(req, res, next) {
     const { id } = req.params;
     const { amount, date, method, bankAccount: bankAccountId } = req.body;
 
-    if (!amount || !date || !method) {
-      throw new ApiError(400, "Amount, date, and method are required");
+    const validationErrors = [];
+    if (!amount)
+      validationErrors.push({ field: "amount", message: "Amount is required" });
+    if (!date)
+      validationErrors.push({ field: "date", message: "Date is required" });
+    if (!method)
+      validationErrors.push({ field: "method", message: "Method is required" });
+    if (
+      (method === "bank" || method === "mobile-banking") &&
+      !bankAccountId
+    ) {
+      validationErrors.push({
+        field: "bankAccount",
+        message: "Bank account is required for this payment method",
+      });
+    }
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, "Validation failed", validationErrors);
     }
 
     const sale = await Sales.findById(id).session(session);
@@ -547,12 +689,6 @@ async function addPartialPayment(req, res, next) {
     const payment = { amount, date, method };
 
     if (method === "bank" || method === "mobile-banking") {
-      if (!bankAccountId) {
-        throw new ApiError(
-          400,
-          "Bank account is required for this payment method"
-        );
-      }
       const bankAccount = await BankAccount.findById(bankAccountId).session(
         session
       );
@@ -627,7 +763,10 @@ async function getSalesByCustomerId(req, res, next) {
       .populate({
         path: "product",
         select: "name category unit LC",
-        populate: { path: "LC", select: "basic_info.lc_number" },
+        populate: [
+          { path: "LC", select: "basicInfo.lcNumber" },
+          { path: "unit", select: "name type conversionFactor" }
+        ]
       })
       .populate("warehouse", "name")
       .populate("category", "name")
@@ -651,28 +790,16 @@ async function getSalesByCustomerId(req, res, next) {
   }
 }
 
-module.exports = {
-  createSale,
-  getAllSales,
-  getSaleById,
-  updateSale,
-  deleteSale,
-  getSalesSummary,
-  getAll_cancelled_invoices,
-  getAll_due_invoices,
-  getAll_paid_invoices,
-  getAll_not_invoices,
-  getAll_invoices_status_count,
-  addPartialPayment,
-  cancelSale,
-  getSalesByCustomerId,
-};
-
 async function cancelSale(req, res, next) {
   try {
     const { id } = req.params;
 
-    const saleToCancel = await Sales.findById(id);
+    const saleToCancel = await Sales.findById(id).populate('unit').populate({
+      path: 'product',
+      populate: {
+        path: 'unit'
+      }
+    });
 
     if (!saleToCancel) {
       return next(new ApiError(404, "Sale not found"));
@@ -703,10 +830,33 @@ async function cancelSale(req, res, next) {
       }
     }
 
-    // Restore product quantity
-    await Product.findByIdAndUpdate(saleToCancel.product, {
-      $inc: { quantity: saleToCancel.quantity },
-    });
+    // Restore product quantity with unit conversion
+    if (saleToCancel.product && saleToCancel.unit) {
+      const product = saleToCancel.product; // Product is already populated
+      const saleUnit = saleToCancel.unit; // Sale unit is already populated
+
+      // Check if units are compatible (same type)
+      if (product.unit.type !== saleUnit.type) {
+        // Log an error or handle this case, as it indicates a data inconsistency
+        console.error(
+          `Data inconsistency: Product unit type (${product.unit.type}) does not match sale unit type (${saleUnit.type}) during sale cancellation.`
+        );
+        // Proceed with a direct quantity restoration as a fallback, or throw an error
+        await Product.findByIdAndUpdate(product._id, {
+          $inc: { quantity: saleToCancel.quantity },
+        });
+      } else {
+        // Convert the cancelled sale quantity to the product's base unit
+        const cancelledSaleQuantityInBaseUnit = saleToCancel.quantity * saleUnit.conversionFactor;
+
+        // Convert this quantity to the product's unit
+        const quantityToRestoreToProduct = cancelledSaleQuantityInBaseUnit / product.unit.conversionFactor;
+
+        await Product.findByIdAndUpdate(product._id, {
+          $inc: { quantity: quantityToRestoreToProduct },
+        });
+      }
+    }
 
     // Remove sale from customer's transactions if it's a registered customer
     if (saleToCancel.customer && saleToCancel.customer.customerId) {
@@ -722,6 +872,74 @@ async function cancelSale(req, res, next) {
     return res
       .status(200)
       .json(new ApiResponse(200, saleToCancel, "Sale cancelled successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
+
+module.exports = {
+  createSale,
+  getAllSales,
+  getSaleById,
+  updateSale,
+  deleteSale,
+  getSalesSummary,
+  getAll_cancelled_invoices,
+  getAll_due_invoices,
+  getAll_paid_invoices,
+  getAll_not_invoices,
+  getAll_invoices_status_count,
+  addPartialPayment,
+  cancelSale,
+  getSalesByCustomerId,
+  getSalesSummaryForTable, // Export the new function
+};
+
+async function getSalesSummaryForTable(req, res, next) {
+  try {
+    const sales = await Sales.find()
+      .populate({
+        path: "product",
+        select: "name LC unit", // Select product name, LC, and unit
+        populate: [
+          { path: "LC", select: "basicInfo.lcNumber" }, // Populate LC and select lcNumber
+          { path: "unit", select: "name" }, // Populate product's unit and select name
+        ],
+      })
+      .populate("customer.customerId", "name") // Populate registered customer and select name
+      .populate("unit", "name") // Populate sale's unit and select name
+      .select(
+        "_id quantity pricePerUnit totalAmount customer invoiceStatus paymentStatus saleDate"
+      )
+      .sort({ saleDate: -1 });
+
+    const formattedSales = sales.map((sale) => ({
+      _id: sale._id,
+      product: {
+        name: sale.product?.name,
+        lcNumber: sale.product?.LC?.basicInfo?.lcNumber || "N/A",
+      },
+      quantity: sale.quantity,
+      unit: sale.unit?.name || "N/A", // Use the populated sale unit name
+      pricePerUnit: sale.pricePerUnit,
+      totalAmount: sale.totalAmount,
+      customer: {
+        name: sale.customer?.customerId?.name || sale.customer?.name, // Prefer registered customer name, fallback to temporary
+      },
+      invoiceStatus: sale.invoiceStatus,
+      paymentStatus: sale.paymentStatus,
+      saleDate: sale.saleDate,
+    }));
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          formattedSales,
+          "Sales summary for table fetched successfully"
+        )
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }

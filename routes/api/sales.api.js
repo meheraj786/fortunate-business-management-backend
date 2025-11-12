@@ -14,6 +14,7 @@ const {
   addPartialPayment,
   cancelSale,
   getSalesByCustomerId,
+  getSalesSummaryForTable, // Import the new function
 } = require("../../controllers/sales.controller");
 const salesRoutes = express.Router();
 
@@ -33,5 +34,8 @@ salesRoutes.get("/get-all-due-invoices", getAll_due_invoices);
 salesRoutes.get("/get-all-cancelled-invoices", getAll_cancelled_invoices);
 salesRoutes.get("/get-all-invoices-status-count", getAll_invoices_status_count);
 salesRoutes.post("/:id/payments", addPartialPayment);
+
+// New route for sales summary table
+salesRoutes.get("/summary-for-table", getSalesSummaryForTable);
 
 module.exports = salesRoutes;

@@ -5,10 +5,22 @@ const { ApiResponse } = require("../utils/ApiResponse");
 exports.createCategory = async (req, res, next) => {
   try {
     const { name, description } = req.body;
-    if (!name) return next(new ApiError(400, "Category name is required"));
+    if (!name) {
+      return next(
+        new ApiError(400, "Validation failed", [
+          { field: "name", message: "Category name is required" },
+        ])
+      );
+    }
 
     const existing = await Category.findOne({ name: name.trim() });
-    if (existing) return next(new ApiError(400, "Category already exists"));
+    if (existing) {
+      return next(
+        new ApiError(400, "Validation failed", [
+          { field: "name", message: "Category already exists" },
+        ])
+      );
+    }
 
     const category = await Category.create({ name: name.trim(), description });
     res

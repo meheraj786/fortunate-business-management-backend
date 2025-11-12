@@ -67,7 +67,7 @@ const salesSchema = new mongoose.Schema(
       required: true,
     },
     quantity: { type: Number, required: true, min: 0 },
-    unit: { type: String, trim: true, required: true },
+    unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
     pricePerUnit: { type: Number, required: true, min: 0 },
     totalAmount: { type: Number, required: true },
     deliveryCharge: { type: Number, default: 0 },
@@ -77,7 +77,7 @@ const salesSchema = new mongoose.Schema(
     invoiceStatus: {
       type: String,
       enum: ["Not-invoiced", "Invoiced", "Cancelled"],
-      default: "Not invoiced",
+      default: "Not-invoiced",
     },
     paymentStatus: {
       type: String,

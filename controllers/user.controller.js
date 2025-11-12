@@ -7,13 +7,31 @@ const registerUser = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
 
-    if (!name || !email || !password) {
-      return next(new ApiError(400, "All fields are required"));
+    const validationErrors = [];
+    if (!name)
+      validationErrors.push({ field: "name", message: "Name is required" });
+    if (!email)
+      validationErrors.push({ field: "email", message: "Email is required" });
+    if (!password)
+      validationErrors.push({
+        field: "password",
+        message: "Password is required",
+      });
+
+    if (validationErrors.length > 0) {
+      return next(new ApiError(400, "Validation failed", validationErrors));
     }
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return next(new ApiError(409, "User already exists with this email"));
+      return next(
+        new ApiError(409, "User already exists", [
+          {
+            field: "email",
+            message: "User already exists with this email",
+          },
+        ])
+      );
     }
 
     const user = new User(req.body);
@@ -30,8 +48,17 @@ const registerUser = async (req, res, next) => {
 const loginUser = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
-      return next(new ApiError(400, "Email and password are required"));
+    const validationErrors = [];
+    if (!email)
+      validationErrors.push({ field: "email", message: "Email is required" });
+    if (!password)
+      validationErrors.push({
+        field: "password",
+        message: "Password is required",
+      });
+
+    if (validationErrors.length > 0) {
+      return next(new ApiError(400, "Validation failed", validationErrors));
     }
 
     const user = await User.findOne({ email }).select("+password");
@@ -48,7 +75,7 @@ const loginUser = async (req, res, next) => {
 
     res.cookie("accessToken", token, {
       httpOnly: true,
-      secure: false,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
     });
 
@@ -65,7 +92,7 @@ const logoutUser = async (_, res, next) => {
   try {
     res.clearCookie("accessToken", {
       httpOnly: true,
-      secure: "production",
+      secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
     });
 

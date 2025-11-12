@@ -1,0 +1,127 @@
+Backend API and Data Model Updates for "Unit of Measure" Feature
+================================================================
+
+Overview
+--------
+The backend has been updated to support a robust "Unit of Measure" system. Products and Sales no longer use simple strings for units (e.g., "KG", "PCS"). Instead, they now reference a new, dedicated "Unit" entity. This allows for flexible unit conversions (e.g., selling in Grams from a stock kept in KGs) and better data integrity.
+
+---
+
+1. New API Endpoint: `/api/unit`
+---------------------------------
+A new set of CRUD endpoints has been created to manage units.
+
+- `POST /api/unit/create`
+  - **Description:** Creates a new unit of measure.
+  - **Request Body:**
+    ```json
+    {
+      "name": "Kilogram",
+      "type": "Weight",
+      "conversionFactor": 1000
+    }
+    ```
+
+- `GET /api/unit/get`
+  - **Description:** Fetches all available units.
+
+- `GET /api/unit/get/:id`
+  - **Description:** Fetches a single unit by its ID.
+
+- `PUT /api/unit/update/:id`
+  - **Description:** Updates an existing unit.
+  - **Request Body:** Same as create.
+
+- `DELETE /api/unit/delete/:id`
+  - **Description:** Deletes a unit.
+
+---
+
+2. New Data Model: `Unit`
+-------------------------
+This is the new model for all units of measure.
+
+- **`_id`** (ObjectId): The unique identifier for the unit.
+- **`name`** (String): The display name of the unit (e.g., "Kilogram", "Piece", "Dozen").
+- **`type`** (String): The category of measurement. All conversions happen between units of the same type.
+  - Examples: "Weight", "Count", "Volume", "Length".
+- **`conversionFactor`** (Number): The multiplier to convert this unit to the base unit of its `type`.
+  - For `type: 'Weight'`, the base is 1 Gram. (e.g., KG has a factor of 1000).
+  - For `type: 'Count'`, the base is 1 Piece. (e.g., Dozen has a factor of 12).
+
+---
+
+3. Modified Data Models & API Responses
+---------------------------------------
+
+### Product Model
+- The `product.unit` field is **no longer a string**. It is now an **ObjectId** that references a document in the new `Unit` collection.
+- When you fetch a product, the `unit` field will be populated with the full Unit object.
+
+**Example `GET /api/warehouse/:warehouseId/product/:productId` Response:**
+```json
+{
+  "_id": "...",
+  "name": "Steel Coil",
+  "quantity": 500,
+  "unit": {
+    "_id": "63f8b... (unit's ID)",
+    "name": "Kilogram",
+    "type": "Weight",
+    "conversionFactor": 1000
+  },
+  "warehouse": "...",
+  // ... other product fields
+}
+```
+
+### Sales Model
+- The `sales.unit` field is **no longer a string**. It is now an **ObjectId** referencing a `Unit` document.
+- When you fetch sales, the `product.unit` field will be populated.
+
+**Example `GET /api/sales/get` Response (one item from the array):**
+```json
+{
+  "_id": "...",
+  "quantity": 5,
+  "unit": "63f8c... (ID of the unit used for the sale)",
+  "product": {
+    "_id": "...",
+    "name": "Steel Coil",
+    "unit": {
+      "_id": "63f8b... (unit's ID)",
+      "name": "Kilogram",
+      "type": "Weight",
+      "conversionFactor": 1000
+    }
+  },
+  // ... other sales fields
+}
+```
+
+---
+
+4. Modified API Behavior
+------------------------
+
+### Creating/Updating a Product
+- When creating a product (`POST /api/warehouse/:warehouseId/product/create`), the `unit` field in the request body **must be a valid `_id`** from the `Unit` collection.
+
+**Example Request Body:**
+```json
+{
+  "name": "Steel Coil",
+  "category": "63f8a...",
+  "LC": "63f8a...",
+  "quantity": 500,
+  "unit": "63f8b... (ID of the 'Kilogram' unit)",
+  "unitPrice": 120,
+  "warehouse": "63f8a..."
+}
+```
+
+### Creating a Sale
+- When creating a sale (`POST /api/sales/create`), the `unit` field in the request body **must be a valid `_id`** from the `Unit` collection.
+- **New Validation:** The backend now checks if the `type` of the sale unit is compatible with the `type` of the product's stock unit.
+  - **Success:** Selling a product stocked in 'Kilogram' (Weight) using 'Gram' (Weight) as the sale unit.
+  - **Failure (400 Bad Request):** Selling a product stocked in 'Kilogram' (Weight) using 'Piece' (Count) as the sale unit. The API will return an error message like: `"Cannot sell product. Incompatible units: Product is in 'Weight' while sale is in 'Count'."`
