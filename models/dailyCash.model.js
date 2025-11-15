@@ -47,7 +47,7 @@ const incomeSchema = new mongoose.Schema({
   },
 });
 
-const expenseSchema = new mongoose.Schema({
+ const expenseSchema = new mongoose.Schema({
   category: {
     type: String,
     required: true,
@@ -129,3 +129,4 @@ const dailyCashSchema = new mongoose.Schema(
 
 const DailyCash = mongoose.model("DailyCash", dailyCashSchema);
 module.exports = DailyCash;
+module.exports={expenseSchema}

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { expenseSchema } = require("./dailyCash.model");
 
 const specificationSchema = new mongoose.Schema({
   thickness_mm: { type: Number },
@@ -7,18 +8,19 @@ const specificationSchema = new mongoose.Schema({
   grade: { type: String, trim: true },
 });
 
-const otherExpenseSchema = new mongoose.Schema({
-  name: { type: String, trim: true, required: true },
-  amount: { type: Number, required: true },
-  date: { type: Date, default: Date.now },
-});
+const otherExpenseSchema = expenseSchema
 
 const lcSchema = new mongoose.Schema(
   {
     basicInfo: {
       lcNumber: { type: String, required: true, trim: true },
       lcOpeningDate: { type: Date, required: true },
-      status: { type: String, trim: true, required: true, enum: ["Draft", "Active", "Completed", "Cancelled"] },
+      status: {
+        type: String,
+        trim: true,
+        required: true,
+        enum: ["Draft", "Active", "Completed", "Cancelled"],
+      },
       bankName: { type: String, trim: true, required: true },
       supplierName: { type: String, trim: true, required: true },
       supplierCountry: { type: String, trim: true, required: true },
@@ -36,7 +38,11 @@ const lcSchema = new mongoose.Schema(
       {
         itemName: { type: String, trim: true, required: true },
         specification: specificationSchema,
-        quantityUnit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
+        quantityUnit: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Unit",
+          required: true,
+        },
         quantityValue: { type: Number, required: true },
         unitPriceUsd: { type: Number, required: true },
         totalValueUsd: { type: Number },
