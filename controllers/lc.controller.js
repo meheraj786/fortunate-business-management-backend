@@ -256,8 +256,6 @@ async function getAllCompletedLCs(_, res, next) {
   }
 }
 
-// Get total count of LCs grouped by status
-
 async function getLCCountsByStatus(req, res, next) {
   try {
     const counts = await LC.aggregate([
@@ -295,9 +293,7 @@ async function getLCCountsByStatus(req, res, next) {
   }
 }
 
-/**
- * Get total count of all LCs (regardless of status)
- */
+
 async function getTotalLCCount(req, res, next) {
   try {
     const totalCount = await LC.countDocuments();
@@ -377,6 +373,18 @@ async function exportLCAsPDF(req, res, next) {
     next(new ApiError(500, error.message));
   }
 }
+async function getActiveLcs(req,res,next){
+  try {
+    const lcs = await LC.find({ "basicInfo.status": /^Active$/i })
+      .populate("productInfo.quantityUnit", "name type conversionFactor")
+      .select("_id basicInfo.lcNumber basicInfo.status productInfo");
+    return res
+      .status(200)
+      .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
 
 module.exports = {
   createLC,
@@ -392,6 +400,7 @@ module.exports = {
   downloadDocument,
   exportLCAsPDF,
   getLCSummary,
+  getActiveLcs
 };
 
 async function getLCSummary(req, res, next) {
