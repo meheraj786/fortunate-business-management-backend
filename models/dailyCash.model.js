@@ -47,7 +47,7 @@ const incomeSchema = new mongoose.Schema({
   },
 });
 
- const expenseSchema = new mongoose.Schema({
+const expenseSchema = new mongoose.Schema({
   category: {
     type: String,
     required: true,
@@ -71,7 +71,7 @@ const incomeSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     required: true,
-    enum: ["bank", "mobile-banking", "cash"],
+    // enum: ["bank", "mobile-banking", "cash"],
   },
   bankNumber: {
     type: String,
@@ -128,5 +128,4 @@ const dailyCashSchema = new mongoose.Schema(
 );
 
 const DailyCash = mongoose.model("DailyCash", dailyCashSchema);
-module.exports = DailyCash;
-module.exports={expenseSchema}
+module.exports = { DailyCash, expenseSchema };

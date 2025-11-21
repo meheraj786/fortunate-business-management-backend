@@ -1,4 +1,4 @@
-const DailyCash = require("../models/dailyCash.model");
+const { DailyCash } = require("../models/dailyCash.model");
 const LC = require("../models/lc.model");
 const Sales = require("../models/sales.model");
 const { ApiError } = require("../utils/ApiError");
@@ -114,7 +114,10 @@ exports.addExpense = async (req, res, next) => {
       lcId,
       sales,
       date,
+      lcExpenseCategory
     } = req.body;
+
+    console.log(req.body)
 
     const selectedDate = new Date(date || new Date());
     selectedDate.setHours(0, 0, 0, 0);
@@ -150,21 +153,42 @@ exports.addExpense = async (req, res, next) => {
 
     dailyCash.expenseList.push(expense);
 
-    if (category === "lc" && lcId) {
-      const lc = await LC.findById(lcId);
-      if (!lc) return next(new ApiError(404, "LC not found"));
+if (category === "lc" && lcId) {
+  const lc = await LC.findById(lcId);
+  if (!lc) return next(new ApiError(404, "LC not found"));
 
-      lc.expenses.push({
-        description: description || "LC related expense",
-        amount,
-        date: new Date(),
-        paymentMethod,
-      });
+  // Create expense object matching expenseSchema exactly
+  const newExpense = {
+    category: "lc", // Must match the enum in expenseSchema
+    description: description || "LC related expense",
+    amount: Number(amount),
+    paymentMethod: paymentMethod || "cash", // Ensure it has a value
+    time: new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+    // Optional fields
+    ...(bankNumber && { bankNumber }),
+    ...(mobileBank && { mobileBank }),
+  };
 
-      await lc.save();
-    }
+  if (lcExpenseCategory === "financial") {
+    lc.financialInfo.otherExpenses.push(newExpense);
+  } 
+  else if (lcExpenseCategory === "shipping") {
+    lc.shippingCustomsInfo.otherExpenses.push(newExpense);
+  } 
+  else {
+    return next(new ApiError(400, "Invalid LC expense category"));
+  }
+
+  await lc.save();
+}
 
     await dailyCash.save();
+
+
 
     res
       .status(200)
