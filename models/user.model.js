@@ -32,7 +32,6 @@ const userSchema = new mongoose.Schema({
     default: "Not Provided",
   },
 
-  // The role name is just for display purposes, just a name.
   roleName: {
     type: String,
     default: "No Role",
@@ -59,6 +58,21 @@ const userSchema = new mongoose.Schema({
       type: String,
       default: null,
       enum: ["admin", "sales", "accounts", "customers"],
+    },
+  ],
+    access: [
+    {
+      module: {
+        type: String,
+        required: true,
+        enum: ["LC", "SALE", "CASH", "STOCK", "BANKING", "CUSTOMER"], 
+      },
+      permissions: [
+        {
+          type: String,
+          enum: ["CREATE", "READ", "UPDATE", "DELETE"], 
+        },
+      ],
     },
   ],
   warehouse: [
