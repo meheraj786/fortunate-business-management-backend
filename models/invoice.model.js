@@ -60,7 +60,7 @@ const invoiceSchema = new mongoose.Schema(
       totalAmountToBePaid: { type: Number, required: true },
       paymentStatus: {
         type: String,
-        enum: ["Paid Payment", "Due payment"],
+        enum: ["Paid payment", "Due payment"],
       },
       payments: [paymentSchema],
     },
