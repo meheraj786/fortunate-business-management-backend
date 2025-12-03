@@ -36,8 +36,9 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: "No Role",
     enum: [
-      "Admin",
-      "Manager",
+      "ADMIN",
+      "SUPER_ADMIN",
+      "MANAGER",
       "Warehouse Keeper",
       "Accountant",
       "Sales Executive",
@@ -70,7 +71,7 @@ const userSchema = new mongoose.Schema({
       permissions: [
         {
           type: String,
-          enum: ["CREATE", "READ", "UPDATE", "DELETE"], 
+          enum: ["CREATE", "GET", "UPDATE", "DELETE"], 
         },
       ],
     },
@@ -99,6 +100,7 @@ userSchema.methods.generateToken = function () {
     {
       _id: this._id,
       email: this.email,
+      role: this.roleName,
     },
     process.env.SECRET_KEY,
     {

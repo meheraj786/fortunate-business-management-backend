@@ -6,13 +6,15 @@ const {
   updateAccount,
   deleteAccount,
 } = require("../../controllers/bank.controller");
+const { authMiddleware } = require("../../middleware/auth.middleware");
+const authorize = require("../../middleware/authorize.middleware");
 
 const bankRoutes = express.Router();
 
-bankRoutes.post("/create-account", createAccount);
-bankRoutes.get("/get-all-accounts", getAllAccounts);
-bankRoutes.get("/get-account/:id", getAccountById);
-bankRoutes.patch("/update-account/:id", updateAccount);
-bankRoutes.delete("/delete-account/:id", deleteAccount);
+bankRoutes.post("/create-account", authMiddleware, authorize("BANK", "CREATE"), createAccount);
+bankRoutes.get("/get-all-accounts", authMiddleware, authorize("BANK", "GET"), getAllAccounts);
+bankRoutes.get("/get-account/:id", authMiddleware, authorize("BANK", "GET"), getAccountById);
+bankRoutes.patch("/update-account/:id", authMiddleware, authorize("BANK", "UPDATE"), updateAccount);
+bankRoutes.delete("/delete-account/:id", authMiddleware, authorize("BANK", "DELETE"), deleteAccount);
 
 module.exports = bankRoutes;

@@ -6,16 +6,17 @@ const {
   updateProductInWarehouse,
   deleteProductInWarehouse,
 } = require("../../controllers/product.controller");
+const { authMiddleware } = require("../../middleware/auth.middleware");
 
 // Note: This router is now intended to be mounted under a /warehouses/:warehouseId prefix
 // The 'mergeParams: true' option is crucial for accessing :warehouseId from the parent router
 const productRoutes = express.Router({ mergeParams: true });
 
 // Corresponds to POST /api/warehouses/:warehouseId/products
-productRoutes.post("/", createProductInWarehouse);
+productRoutes.post("/", authMiddleware,  createProductInWarehouse);
 
 // Corresponds to GET /api/warehouses/:warehouseId/products
-productRoutes.get("/", getProductsByWarehouse);
+productRoutes.get("/:warehouseId", getProductsByWarehouse);
 
 // Corresponds to GET /api/warehouses/:warehouseId/products/:productId
 productRoutes.get("/:productId", getProductInWarehouse);

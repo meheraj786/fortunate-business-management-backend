@@ -2,14 +2,27 @@ const authorize = (moduleName, permission) => (req, res, next) => {
   try {
     const user = req.user;
 
-    if (!user || !user.access) {
-      return res.status(403).json({
+    if (!user) {
+      return res.status(401).json({
         success: false,
-        message: "Access Denied",
+        message: "Unauthorized",
       });
     }
 
-    const moduleAccess = user.access.find((item) => item.module === moduleName);
+    if (user.roleName === "ADMIN" || user.roleName === "SUPER_ADMIN") {
+      return next();
+    }
+
+    if (!user.access || user.access.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: "No permissions assigned",
+      });
+    }
+
+    const moduleAccess = user.access.find(
+      (item) => item.module === moduleName
+    );
 
     if (!moduleAccess) {
       return res.status(403).json({

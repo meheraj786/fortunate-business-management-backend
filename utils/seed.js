@@ -1,0 +1,65 @@
+const mongoose = require("mongoose");
+const User = require("../models/user.model"); // path adjust করো
+require("dotenv").config();
+
+// ✅ FULL PERMISSION LIST
+const fullAccess = [
+  {
+    module: "LC",
+    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+  },
+  {
+    module: "SALE",
+    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+  },
+  {
+    module: "CASH",
+    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+  },
+  {
+    module: "STOCK",
+    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+  },
+  {
+    module: "BANKING",
+    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+  },
+  {
+    module: "CUSTOMER",
+    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+  },
+];
+
+const seedSuperAdmin = async () => {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log(" DB Connected");
+
+    const superAdminEmail = "superadmin@system.com";
+
+    const exists = await User.findOne({ email: superAdminEmail });
+
+    if (exists) {
+      console.log("Super Admin already exists. No new user created.");
+      process.exit(0);
+    }
+
+    await User.create({
+      name: "Super Admin",
+      email: superAdminEmail,
+      password: "12345678", 
+      roleName: "SUPER_ADMIN",   
+      location: "Head Office",
+      access: fullAccess,
+      phone: "01000000000",
+    });
+
+    console.log("✅ Super Admin Created Successfully!");
+    process.exit(1);
+  } catch (error) {
+    console.error("❌ Seeder Failed:", error.message);
+    process.exit(1);
+  }
+};
+
+seedSuperAdmin();

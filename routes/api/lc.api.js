@@ -15,19 +15,21 @@ const {
   getLCSummary,
   getActiveLcs, // Import the new function
 } = require("../../controllers/lc.controller");
+const { authMiddleware } = require("../../middleware/auth.middleware");
+const authorize = require("../../middleware/authorize.middleware");
 
 const lcRoutes = express.Router();
 
 // Existing routes
-lcRoutes.post("/create-lc", upload.array("documents"), createLC);
-lcRoutes.get("/get-all-lc", getAllLCs);
-lcRoutes.get("/get-lc/:id", getLCById);
-lcRoutes.patch("/update-lc/:id", updateLC);
-lcRoutes.delete("/delete-lc/:id", deleteLC);
-lcRoutes.post("/add-lc-expense/:lcId", addExpenseToLC);
-lcRoutes.get("/completed-lc", getAllCompletedLCs);
-lcRoutes.get("/:lcId/documents/:filename", downloadDocument);
-lcRoutes.get("/export-lc/:id", exportLCAsPDF);
+lcRoutes.post("/create-lc", upload.array("documents"), authMiddleware, authorize("LC", "CREATE"), createLC);
+lcRoutes.get("/get-all-lc", authMiddleware, authorize("LC", "GET"), getAllLCs);
+lcRoutes.get("/get-lc/:id", authMiddleware, authorize("LC", "GET"), getLCById);
+lcRoutes.patch("/update-lc/:id", authMiddleware, authorize("LC", "UPDATE"), updateLC);
+lcRoutes.delete("/delete-lc/:id", authMiddleware, authorize("LC", "DELETE"), deleteLC);
+lcRoutes.post("/add-lc-expense/:lcId", authMiddleware, authorize("LC", "UPDATE"), addExpenseToLC);
+lcRoutes.get("/completed-lc", authMiddleware, authorize("LC", "GET"), getAllCompletedLCs);
+lcRoutes.get("/:lcId/documents/:filename",  downloadDocument);
+lcRoutes.get("/export-lc/:id",  exportLCAsPDF);
 
 // New routes for LC counts
 lcRoutes.get("/counts/status", getLCCountsByStatus); // Get all status counts
