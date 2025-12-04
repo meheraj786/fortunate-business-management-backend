@@ -10,6 +10,7 @@ const {
   getDailyCash,
 } = require("../../controllers/dailyCash.controller");
 const authorize = require("../../middleware/authorize.middleware");
+const { authMiddleware } = require("../../middleware/auth.middleware");
 const dailyCashRouter = express.Router();
 
 dailyCashRouter.post("/open", authMiddleware, authorize("DAILY_CASH", "CREATE"), openDailyCash);

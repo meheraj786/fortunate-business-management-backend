@@ -14,9 +14,10 @@ const {
   addPartialPayment,
   cancelSale,
   getSalesByCustomerId,
-  getSalesSummaryForTable, // Import the new function
+  getSalesSummaryForTable, 
 } = require("../../controllers/sales.controller");
 const { authMiddleware } = require("../../middleware/auth.middleware");
+const authorize = require("../../middleware/authorize.middleware"); 
 const salesRoutes = express.Router();
 
 salesRoutes.post("/create-sales", authMiddleware, authorize("SALES", "CREATE"), createSale);
