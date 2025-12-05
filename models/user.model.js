@@ -56,22 +56,15 @@ const userSchema = new mongoose.Schema({
   },
   access: [
     {
-      type: String,
-      default: null,
-      enum: ["admin", "sales", "accounts", "customers"],
-    },
-  ],
-    access: [
-    {
       module: {
         type: String,
         required: true,
-        enum: ["LC", "SALE", "CASH", "STOCK", "BANKING", "CUSTOMER"], 
+        enum: ["LC", "SALE", "CASH", "STOCK", "BANKING", "CUSTOMER"],
       },
       permissions: [
         {
           type: String,
-          enum: ["CREATE", "GET", "UPDATE", "DELETE"], 
+          enum: ["CREATE", "GET", "UPDATE", "DELETE"],
         },
       ],
     },

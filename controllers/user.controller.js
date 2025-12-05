@@ -146,6 +146,38 @@ const getAllUser = async (req, res, next) => {
   }
 };
 
+const updateUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    if (req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN") {
+      return next(new ApiError(403, "You are not authorized to update users"));
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return next(new ApiError(404, "User not found"));
+    }
+
+    if (updates.password) {
+      updates.password = await bcrypt.hash(updates.password, 10);
+    }
+
+    Object.keys(updates).forEach((key) => {
+      user[key] = updates[key];
+    });
+
+    await user.save();
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, user, "User updated successfully"));
+  } catch (error) {
+    next(new ApiError(500, "Failed to update user", [error.message]));
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -153,4 +185,5 @@ module.exports = {
   logoutUser,
   getAllUser,
   getUser,
+  updateUser
 };
