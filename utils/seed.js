@@ -1,8 +1,7 @@
 const mongoose = require("mongoose");
-const User = require("../models/user.model"); // path adjust করো
+const User = require("../models/user.model"); 
 require("dotenv").config();
 
-// ✅ FULL PERMISSION LIST
 const fullAccess = [
   {
     module: "LC",
@@ -54,10 +53,10 @@ const seedSuperAdmin = async () => {
       phone: "01000000000",
     });
 
-    console.log("✅ Super Admin Created Successfully!");
+    console.log("Super Admin Created Successfully!");
     process.exit(1);
   } catch (error) {
-    console.error("❌ Seeder Failed:", error.message);
+    console.error("Seeder Failed:", error.message);
     process.exit(1);
   }
 };

@@ -63,7 +63,7 @@ const userSchema = new mongoose.Schema({
       },
       permissions: [
         {
-          type: String,
+          type: [String],
           enum: ["CREATE", "GET", "UPDATE", "DELETE"],
         },
       ],
