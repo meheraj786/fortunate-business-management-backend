@@ -201,17 +201,23 @@ async function deleteLC(req, res, next) {
 async function addExpenseToLC(req, res, next) {
   try {
     const { lcId } = req.params;
-    const { description, amount, date } = req.body;
+    const { description, amount, date, category, paymentMethod, time } = req.body;
 
     const validationErrors = [];
-    if (!description) {
-      validationErrors.push({
-        field: "description",
-        message: "Description is required",
-      });
-    }
     if (!amount) {
       validationErrors.push({ field: "amount", message: "Amount is required" });
+    }
+    if (!category) {
+      validationErrors.push({ field: "category", message: "Category is required" });
+    }
+    if (!paymentMethod) {
+      validationErrors.push({
+        field: "paymentMethod",
+        message: "Payment method is required",
+      });
+    }
+    if (!time && !date) {
+      validationErrors.push({ field: "time", message: "Time or date is required" });
     }
 
     if (validationErrors.length > 0) {
@@ -226,12 +232,12 @@ async function addExpenseToLC(req, res, next) {
     const newExpense = {
       description,
       amount,
-      date: date || new Date(),
+      category,
+      paymentMethod,
+      time: time || date, // Use date as time if time is not provided
     };
 
-    lc.expenses.push(newExpense);
-
-    lc.totalExpense = (lc.totalExpense || 0) + amount;
+    lc.otherExpenses.push(newExpense);
 
     await lc.save();
 
@@ -239,6 +245,13 @@ async function addExpenseToLC(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, lc, "Expense added successfully"));
   } catch (error) {
+    if (error.name === "ValidationError") {
+      const validationErrors = Object.values(error.errors).map((err) => ({
+        field: err.path,
+        message: err.message,
+      }));
+      return next(new ApiError(400, "LC validation failed", validationErrors));
+    }
     next(error);
   }
 }
@@ -408,7 +421,12 @@ async function getLCSummary(req, res, next) {
     const lcs = await LC.find().populate("productInfo.quantityUnit", "name");
 
     const calculateTotalCost = (lc) => {
-      const { financialInfo, shippingCustomsInfo, agentTransportInfo } = lc;
+      const {
+        financialInfo,
+        shippingCustomsInfo,
+        agentTransportInfo,
+        otherExpenses,
+      } = lc;
       if (!financialInfo) {
         return 0;
       }
@@ -428,6 +446,11 @@ async function getLCSummary(req, res, next) {
           (sum, expense) => sum + (expense.amount || 0),
           0
         ) || 0;
+      const rootOtherExpenses =
+        otherExpenses?.reduce(
+          (sum, expense) => sum + (expense.amount || 0),
+          0
+        ) || 0;
 
       const customsTotalBdt =
         (shippingCustomsInfo?.customsDutyBdt || 0) +
@@ -444,7 +467,8 @@ async function getLCSummary(req, res, next) {
         (agentTransportInfo?.cnfAgentCommissionBdt || 0) +
         (agentTransportInfo?.indentingAgentCommissionBdt || 0) +
         (agentTransportInfo?.transportCostBdt || 0) +
-        agentTransportOtherExpenses;
+        agentTransportOtherExpenses +
+        rootOtherExpenses;
 
       return totalLcCostBdt;
     };

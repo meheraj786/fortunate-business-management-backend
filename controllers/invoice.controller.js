@@ -38,7 +38,7 @@ async function generateInvoice(req, res, next) {
       return next(
         new ApiError(
           400,
-          "No changes detected since the last invoice was generated. A new invoice will not be created."
+          "No changes detected since the last invoice was generated"
         )
       );
     }
