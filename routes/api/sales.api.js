@@ -20,14 +20,14 @@ const { authMiddleware } = require("../../middleware/auth.middleware");
 const authorize = require("../../middleware/authorize.middleware"); 
 const salesRoutes = express.Router();
 
-salesRoutes.post("/create-sales", authMiddleware, authorize("SALES", "CREATE"), createSale);
-salesRoutes.get("/get-all-sales", authMiddleware, authorize("SALES", "GET"), getAllSales);
-salesRoutes.get("/get-sales/:id", authMiddleware, authorize("SALES", "GET"), getSaleById);
-salesRoutes.patch("/update-sale/:id", authMiddleware, authorize("SALES", "GET"), updateSale);
-salesRoutes.delete("/delete-sale/:id", authMiddleware, authorize("SALES", "DELETE"), deleteSale);
-salesRoutes.patch("/cancel-sale/:id", authMiddleware, authorize("SALES", "UPDATE"), cancelSale);
-salesRoutes.get("/sales-summary", authMiddleware, authorize("SALES", "GET"), getSalesSummary);
-salesRoutes.get("/customer/:customerId", authMiddleware, authorize("SALES", "GET"), getSalesByCustomerId);
+salesRoutes.post("/create-sales", createSale);
+salesRoutes.get("/get-all-sales", getAllSales);
+salesRoutes.get("/get-sales/:id", getSaleById);
+salesRoutes.patch("/update-sale/:id",  updateSale);
+salesRoutes.delete("/delete-sale/:id", deleteSale);
+salesRoutes.patch("/cancel-sale/:id",  cancelSale);
+salesRoutes.get("/sales-summary", getSalesSummary);
+salesRoutes.get("/customer/:customerId",  getSalesByCustomerId);
 
 // filtered invoices
 salesRoutes.get("/get-all-not-invoices", getAll_not_invoices);

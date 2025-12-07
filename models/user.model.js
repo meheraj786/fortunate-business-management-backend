@@ -59,7 +59,7 @@ const userSchema = new mongoose.Schema({
       module: {
         type: String,
         required: true,
-        enum: ["LC", "SALE", "CASH", "STOCK", "BANKING", "CUSTOMER"],
+        enum: ["LC", "SALE", "CASH", "STOCK", "BANKING", "CUSTOMER", "CATEGORY", "UNIT", "WAREHOUSE"],
       },
       permissions: [
         {
