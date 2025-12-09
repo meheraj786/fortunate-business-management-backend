@@ -76,7 +76,7 @@ const loginUser = async (req, res, next) => {
     res.cookie("accessToken", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "none",
     });
 
     return res
@@ -93,7 +93,7 @@ const logoutUser = async (_, res, next) => {
     res.clearCookie("accessToken", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "none",
     });
 
     return res.status(200).json(new ApiResponse(200, {}, "Logged out successfully"));

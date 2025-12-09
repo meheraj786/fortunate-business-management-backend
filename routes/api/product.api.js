@@ -16,7 +16,7 @@ const productRoutes = express.Router({ mergeParams: true });
 productRoutes.post("/", authMiddleware,  createProductInWarehouse);
 
 // Corresponds to GET /api/warehouses/:warehouseId/products
-productRoutes.get("/:warehouseId", getProductsByWarehouse);
+productRoutes.get("/", getProductsByWarehouse);
 
 // Corresponds to GET /api/warehouses/:warehouseId/products/:productId
 productRoutes.get("/:productId", getProductInWarehouse);
