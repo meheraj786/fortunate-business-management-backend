@@ -16,18 +16,18 @@ const {
   getSalesByCustomerId,
   getSalesSummaryForTable, 
 } = require("../../controllers/sales.controller");
-const { authMiddleware } = require("../../middleware/auth.middleware");
+const { authenticate } = require("../../middleware/auth.middleware");
 const authorize = require("../../middleware/authorize.middleware"); 
 const salesRoutes = express.Router();
 
-salesRoutes.post("/create-sales", authMiddleware, authorize("SALES", "CREATE"), createSale);
-salesRoutes.get("/get-all-sales", authMiddleware, authorize("SALES", "GET"), getAllSales);
-salesRoutes.get("/get-sales/:id", authMiddleware, authorize("SALES", "GET"), getSaleById);
-salesRoutes.patch("/update-sale/:id", authMiddleware, authorize("SALES", "GET"), updateSale);
-salesRoutes.delete("/delete-sale/:id", authMiddleware, authorize("SALES", "DELETE"), deleteSale);
-salesRoutes.patch("/cancel-sale/:id", authMiddleware, authorize("SALES", "UPDATE"), cancelSale);
-salesRoutes.get("/sales-summary", authMiddleware, authorize("SALES", "GET"), getSalesSummary);
-salesRoutes.get("/customer/:customerId", authMiddleware, authorize("SALES", "GET"), getSalesByCustomerId);
+salesRoutes.post("/create-sales", authenticate, authorize("SALES", "CREATE"), createSale);
+salesRoutes.get("/get-all-sales", authenticate, authorize("SALES", "GET"), getAllSales);
+salesRoutes.get("/get-sales/:id", authenticate, authorize("SALES", "GET"), getSaleById);
+salesRoutes.patch("/update-sale/:id", authenticate, authorize("SALES", "GET"), updateSale);
+salesRoutes.delete("/delete-sale/:id", authenticate, authorize("SALES", "DELETE"), deleteSale);
+salesRoutes.patch("/cancel-sale/:id", authenticate, authorize("SALES", "UPDATE"), cancelSale);
+salesRoutes.get("/sales-summary", authenticate, authorize("SALES", "GET"), getSalesSummary);
+salesRoutes.get("/customer/:customerId", authenticate, authorize("SALES", "GET"), getSalesByCustomerId);
 
 // filtered invoices
 salesRoutes.get("/get-all-not-invoices", getAll_not_invoices);
