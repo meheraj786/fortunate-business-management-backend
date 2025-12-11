@@ -93,13 +93,52 @@ async function getProductsByWarehouse(req, res, next) {
   try {
     const { warehouseId } = req.params;
     const products = await Product.find({ warehouse: warehouseId })
-      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1 })
+      .select(
+        "name category LC thickness width length color grade quantity unit unitPrice createdAt updatedAt"
+      )
       .populate("category", "name")
-      .populate("unit", "name type conversionFactor");
+      .populate("LC", "basicInfo.lcNumber")
+      .populate("unit", "name type conversionFactor") // Temporarily populate conversionFactor
+      .lean(); // Use .lean() to get plain JavaScript objects
+
+    const productsWithStatus = products.map((product) => {
+      const totalInGrams = product.quantity * (product.unit?.conversionFactor || 0);
+      let stockStatus;
+
+      // Thresholds in grams
+      const LOW_STOCK_THRESHOLD = 10000; // 10 KG
+      const MEDIUM_STOCK_THRESHOLD = 1000000; // 1 TON
+
+      if (totalInGrams === 0) {
+        stockStatus = "No Stock";
+      } else if (totalInGrams <= LOW_STOCK_THRESHOLD) {
+        stockStatus = "Low";
+      } else if (totalInGrams <= MEDIUM_STOCK_THRESHOLD) {
+        stockStatus = "Medium";
+      } else {
+        stockStatus = "OK";
+      }
+
+      // Remove conversionFactor from the populated unit object before sending the response
+      if (product.unit) {
+        delete product.unit.conversionFactor;
+      }
+
+      return {
+        ...product,
+        stockStatus,
+      };
+    });
 
     return res
       .status(200)
-      .json(new ApiResponse(200, products, "Products fetched successfully"));
+      .json(
+        new ApiResponse(
+          200,
+          productsWithStatus,
+          "Products fetched successfully"
+        )
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -119,12 +158,31 @@ async function getProductInWarehouse(req, res, next) {
       )
       .populate("warehouse", "name location")
       .populate("category", "name description")
-      .populate("unit", "name type conversionFactor");
+      .populate("unit", "name type conversionFactor")
+      .lean(); // Add .lean() here
 
     if (!product) {
       return next(
         new ApiError(404, "Product not found in this warehouse")
       );
+    }
+
+    // Calculate stockStatus
+    const totalInGrams = product.quantity * (product.unit?.conversionFactor || 0);
+    let stockStatus;
+
+    // Thresholds in grams (same as getProductsByWarehouse)
+    const LOW_STOCK_THRESHOLD = 10000; // 10 KG
+    const MEDIUM_STOCK_THRESHOLD = 1000000; // 1 TON
+
+    if (totalInGrams === 0) {
+      stockStatus = "No Stock";
+    } else if (totalInGrams <= LOW_STOCK_THRESHOLD) {
+      stockStatus = "Low";
+    } else if (totalInGrams <= MEDIUM_STOCK_THRESHOLD) {
+      stockStatus = "Medium";
+    } else {
+      stockStatus = "OK";
     }
 
     // The rest of the stats logic can remain the same
@@ -147,13 +205,15 @@ async function getProductInWarehouse(req, res, next) {
       product: productId,
       invoiceStatus: "Not-invoiced",
     });
-    const recentSales = await Sales.find({ product: productId })
-      .sort({ saleDate: -1 })
-      .limit(5);
 
-    const productWithSales = {
-      ...product.toObject(),
-      recentSales,
+    // Remove conversionFactor from the populated unit object before sending the response
+    if (product.unit) {
+      delete product.unit.conversionFactor;
+    }
+
+    const productWithStats = {
+      ...product, // product is already a lean object
+      stockStatus, // Add stockStatus here
       totalUnitsSold: salesStats[0]?.totalUnitsSold || 0,
       totalRevenue: salesStats[0]?.totalRevenue || 0,
       totalDueInvoices,
@@ -165,7 +225,7 @@ async function getProductInWarehouse(req, res, next) {
       .json(
         new ApiResponse(
           200,
-          productWithSales,
+          productWithStats,
           "Product fetched successfully"
         )
       );
@@ -323,6 +383,29 @@ async function getStockStatus(_, res, next) {
   }
 }
 
+async function getProductSalesHistory(req, res, next) {
+  try {
+    const { productId } = req.params;
+    const salesHistory = await Sales.find({ product: productId })
+      .select(
+        "customer product quantity pricePerUnit invoiceStatus paymentStatus saleDate totalAmount createdAt updatedAt"
+      )
+      .sort({ saleDate: -1 });
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          salesHistory,
+          "Product sales history fetched successfully"
+        )
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
+
 
 module.exports = {
   createProductInWarehouse,
@@ -331,6 +414,7 @@ module.exports = {
   updateProductInWarehouse,
   deleteProductInWarehouse,
   getWarehouseInventoryStats,
+  getProductSalesHistory,
   // Exporting old functions in case they are needed elsewhere
   getAllProducts,
   getStockStatus,

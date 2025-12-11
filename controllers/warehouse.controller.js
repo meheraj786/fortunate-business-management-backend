@@ -1,4 +1,5 @@
 const Warehouse = require("../models/warehouse.model");
+const Product = require("../models/product.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
@@ -107,17 +108,30 @@ const getAllWarehouses = async (_, res, next) => {
 const getWarehouseById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const warehouse = await Warehouse.findById(id)
-      .populate("manager")
-      .populate("product")
+    const warehouse = await Warehouse.findById(id).populate("manager");
 
     if (!warehouse) {
       return next(new ApiError(404, "Warehouse not found"));
     }
 
+    const stats = await Product.getInventoryStats(id);
+
+    const response = {
+      _id: warehouse._id,
+      name: warehouse.name,
+      location: warehouse.location,
+      manager: warehouse.manager,
+      stats: {
+        totalProducts: stats.totalProductsCount,
+        totalInStock: stats.inStockProductsCount,
+        totalLowStock: stats.lowStockProductsCount,
+        totalStockOut: stats.outOfStockProductsCount,
+      },
+    };
+
     return res
       .status(200)
-      .json(new ApiResponse(200, warehouse, "Warehouse fetched successfully"));
+      .json(new ApiResponse(200, response, "Warehouse fetched successfully"));
   } catch (error) {
     next(new ApiError(500, "Failed to fetch warehouse", [error.message]));
   }

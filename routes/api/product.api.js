@@ -5,6 +5,7 @@ const {
   getProductInWarehouse,
   updateProductInWarehouse,
   deleteProductInWarehouse,
+  getProductSalesHistory,
 } = require("../../controllers/product.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 
@@ -20,6 +21,9 @@ productRoutes.get("/", getProductsByWarehouse);
 
 // Corresponds to GET /api/warehouses/:warehouseId/products/:productId
 productRoutes.get("/:productId", getProductInWarehouse);
+
+// Corresponds to GET /api/warehouses/:warehouseId/products/:productId/sales
+productRoutes.get("/:productId/sales", getProductSalesHistory);
 
 // Corresponds to PATCH /api/warehouses/:warehouseId/products/:productId
 productRoutes.patch("/:productId", updateProductInWarehouse);
