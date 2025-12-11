@@ -50,7 +50,41 @@ const getAllWarehouses = async (_, res, next) => {
       },
       {
         $addFields: {
-          productCount: { $size: "$products" },
+          stats: {
+            totalProducts: { $size: "$products" },
+            totalInStock: {
+              $size: {
+                $filter: {
+                  input: "$products",
+                  as: "product",
+                  cond: { $gt: ["$$product.quantity", 0] },
+                },
+              },
+            },
+            totalLowStock: {
+              $size: {
+                $filter: {
+                  input: "$products",
+                  as: "product",
+                  cond: {
+                    $and: [
+                      { $gt: ["$$product.quantity", 0] },
+                      { $lt: ["$$product.quantity", 20] },
+                    ],
+                  },
+                },
+              },
+            },
+            totalStockOut: {
+              $size: {
+                $filter: {
+                  input: "$products",
+                  as: "product",
+                  cond: { $eq: ["$$product.quantity", 0] },
+                },
+              },
+            },
+          },
         },
       },
       {
