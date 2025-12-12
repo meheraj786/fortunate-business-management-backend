@@ -7,6 +7,7 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const LC = require("../models/lc.model");
 const Unit = require("../models/unit.model"); // Import Unit model
+require("../models/bank.model"); // Ensure Bank model is registered for population
 
 // Ensure the uploads directory exists
 const uploadDir = path.join(__dirname, "../uploads");
@@ -49,10 +50,34 @@ async function createLC(req, res, next) {
       lcData = req.body;
     }
 
+    // Clean up empty accountId in costs to prevent CastError
+    const costCleaner = (cost) => {
+      if (!cost.accountId) {
+        cost.accountId = null;
+      }
+      return cost;
+    };
+
+    const sectionsWithCosts = [
+      "financialInfo",
+      "shippingCustomsInfo",
+      "agentTransportInfo",
+      "otherExpenses",
+    ];
+    sectionsWithCosts.forEach((section) => {
+      if (lcData[section] && lcData[section].costs) {
+        lcData[section].costs = lcData[section].costs.map(costCleaner);
+      }
+    });
+
     // Add validation for productInfo.quantityUnit
     if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
       for (const product of lcData.productInfo) {
         if (product.quantityUnit) {
+          // If product.quantityUnit is an object, extract the ID
+          if (typeof product.quantityUnit === "object" && product.quantityUnit.id) {
+            product.quantityUnit = product.quantityUnit.id;
+          }
           const existingUnit = await Unit.findById(product.quantityUnit);
           if (!existingUnit) {
             return next(
@@ -147,7 +172,13 @@ async function createLC(req, res, next) {
 
 async function getAllLCs(_, res, next) {
   try {
-    const lcs = await LC.find().populate("productInfo.quantityUnit", "name type conversionFactor");
+    const lcs = await LC.find()
+      .populate("productInfo.quantityUnit", "name type conversionFactor")
+      .populate("basicInfo.accountId")
+      .populate("financialInfo.costs.accountId")
+      .populate("shippingCustomsInfo.costs.accountId")
+      .populate("agentTransportInfo.costs.accountId")
+      .populate("otherExpenses.costs.accountId");
     return res
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
@@ -159,7 +190,13 @@ async function getAllLCs(_, res, next) {
 async function getLCById(req, res, next) {
   try {
     const { id } = req.params;
-    const lc = await LC.findById(id).populate("productInfo.quantityUnit", "name type conversionFactor");
+    const lc = await LC.findById(id)
+      .populate("productInfo.quantityUnit", "name type conversionFactor")
+      .populate("basicInfo.accountId")
+      .populate("financialInfo.costs.accountId")
+      .populate("shippingCustomsInfo.costs.accountId")
+      .populate("agentTransportInfo.costs.accountId")
+      .populate("otherExpenses.costs.accountId");
     if (!lc) return next(new ApiError(404, "LC not found"));
     return res
       .status(200)
@@ -201,14 +238,14 @@ async function deleteLC(req, res, next) {
 async function addExpenseToLC(req, res, next) {
   try {
     const { lcId } = req.params;
-    const { description, amount, date, category, paymentMethod, time } = req.body;
+    const { name, amount, date, paymentMethod, accountId } = req.body;
 
     const validationErrors = [];
+    if (!name) {
+      validationErrors.push({ field: "name", message: "Name is required" });
+    }
     if (!amount) {
       validationErrors.push({ field: "amount", message: "Amount is required" });
-    }
-    if (!category) {
-      validationErrors.push({ field: "category", message: "Category is required" });
     }
     if (!paymentMethod) {
       validationErrors.push({
@@ -216,8 +253,14 @@ async function addExpenseToLC(req, res, next) {
         message: "Payment method is required",
       });
     }
-    if (!time && !date) {
-      validationErrors.push({ field: "time", message: "Time or date is required" });
+    if (
+      (paymentMethod === "Bank" || paymentMethod === "Mobile Banking") &&
+      !accountId
+    ) {
+      validationErrors.push({
+        field: "accountId",
+        message: "Account ID is required for this payment method",
+      });
     }
 
     if (validationErrors.length > 0) {
@@ -230,14 +273,20 @@ async function addExpenseToLC(req, res, next) {
     }
 
     const newExpense = {
-      description,
+      name,
       amount,
-      category,
+      date: date || new Date(),
       paymentMethod,
-      time: time || date, // Use date as time if time is not provided
+      accountId: accountId || null,
     };
 
-    lc.otherExpenses.push(newExpense);
+    if (!lc.otherExpenses) {
+      lc.otherExpenses = { costs: [] };
+    }
+    if (!lc.otherExpenses.costs) {
+      lc.otherExpenses.costs = [];
+    }
+    lc.otherExpenses.costs.push(newExpense);
 
     await lc.save();
 
@@ -421,56 +470,35 @@ async function getLCSummary(req, res, next) {
     const lcs = await LC.find().populate("productInfo.quantityUnit", "name");
 
     const calculateTotalCost = (lc) => {
-      const {
-        financialInfo,
-        shippingCustomsInfo,
-        agentTransportInfo,
-        otherExpenses,
-      } = lc;
-      if (!financialInfo) {
-        return 0;
+      let totalCost = 0;
+      if (lc.financialInfo) {
+        totalCost += lc.financialInfo.lcAmountBdt || 0;
+        if (lc.financialInfo.costs) {
+          totalCost += lc.financialInfo.costs.reduce(
+            (sum, cost) => sum + (cost.amount || 0),
+            0
+          );
+        }
       }
-
-      const financialOtherExpenses =
-        financialInfo.otherExpenses?.reduce(
-          (sum, expense) => sum + (expense.amount || 0),
+      if (lc.shippingCustomsInfo && lc.shippingCustomsInfo.costs) {
+        totalCost += lc.shippingCustomsInfo.costs.reduce(
+          (sum, cost) => sum + (cost.amount || 0),
           0
-        ) || 0;
-      const shippingOtherExpenses =
-        shippingCustomsInfo?.otherExpenses?.reduce(
-          (sum, expense) => sum + (expense.amount || 0),
+        );
+      }
+      if (lc.agentTransportInfo && lc.agentTransportInfo.costs) {
+        totalCost += lc.agentTransportInfo.costs.reduce(
+          (sum, cost) => sum + (cost.amount || 0),
           0
-        ) || 0;
-      const agentTransportOtherExpenses =
-        agentTransportInfo?.otherExpenses?.reduce(
-          (sum, expense) => sum + (expense.amount || 0),
+        );
+      }
+      if (lc.otherExpenses && lc.otherExpenses.costs) {
+        totalCost += lc.otherExpenses.costs.reduce(
+          (sum, cost) => sum + (cost.amount || 0),
           0
-        ) || 0;
-      const rootOtherExpenses =
-        otherExpenses?.reduce(
-          (sum, expense) => sum + (expense.amount || 0),
-          0
-        ) || 0;
-
-      const customsTotalBdt =
-        (shippingCustomsInfo?.customsDutyBdt || 0) +
-        (shippingCustomsInfo?.vatBdt || 0) +
-        (shippingCustomsInfo?.aitBdt || 0) +
-        shippingOtherExpenses;
-
-      const totalLcCostBdt =
-        (financialInfo.lcAmountBdt || 0) +
-        (financialInfo.bankChargesBdt || 0) +
-        (financialInfo.insuranceCostBdt || 0) +
-        financialOtherExpenses +
-        customsTotalBdt +
-        (agentTransportInfo?.cnfAgentCommissionBdt || 0) +
-        (agentTransportInfo?.indentingAgentCommissionBdt || 0) +
-        (agentTransportInfo?.transportCostBdt || 0) +
-        agentTransportOtherExpenses +
-        rootOtherExpenses;
-
-      return totalLcCostBdt;
+        );
+      }
+      return totalCost;
     };
 
     const summary = lcs.map((lc) => ({
@@ -482,7 +510,7 @@ async function getLCSummary(req, res, next) {
       dueDate: lc.shippingCustomsInfo?.expectedArrivalDate,
       products: lc.productInfo.map((p) => ({
         itemName: p.itemName,
-        quantity: p.quantityValue,
+        quantity: p.quantity,
         unit: p.quantityUnit?.name || "N/A",
       })),
       totalCost: calculateTotalCost(lc),

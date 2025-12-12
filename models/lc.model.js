@@ -1,14 +1,16 @@
 const mongoose = require("mongoose");
-const { expenseSchema } = require("./dailyCash.model");
 
-const specificationSchema = new mongoose.Schema({
-  thickness_mm: { type: Number },
-  width_mm: { type: Number },
-  length_mm: { type: Number },
-  grade: { type: String, trim: true },
+const costSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  amount: { type: Number, required: true },
+  date: { type: Date, required: true, default: Date.now }, // date and time 
+  paymentMethod: {
+    type: String,
+    required: true,
+    enum: ["Cash", "Bank", "Mobile Banking"],
+  },
+  accountId: { type: mongoose.Schema.Types.ObjectId, ref: "BankAccount" },
 });
-
-const otherExpenseSchema = expenseSchema
 
 const lcSchema = new mongoose.Schema(
   {
@@ -21,47 +23,44 @@ const lcSchema = new mongoose.Schema(
         required: true,
         enum: ["Draft", "Active", "Completed", "Cancelled"],
       },
-      bankName: { type: String, trim: true, required: true },
       supplierName: { type: String, trim: true, required: true },
       supplierCountry: { type: String, trim: true, required: true },
+      accountId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "BankAccount",
+        required: true,
+      },
     },
     financialInfo: {
       lcAmountUsd: { type: Number, required: true },
       exchangeRate: { type: Number, required: true },
-      lcAmountBdt: { type: Number },
-      lcMarginPaidBdt: { type: Number, required: true },
-      bankChargesBdt: { type: Number, required: true },
-      insuranceCostBdt: { type: Number, required: true },
-      otherExpenses: [otherExpenseSchema],
+      lcAmountBdt: { type: Number, required: true },
+      costs: [costSchema],
     },
     productInfo: [
       {
         itemName: { type: String, trim: true, required: true },
-        specification: specificationSchema,
+        thickness: { type: String, trim: true },
+        width: { type: String, trim: true },
+        length: { type: String, trim: true },
+        grade: { type: String, trim: true },
+        unitPriceUsd: { type: Number, required: true },
+        quantity: { type: Number, required: true },
         quantityUnit: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Unit",
           required: true,
         },
-        quantityValue: { type: Number, required: true },
-        unitPriceUsd: { type: Number, required: true },
-        totalValueUsd: { type: Number },
+        totalValueUsd: { type: Number, required: true },
       },
     ],
     shippingCustomsInfo: {
       portOfShipment: { type: String, trim: true },
       expectedArrivalDate: { type: Date },
-      customsDutyBdt: { type: Number },
-      vatBdt: { type: Number },
-      aitBdt: { type: Number },
-      otherExpenses: [otherExpenseSchema],
+      costs: [costSchema],
     },
     agentTransportInfo: {
-      cnfAgentName: { type: String, trim: true },
-      cnfAgentCommissionBdt: { type: Number },
-      indentingAgentCommissionBdt: { type: Number },
-      transportCostBdt: { type: Number },
-      otherExpenses: [otherExpenseSchema],
+      costs: [costSchema],
     },
     documentsNotes: {
       uploadedDocuments: [
@@ -70,18 +69,17 @@ const lcSchema = new mongoose.Schema(
           storedName: { type: String, trim: true },
           mimeType: { type: String, trim: true },
           sizeBytes: { type: Number },
-          hashSha256: { type: String, trim: true },
+          hashSha256: { type: String, trim:true },
         },
       ],
-      remarks: { type: String, trim: true },
+      note: { type: String, trim: true, default: "No notes given" },
     },
-    otherExpenses: [otherExpenseSchema],
+    otherExpenses: {
+      costs: [costSchema],
+    },
   },
   { timestamps: true }
 );
-
-// lcSchema.index({ "basic_info.lc_number": 1 });
-// lcSchema.index({ "basic_info.status": 1 });
 
 const LC = mongoose.model("LC", lcSchema);
 module.exports = LC;
