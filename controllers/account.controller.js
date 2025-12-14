@@ -8,7 +8,7 @@ async function createAccount(req, res, next) {
     const {
       accountType,
       accountName,
-      initialBalance,
+      balance, // Changed from initialBalance to balance
       accountHolderName,
       bankName,
       branchName,
@@ -40,7 +40,7 @@ async function createAccount(req, res, next) {
     const account = await Account.create({
       accountType,
       accountName,
-      balance: initialBalance || 0,
+      balance: balance || 0,
       accountHolderName,
       bankName,
       branchName,
