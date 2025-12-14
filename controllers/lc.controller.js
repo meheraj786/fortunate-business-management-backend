@@ -7,6 +7,7 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const LC = require("../models/lc.model");
 const Unit = require("../models/unit.model"); // Import Unit model
+const Account = require("../models/account.model"); // Import Account model explicitly
 require("../models/account.model"); // Ensure Account model is registered for population
 
 // Ensure the uploads directory exists
@@ -149,7 +150,12 @@ async function createLC(req, res, next) {
         field: err.path,
         message: err.message,
       }));
-      return next(new ApiError(400, "LC validation failed", validationErrors));
+      
+      // De-duplicate errors to handle Mongoose sub-document validation quirks
+      const uniqueErrorStrings = new Set(validationErrors.map(e => JSON.stringify(e)));
+      const uniqueErrors = Array.from(uniqueErrorStrings).map(e => JSON.parse(e));
+
+      return next(new ApiError(400, "LC validation failed", uniqueErrors));
     }
 
     // Cleanup uploaded files on any other error
@@ -232,76 +238,6 @@ async function deleteLC(req, res, next) {
       .json(new ApiResponse(200, deleted, "LC deleted successfully"));
   } catch (error) {
     next(new ApiError(500, error.message));
-  }
-}
-
-async function addExpenseToLC(req, res, next) {
-  try {
-    const { lcId } = req.params;
-    const { name, amount, date, paymentMethod, accountId } = req.body;
-
-    const validationErrors = [];
-    if (!name) {
-      validationErrors.push({ field: "name", message: "Name is required" });
-    }
-    if (!amount) {
-      validationErrors.push({ field: "amount", message: "Amount is required" });
-    }
-    if (!paymentMethod) {
-      validationErrors.push({
-        field: "paymentMethod",
-        message: "Payment method is required",
-      });
-    }
-    if (
-      (paymentMethod === "Bank" || paymentMethod === "Mobile Banking") &&
-      !accountId
-    ) {
-      validationErrors.push({
-        field: "accountId",
-        message: "Account ID is required for this payment method",
-      });
-    }
-
-    if (validationErrors.length > 0) {
-      return next(new ApiError(400, "Validation failed", validationErrors));
-    }
-
-    const lc = await LC.findById(lcId);
-    if (!lc) {
-      throw new ApiError(404, "LC not found");
-    }
-
-    const newExpense = {
-      name,
-      amount,
-      date: date || new Date(),
-      paymentMethod,
-      accountId: accountId || null,
-    };
-
-    if (!lc.otherExpenses) {
-      lc.otherExpenses = { costs: [] };
-    }
-    if (!lc.otherExpenses.costs) {
-      lc.otherExpenses.costs = [];
-    }
-    lc.otherExpenses.costs.push(newExpense);
-
-    await lc.save();
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, lc, "Expense added successfully"));
-  } catch (error) {
-    if (error.name === "ValidationError") {
-      const validationErrors = Object.values(error.errors).map((err) => ({
-        field: err.path,
-        message: err.message,
-      }));
-      return next(new ApiError(400, "LC validation failed", validationErrors));
-    }
-    next(error);
   }
 }
 
@@ -448,23 +384,6 @@ async function getActiveLcs(req,res,next){
   }
 }
 
-module.exports = {
-  createLC,
-  getAllLCs,
-  getLCById,
-  updateLC,
-  deleteLC,
-  addExpenseToLC,
-  getAllCompletedLCs,
-  upload,
-  getLCCountsByStatus,
-  getTotalLCCount,
-  downloadDocument,
-  exportLCAsPDF,
-  getLCSummary,
-  getActiveLcs
-};
-
 async function getLCSummary(req, res, next) {
   try {
     const lcs = await LC.find().populate("productInfo.quantityUnit", "name");
@@ -523,3 +442,133 @@ async function getLCSummary(req, res, next) {
     next(new ApiError(500, error.message));
   }
 }
+
+async function addExpenseToLC(req, res, next) {
+  try {
+    const { lcId, category, expense } = req.body;
+
+    // 1. Validate input
+    if (!lcId) {
+      return next(new ApiError(400, "LC ID is required in the request body."));
+    }
+    if (!category || !expense) {
+      return next(new ApiError(400, "Category and expense data are required."));
+    }
+
+    const validCategories = [
+      "financialInfo",
+      "shippingCustomsInfo",
+      "agentTransportInfo",
+      "otherExpenses",
+    ];
+    if (!validCategories.includes(category)) {
+      return next(
+        new ApiError(
+          400,
+          `Invalid category. Must be one of: ${validCategories.join(", ")}`
+        )
+      );
+    }
+
+    // 2. Find the LC
+    const lc = await LC.findById(lcId);
+    if (!lc) {
+      return next(new ApiError(404, "LC not found"));
+    }
+
+    // 3. Add the expense to the correct category
+    if (!lc[category]) {
+      lc[category] = { costs: [] };
+    } else if (!lc[category].costs) {
+      lc[category].costs = [];
+    }
+
+    // Explicitly validate accountId based on payment method before saving
+    if (["Bank", "Mobile Banking"].includes(expense.paymentMethod) && !expense.accountId) {
+      return next(new ApiError(400, "Validation failed", [{
+        field: "expense.accountId",
+        message: "Account ID is required for Bank and Mobile Banking payment methods."
+      }]));
+    }
+
+    // Clean up empty accountId in the new expense to prevent CastError
+    if (expense && (!expense.accountId || expense.accountId === '')) {
+      expense.accountId = null; // Set to null if empty string
+    }
+
+    // Validate accountId if provided and not null
+    if (expense.accountId) {
+      const existingAccount = await Account.findById(expense.accountId);
+      if (!existingAccount) {
+        return next(new ApiError(400, "Validation failed", [{
+          field: "expense.accountId",
+          message: `Account not found.`
+        }]));
+      }
+
+      // Validate that the account type matches the payment method
+      if (expense.paymentMethod !== existingAccount.accountType && (expense.paymentMethod === 'Bank' || expense.paymentMethod === 'Mobile Banking')) {
+        return next(new ApiError(400, "Validation failed", [{
+            field: "expense.accountId",
+            message: `Payment method '${expense.paymentMethod}' requires a '${expense.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided.`
+        }]));
+      }
+    }
+
+    lc[category].costs.push(expense);
+
+    // 4. Save the updated LC
+    await lc.save();
+
+    // 5. Repopulate all fields to be consistent with GET responses
+    await lc.populate([
+      {
+        path: "productInfo.quantityUnit",
+        select: "name type conversionFactor",
+      },
+      { path: "basicInfo.accountId" },
+      { path: "financialInfo.costs.accountId" },
+      { path: "shippingCustomsInfo.costs.accountId" },
+      { path: "agentTransportInfo.costs.accountId" },
+      { path: "otherExpenses.costs.accountId" },
+    ]);
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, lc, "Expense added successfully"));
+  } catch (error) {
+    if (error.name === "ValidationError") {
+      const validationErrors = Object.values(error.errors).map((err) => ({
+        field: err.path,
+        message: err.message,
+      }));
+
+      // De-duplicate errors to handle Mongoose sub-document validation quirks
+      const uniqueErrorStrings = new Set(validationErrors.map(e => JSON.stringify(e)));
+      const uniqueErrors = Array.from(uniqueErrorStrings).map(e => JSON.parse(e));
+
+      return next(
+        new ApiError(400, "Expense validation failed", uniqueErrors)
+      );
+    }
+    next(new ApiError(500, error.message));
+  }
+}
+
+
+module.exports = {
+  createLC,
+  getAllLCs,
+  getLCById,
+  updateLC,
+  deleteLC,
+  getAllCompletedLCs,
+  upload,
+  getLCCountsByStatus,
+  getTotalLCCount,
+  downloadDocument,
+  exportLCAsPDF,
+  getLCSummary,
+  getActiveLcs,
+  addExpenseToLC,
+};

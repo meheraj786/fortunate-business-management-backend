@@ -26,7 +26,7 @@ lcRoutes.get("/get-all-lc", authenticate, authorize("LC", "GET"), getAllLCs);
 lcRoutes.get("/get-lc/:id", authenticate, authorize("LC", "GET"), getLCById);
 lcRoutes.patch("/update-lc/:id", authenticate, authorize("LC", "UPDATE"), updateLC);
 lcRoutes.delete("/delete-lc/:id", authenticate, authorize("LC", "DELETE"), deleteLC);
-lcRoutes.post("/add-lc-expense/:lcId", authenticate, authorize("LC", "UPDATE"), addExpenseToLC);
+lcRoutes.post("/add-expense", authenticate, authorize("LC", "UPDATE"), addExpenseToLC);
 lcRoutes.get("/completed-lc", authenticate, authorize("LC", "GET"), getAllCompletedLCs);
 lcRoutes.get("/:lcId/documents/:filename",  downloadDocument);
 lcRoutes.get("/export-lc/:id",  exportLCAsPDF);
