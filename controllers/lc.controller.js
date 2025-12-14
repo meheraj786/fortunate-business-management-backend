@@ -7,7 +7,7 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const LC = require("../models/lc.model");
 const Unit = require("../models/unit.model"); // Import Unit model
-require("../models/bank.model"); // Ensure Bank model is registered for population
+require("../models/account.model"); // Ensure Account model is registered for population
 
 // Ensure the uploads directory exists
 const uploadDir = path.join(__dirname, "../uploads");

@@ -2,9 +2,9 @@ const mongoose = require("mongoose");
 
 const transactionSchema = new mongoose.Schema(
   {
-    bankAccount: {
+    account: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "BankAccount",
+      ref: "Account",
       required: true,
     },
     date: { type: Date, required: true, default: Date.now },

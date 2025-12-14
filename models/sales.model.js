@@ -21,9 +21,9 @@ const paymentSchema = new mongoose.Schema({
     enum: ["cash", "bank", "mobile-banking"],
     required: true,
   },
-  bankAccount: {
+  account: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "BankAccount",
+    ref: "Account",
     required: function () {
       return this.method === "bank" || this.method === "mobile-banking";
     },

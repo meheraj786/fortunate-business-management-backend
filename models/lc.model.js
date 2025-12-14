@@ -9,7 +9,7 @@ const costSchema = new mongoose.Schema({
     required: true,
     enum: ["Cash", "Bank", "Mobile Banking"],
   },
-  accountId: { type: mongoose.Schema.Types.ObjectId, ref: "BankAccount" },
+  accountId: { type: mongoose.Schema.Types.ObjectId, ref: "Account" },
 });
 
 const lcSchema = new mongoose.Schema(
@@ -27,7 +27,7 @@ const lcSchema = new mongoose.Schema(
       supplierCountry: { type: String, trim: true, required: true },
       accountId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "BankAccount",
+        ref: "Account",
         required: true,
       },
     },

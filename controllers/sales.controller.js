@@ -5,7 +5,7 @@ const Unit = require("../models/unit.model"); // Import Unit model
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
-const BankAccount = require("../models/bank.model");
+const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
 
 const mongoose = require("mongoose");
@@ -183,22 +183,22 @@ async function createSale(req, res, next) {
       saleDate,
     });
 
-    // Handle payments and update bank/cash accounts
+    // Handle payments and update account/cash accounts
     for (const payment of payments) {
       if (payment.method === "bank" || payment.method === "mobile-banking") {
-        const bankAccount = await BankAccount.findById(
-          payment.bankAccount
+        const account = await Account.findById(
+          payment.account
         ).session(session);
-        if (!bankAccount) {
-          throw new ApiError(404, `Bank account not found for payment`);
+        if (!account) {
+          throw new ApiError(404, `Account not found for payment`);
         }
-        bankAccount.balance += payment.amount;
-        await bankAccount.save({ session });
+        account.balance += payment.amount;
+        await account.save({ session });
 
         await Transaction.create(
           [
             {
-              bankAccount: bankAccount._id,
+              account: account._id,
               date: payment.date,
               description: `Sale to ${finalCustomerInfo.name}`,
               type: "Credit",
@@ -266,8 +266,8 @@ async function getAllSales(_, res, next) {
       .populate("warehouse", "name")
       .populate("category", "name")
       .populate({
-        path: "payments.bankAccount",
-        model: "BankAccount",
+        path: "payments.account",
+        model: "Account",
       });
 
     return res
@@ -294,8 +294,8 @@ async function getSaleById(req, res, next) {
       .populate("warehouse", "name")
       .populate("category", "name description")
       .populate({
-        path: "payments.bankAccount",
-        model: "BankAccount",
+        path: "payments.account",
+        model: "Account",
       });
 
     if (!sale) return next(new ApiError(404, "Sale not found"));
@@ -439,10 +439,10 @@ async function deleteSale(req, res, next) {
     // Reverse financial transactions and delete them
     for (const payment of deletedSale.payments) {
       if (payment.method === "bank" || payment.method === "mobile-banking") {
-        const bankAccount = await BankAccount.findById(payment.bankAccount);
-        if (bankAccount) {
-          bankAccount.balance -= payment.amount;
-          await bankAccount.save();
+        const account = await Account.findById(payment.account);
+        if (account) {
+          account.balance -= payment.amount;
+          await account.save();
         }
       }
     }
@@ -658,7 +658,7 @@ async function addPartialPayment(req, res, next) {
   session.startTransaction();
   try {
     const { id } = req.params;
-    const { amount, date, method, bankAccount: bankAccountId } = req.body;
+    const { amount, date, method, account: accountId } = req.body;
 
     const validationErrors = [];
     if (!amount)
@@ -669,11 +669,11 @@ async function addPartialPayment(req, res, next) {
       validationErrors.push({ field: "method", message: "Method is required" });
     if (
       (method === "bank" || method === "mobile-banking") &&
-      !bankAccountId
+      !accountId
     ) {
       validationErrors.push({
-        field: "bankAccount",
-        message: "Bank account is required for this payment method",
+        field: "account",
+        message: "Account is required for this payment method",
       });
     }
 
@@ -689,21 +689,21 @@ async function addPartialPayment(req, res, next) {
     const payment = { amount, date, method };
 
     if (method === "bank" || method === "mobile-banking") {
-      const bankAccount = await BankAccount.findById(bankAccountId).session(
+      const account = await Account.findById(accountId).session(
         session
       );
-      if (!bankAccount) {
-        throw new ApiError(404, "Bank account not found");
+      if (!account) {
+        throw new ApiError(404, "Account not found");
       }
-      payment.bankAccount = bankAccountId;
+      payment.account = accountId;
 
-      bankAccount.balance += amount;
-      await bankAccount.save({ session });
+      account.balance += amount;
+      await account.save({ session });
 
       await Transaction.create(
         [
           {
-            bankAccount: bankAccountId,
+            account: accountId,
             date,
             description: `Partial payment for sale to ${sale.customer.name}`,
             type: "Credit",
@@ -771,8 +771,8 @@ async function getSalesByCustomerId(req, res, next) {
       .populate("warehouse", "name")
       .populate("category", "name")
       .populate({
-        path: "payments.bankAccount",
-        model: "BankAccount",
+        path: "payments.account",
+        model: "Account",
       })
       .sort({ saleDate: -1 });
 
@@ -812,13 +812,13 @@ async function cancelSale(req, res, next) {
     // Reverse financial transactions by creating counter-transactions
     for (const payment of saleToCancel.payments) {
       if (payment.method === "bank" || payment.method === "mobile-banking") {
-        const bankAccount = await BankAccount.findById(payment.bankAccount);
-        if (bankAccount) {
-          bankAccount.balance -= payment.amount;
-          await bankAccount.save();
+        const account = await Account.findById(payment.account);
+        if (account) {
+          account.balance -= payment.amount;
+          await account.save();
 
           await Transaction.create({
-            bankAccount: bankAccount._id,
+            account: account._id,
             date: new Date(),
             description: `Reversal for cancelled sale to ${saleToCancel.customer.name}`,
             type: "Debit",

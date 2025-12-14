@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const bankAccountSchema = new mongoose.Schema(
+const accountSchema = new mongoose.Schema(
   {
     accountType: {
       type: String,
@@ -36,5 +36,5 @@ const bankAccountSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-const BankAccount = mongoose.model("BankAccount", bankAccountSchema);
-module.exports = BankAccount;
+const Account = mongoose.model("Account", accountSchema);
+module.exports = Account;

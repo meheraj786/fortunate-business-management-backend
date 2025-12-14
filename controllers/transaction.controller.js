@@ -1,12 +1,12 @@
 const Transaction = require("../models/transaction.model");
-const BankAccount = require("../models/bank.model");
+const Account = require("../models/account.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
 async function createTransaction(req, res, next) {
   try {
     const {
-      bankAccount: bankAccountId,
+      account: accountId,
       date,
       description,
       type,
@@ -16,10 +16,10 @@ async function createTransaction(req, res, next) {
     } = req.body;
 
     const validationErrors = [];
-    if (!bankAccountId) {
+    if (!accountId) {
       validationErrors.push({
-        field: "bankAccount",
-        message: "Bank account is required",
+        field: "account",
+        message: "Account is required",
       });
     }
     if (!date) {
@@ -42,13 +42,13 @@ async function createTransaction(req, res, next) {
       return next(new ApiError(400, "Validation failed", validationErrors));
     }
 
-    const bankAccount = await BankAccount.findById(bankAccountId);
-    if (!bankAccount) {
-      return next(new ApiError(404, "Bank account not found"));
+    const account = await Account.findById(accountId);
+    if (!account) {
+      return next(new ApiError(404, "Account not found"));
     }
 
     const transaction = await Transaction.create({
-      bankAccount: bankAccountId,
+      account: accountId,
       date,
       description,
       type,
@@ -58,11 +58,11 @@ async function createTransaction(req, res, next) {
     });
 
     if (type === "Credit") {
-      bankAccount.balance += amount;
+      account.balance += amount;
     } else if (type === "Debit") {
-      bankAccount.balance -= amount;
+      account.balance -= amount;
     }
-    await bankAccount.save();
+    await account.save();
 
     return res
       .status(201)
@@ -75,7 +75,7 @@ async function createTransaction(req, res, next) {
 async function getAllTransactions(req, res, next) {
   try {
     const transactions = await Transaction.find()
-      .populate("bankAccount", "accountName accountType")
+      .populate("account", "accountName accountType")
       .sort({ date: -1 });
     return res
       .status(200)
@@ -95,7 +95,7 @@ async function getTransactionById(req, res, next) {
   try {
     const { id } = req.params;
     const transaction = await Transaction.findById(id).populate(
-      "bankAccount",
+      "account",
       "accountName accountType"
     );
 
@@ -114,8 +114,8 @@ async function getTransactionById(req, res, next) {
 async function getTransactionsByAccountId(req, res, next) {
   try {
     const { accountId } = req.params;
-    const transactions = await Transaction.find({ bankAccount: accountId })
-      .populate("bankAccount", "accountName accountType")
+    const transactions = await Transaction.find({ account: accountId })
+      .populate("account", "accountName accountType")
       .sort({ date: -1 });
 
     return res
@@ -157,14 +157,14 @@ async function deleteTransaction(req, res, next) {
       return next(new ApiError(404, "Transaction not found for deletion"));
     }
 
-    const bankAccount = await BankAccount.findById(transaction.bankAccount);
-    if (bankAccount) {
+    const account = await Account.findById(transaction.account);
+    if (account) {
       if (transaction.type === "Credit") {
-        bankAccount.balance -= transaction.amount;
+        account.balance -= transaction.amount;
       } else if (transaction.type === "Debit") {
-        bankAccount.balance += transaction.amount;
+        account.balance += transaction.amount;
       }
-      await bankAccount.save();
+      await account.save();
     }
 
     return res
@@ -178,11 +178,11 @@ async function deleteTransaction(req, res, next) {
 async function getTransactionStats(req, res, next) {
   try {
     const stats = await Transaction.aggregate([
-      // Stage 1: Lookup bank account details for each transaction
+      // Stage 1: Lookup account details for each transaction
       {
         $lookup: {
-          from: "bankaccounts", // The actual collection name for the BankAccount model
-          localField: "bankAccount",
+          from: "accounts", // The actual collection name for the Account model
+          localField: "account",
           foreignField: "_id",
           as: "accountDetails",
         },
@@ -190,10 +190,10 @@ async function getTransactionStats(req, res, next) {
       {
         $unwind: "$accountDetails",
       },
-      // Stage 2: Group by individual bank account to get per-account stats
+      // Stage 2: Group by individual account to get per-account stats
       {
         $group: {
-          _id: "$bankAccount",
+          _id: "$account",
           accountName: { $first: "$accountDetails.accountName" },
           accountType: { $first: "$accountDetails.accountType" },
           totalTransactions: { $sum: 1 },

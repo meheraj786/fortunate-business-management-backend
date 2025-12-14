@@ -1,4 +1,4 @@
-const BankAccount = require("../models/bank.model");
+const Account = require("../models/account.model");
 const Transaction = require("../models/transaction.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
@@ -37,7 +37,7 @@ async function createAccount(req, res, next) {
       return next(new ApiError(400, "Validation failed", validationErrors));
     }
 
-    const account = await BankAccount.create({
+    const account = await Account.create({
       accountType,
       accountName,
       balance: initialBalance || 0,
@@ -61,7 +61,7 @@ async function createAccount(req, res, next) {
 
 async function getAllAccounts(req, res, next) {
   try {
-    const accounts = await BankAccount.find();
+    const accounts = await Account.find();
     return res
       .status(200)
       .json(new ApiResponse(200, accounts, "Accounts fetched successfully"));
@@ -74,7 +74,7 @@ async function getAllAccounts(req, res, next) {
 async function getAccountById(req, res, next) {
   try {
     const { id } = req.params;
-    const account = await BankAccount.findById(id);
+    const account = await Account.findById(id);
 
     if (!account) {
       return next(new ApiError(404, "Account not found"));
@@ -93,7 +93,7 @@ async function updateAccount(req, res, next) {
     const { id } = req.params;
     const updateData = req.body;
 
-    const updatedAccount = await BankAccount.findByIdAndUpdate(id, updateData, {
+    const updatedAccount = await Account.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
     });
@@ -113,14 +113,14 @@ async function updateAccount(req, res, next) {
 async function deleteAccount(req, res, next) {
   try {
     const { id } = req.params;
-    const deletedAccount = await BankAccount.findByIdAndDelete(id);
+    const deletedAccount = await Account.findByIdAndDelete(id);
 
     if (!deletedAccount) {
       return next(new ApiError(404, "Account not found"));
     }
 
     // Also delete all transactions associated with this account
-    await Transaction.deleteMany({ bankAccount: id });
+    await Transaction.deleteMany({ account: id });
 
     return res
       .status(200)
