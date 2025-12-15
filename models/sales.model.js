@@ -142,6 +142,7 @@ salesSchema.index({ product: 1 });
 salesSchema.index({ "customer.customerId": 1 });
 salesSchema.index({ "customer.name": 1 });
 salesSchema.index({ saleDate: -1 });
+salesSchema.index({ totalAmountToBePaid: 1 });
 
 const Sales = mongoose.model("Sales", salesSchema);
 module.exports = Sales;

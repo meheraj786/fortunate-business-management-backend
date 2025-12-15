@@ -6,15 +6,11 @@ const {
   updateSale,
   deleteSale,
   getSalesSummary,
-  getAll_cancelled_invoices,
-  getAll_due_invoices,
-  getAll_paid_invoices,
-  getAll_not_invoices,
   getAll_invoices_status_count,
   addPartialPayment,
   cancelSale,
   getSalesByCustomerId,
-  getSalesSummaryForTable, 
+  getPaginatedSalesSummary, // New import
 } = require("../../controllers/sales.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const authorize = require("../../middleware/authorize.middleware"); 
@@ -29,15 +25,10 @@ salesRoutes.patch("/cancel-sale/:id", authenticate, authorize("SALES", "UPDATE")
 salesRoutes.get("/sales-summary", authenticate, authorize("SALES", "GET"), getSalesSummary);
 salesRoutes.get("/customer/:customerId", authenticate, authorize("SALES", "GET"), getSalesByCustomerId);
 
-// filtered invoices
-salesRoutes.get("/get-all-not-invoices", getAll_not_invoices);
-salesRoutes.get("/get-all-paid-invoices", getAll_paid_invoices);
-salesRoutes.get("/get-all-due-invoices", getAll_due_invoices);
-salesRoutes.get("/get-all-cancelled-invoices", getAll_cancelled_invoices);
 salesRoutes.get("/get-all-invoices-status-count", getAll_invoices_status_count);
 salesRoutes.post("/:id/payments", addPartialPayment);
 
-// New route for sales summary table
-salesRoutes.get("/summary-for-table", getSalesSummaryForTable);
+// New comprehensive sales summary route
+salesRoutes.get("/sales-summary-table", authenticate, authorize("SALES", "GET"), getPaginatedSalesSummary);
 
 module.exports = salesRoutes;

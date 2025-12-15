@@ -196,6 +196,10 @@ async function createSale(req, res, next) {
       saleDate,
     });
 
+    if (sale.totalAmountToBePaid < 0) {
+      throw new ApiError(400, "Total amount to be paid cannot be negative.");
+    }
+
     // Handle payments and update account/cash accounts
     for (const payment of payments) {
       if (payment.method === "bank" || payment.method === "mobile-banking") {
@@ -510,114 +514,13 @@ async function getSalesSummary(_, res, next) {
   }
 }
 
-async function getAll_not_invoices(req, res, next) {
-  try {
-    const sales = await Sales.find({ invoiceStatus: "Not-invoiced" })
-      .populate({
-        path: "product",
-        select: "name category unit LC",
-        populate: [
-          { path: "LC", select: "basicInfo.lcNumber" },
-          { path: "unit", select: "name type conversionFactor" }
-        ]
-      })
-      .populate("customer.customerId", "name phone location")
-      .populate("warehouse", "name")
-      .populate("category", "name");
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(200, sales, "Not-invoiced sales fetched successfully")
-      );
-  } catch (error) {
-    next(new ApiError(500, error.message));
-  }
-}
 
-// Get all paid-invoice sales list
-async function getAll_paid_invoices(req, res, next) {
-  try {
-    const sales = await Sales.find({
-      invoiceStatus: "Invoiced",
-      paymentStatus: "Paid payment",
-    })
-      .populate({
-        path: "product",
-        select: "name category unit LC",
-        populate: [
-          { path: "LC", select: "basicInfo.lcNumber" },
-          { path: "unit", select: "name type conversionFactor" }
-        ]
-      })
-      .populate("customer.customerId", "name phone location")
-      .populate("warehouse", "name")
-      .populate("category", "name");
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(200, sales, "Paid invoice sales fetched successfully")
-      );
-  } catch (error) {
-    next(new ApiError(500, error.message));
-  }
-}
 
-// Get all due-invoice sales list
-async function getAll_due_invoices(req, res, next) {
-  try {
-    const sales = await Sales.find({
-      invoiceStatus: "Invoiced",
-      paymentStatus: "Due payment",
-    })
-      .populate({
-        path: "product",
-        select: "name category unit LC",
-        populate: [
-          { path: "LC", select: "basicInfo.lcNumber" },
-          { path: "unit", select: "name type conversionFactor" }
-        ]
-      })
-      .populate("customer.customerId", "name phone location")
-      .populate("warehouse", "name")
-      .populate("category", "name");
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(200, sales, "Due invoice sales fetched successfully")
-      );
-  } catch (error) {
-    next(new ApiError(500, error.message));
-  }
-}
 
-// Get all cancelled-invoice sales list
-async function getAll_cancelled_invoices(req, res, next) {
-  try {
-    const sales = await Sales.find({ invoiceStatus: "Cancelled" })
-      .populate({
-        path: "product",
-        select: "name category unit LC",
-        populate: [
-          { path: "LC", select: "basicInfo.lcNumber" },
-          { path: "unit", select: "name type conversionFactor" }
-        ]
-      })
-      .populate("customer.customerId", "name phone location")
-      .populate("warehouse", "name")
-      .populate("category", "name");
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          sales,
-          "Cancelled invoice sales fetched successfully"
-        )
-      );
-  } catch (error) {
-    next(new ApiError(500, error.message));
-  }
-}
+
+
+
+
 
 // get all sales invoices count in respose - suppose, total not invoiced sales (2), total paid {paid invoices are those, those's payment is completed} invoices sales (5)
 async function getAll_invoices_status_count(req, res, next) {
@@ -898,6 +801,186 @@ async function cancelSale(req, res, next) {
   }
 }
 
+async function getPaginatedSalesSummary(req, res, next) {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      invoiceStatus,
+      paymentStatus,
+      search,
+      sortBy,
+      sortOrder = "desc", // default to descending order
+    } = req.query;
+
+    const pipeline = [];
+
+    // Stage 1: Add fields for searching and sorting that require population
+    pipeline.push({
+      $lookup: {
+        from: "products",
+        localField: "product",
+        foreignField: "_id",
+        as: "productDetails",
+      },
+    });
+    pipeline.push({
+      $unwind: "$productDetails",
+    });
+
+    pipeline.push({
+      $lookup: {
+        from: "lcs",
+        localField: "productDetails.LC",
+        foreignField: "_id",
+        as: "lcDetails",
+      },
+    });
+    pipeline.push({
+      $unwind: { path: "$lcDetails", preserveNullAndEmptyArrays: true }, // LC might be null
+    });
+
+    pipeline.push({
+      $lookup: {
+        from: "units",
+        localField: "unit",
+        foreignField: "_id",
+        as: "saleUnitDetails",
+      },
+    });
+    pipeline.push({
+      $unwind: "$saleUnitDetails",
+    });
+
+    pipeline.push({
+      $lookup: {
+        from: "customers",
+        localField: "customer.customerId",
+        foreignField: "_id",
+        as: "customerLookup",
+      },
+    });
+    pipeline.push({
+      $unwind: { path: "$customerLookup", preserveNullAndEmptyArrays: true },
+    });
+
+    // Stage 2: Filtering
+    const matchConditions = {};
+    if (invoiceStatus) {
+      matchConditions.invoiceStatus = invoiceStatus;
+    }
+    if (paymentStatus) {
+      matchConditions.paymentStatus = paymentStatus;
+    }
+
+    if (search) {
+      const searchRegex = new RegExp(search, "i");
+      matchConditions.$or = [
+        { "customer.name": searchRegex },
+        { "customerLookup.name": searchRegex },
+        { "productDetails.name": searchRegex },
+        { "lcDetails.basicInfo.lcNumber": searchRegex },
+        { totalAmountToBePaid: parseFloat(search) || -1 }, // Search by amount
+      ];
+    }
+    
+    if (Object.keys(matchConditions).length > 0) {
+      pipeline.push({ $match: matchConditions });
+    }
+
+    // Stage 3: Add calculated field for quantity sorting
+    pipeline.push({
+      $addFields: {
+        convertedQuantity: {
+          $multiply: ["$quantity", "$saleUnitDetails.conversionFactor"],
+        },
+        finalCustomerName: {
+          $cond: {
+            if: "$customerLookup.name",
+            then: "$customerLookup.name",
+            else: "$customer.name",
+          },
+        },
+      },
+    });
+
+    // Stage 4: Sorting
+    const sort = {};
+    if (sortBy) {
+      if (sortBy === "saleDate") {
+        sort.saleDate = sortOrder === "asc" ? 1 : -1;
+      } else if (sortBy === "totalAmountToBePaid") {
+        sort.totalAmountToBePaid = sortOrder === "bigger" ? -1 : 1; // bigger = desc, smaller = asc
+      } else if (sortBy === "quantity") {
+        sort.convertedQuantity = sortOrder === "asc" ? 1 : -1;
+      } else if (sortBy === "customerName") {
+        sort.finalCustomerName = sortOrder === "asc" ? 1 : -1;
+      }
+    } else {
+      // Default sort
+      sort.saleDate = -1;
+    }
+
+    pipeline.push({ $sort: sort });
+
+    // Stage 5: Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: parseInt(limit) });
+
+    // Stage 6: Project the final output fields
+    pipeline.push({
+      $project: {
+        _id: "$_id",
+        "customer.name": "$finalCustomerName",
+        "product.name": "$productDetails.name",
+        "product.id": "$productDetails._id",
+        "lc.number": "$lcDetails.basicInfo.lcNumber",
+        "lc.id": "$lcDetails._id",
+        quantity: "$quantity",
+        "unit.name": "$saleUnitDetails.name",
+        "unit.id": "$saleUnitDetails._id",
+        pricePerUnit: "$pricePerUnit",
+        totalAmountToBePaid: "$totalAmountToBePaid",
+        invoiceStatus: "$invoiceStatus",
+        paymentStatus: "$paymentStatus",
+        saleDate: "$saleDate",
+      },
+    });
+
+    const sales = await Sales.aggregate(pipeline);
+
+    // Get total count for pagination metadata
+    const countPipeline = [...pipeline];
+    countPipeline.pop(); // Remove $project
+    countPipeline.pop(); // Remove $limit
+    countPipeline.pop(); // Remove $skip
+    countPipeline.pop(); // Remove $sort
+
+    countPipeline.push({ $count: "total" });
+    const totalCountResult = await Sales.aggregate(countPipeline);
+    const totalSales = totalCountResult.length > 0 ? totalCountResult[0].total : 0;
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          {
+            sales,
+            totalSales,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            totalPages: Math.ceil(totalSales / parseInt(limit)),
+          },
+          "Sales summary fetched successfully"
+        )
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message || "An internal server error occurred while fetching sales summary."));
+  }
+}
+
 module.exports = {
   createSale,
   getAllSales,
@@ -905,63 +988,11 @@ module.exports = {
   updateSale,
   deleteSale,
   getSalesSummary,
-  getAll_cancelled_invoices,
-  getAll_due_invoices,
-  getAll_paid_invoices,
-  getAll_not_invoices,
   getAll_invoices_status_count,
   addPartialPayment,
   cancelSale,
   getSalesByCustomerId,
-  getSalesSummaryForTable, // Export the new function
+  getPaginatedSalesSummary,
 };
 
-async function getSalesSummaryForTable(req, res, next) {
-  try {
-    const sales = await Sales.find()
-      .populate({
-        path: "product",
-        select: "name LC unit", // Select product name, LC, and unit
-        populate: [
-          { path: "LC", select: "basicInfo.lcNumber" }, // Populate LC and select lcNumber
-          { path: "unit", select: "name" }, // Populate product's unit and select name
-        ],
-      })
-      .populate("customer.customerId", "name") // Populate registered customer and select name
-      .populate("unit", "name") // Populate sale's unit and select name
-      .select(
-        "_id quantity pricePerUnit totalAmount customer invoiceStatus paymentStatus saleDate"
-      )
-      .sort({ saleDate: -1 });
 
-    const formattedSales = sales.map((sale) => ({
-      _id: sale._id,
-      product: {
-        name: sale.product?.name,
-        lcNumber: sale.product?.LC?.basicInfo?.lcNumber || "N/A",
-      },
-      quantity: sale.quantity,
-      unit: sale.unit?.name || "N/A", // Use the populated sale unit name
-      pricePerUnit: sale.pricePerUnit,
-      totalAmount: sale.totalAmount,
-      customer: {
-        name: sale.customer?.customerId?.name || sale.customer?.name, // Prefer registered customer name, fallback to temporary
-      },
-      invoiceStatus: sale.invoiceStatus,
-      paymentStatus: sale.paymentStatus,
-      saleDate: sale.saleDate,
-    }));
-
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          formattedSales,
-          "Sales summary for table fetched successfully"
-        )
-      );
-  } catch (error) {
-    next(new ApiError(500, error.message));
-  }
-}

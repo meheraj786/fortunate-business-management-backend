@@ -85,6 +85,8 @@ const lcSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+lcSchema.index({ "basicInfo.lcNumber": 1 }); // Add index here
+
 // Mongoose 'pre-save' middleware to calculate totalCost
 lcSchema.pre("save", function (next) {
   let calculatedCost = 0;
