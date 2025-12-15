@@ -80,9 +80,43 @@ const lcSchema = new mongoose.Schema(
     otherExpenses: {
       costs: [costSchema],
     },
+    totalCost: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
+
+// Mongoose 'pre-save' middleware to calculate totalCost
+lcSchema.pre("save", function (next) {
+  let calculatedCost = 0;
+
+  if (this.financialInfo && this.financialInfo.costs) {
+    calculatedCost += this.financialInfo.costs.reduce(
+      (sum, cost) => sum + (cost.amount || 0),
+      0
+    );
+  }
+  if (this.shippingCustomsInfo && this.shippingCustomsInfo.costs) {
+    calculatedCost += this.shippingCustomsInfo.costs.reduce(
+      (sum, cost) => sum + (cost.amount || 0),
+      0
+    );
+  }
+  if (this.agentTransportInfo && this.agentTransportInfo.costs) {
+    calculatedCost += this.agentTransportInfo.costs.reduce(
+      (sum, cost) => sum + (cost.amount || 0),
+      0
+    );
+  }
+  if (this.otherExpenses && this.otherExpenses.costs) {
+    calculatedCost += this.otherExpenses.costs.reduce(
+      (sum, cost) => sum + (cost.amount || 0),
+      0
+    );
+  }
+
+  this.totalCost = calculatedCost;
+  next();
+});
 
 const LC = mongoose.model("LC", lcSchema);
 module.exports = LC;

@@ -14,6 +14,7 @@ const {
   exportLCAsPDF,
   getLCSummary,
   getActiveLcs, // Import the new function
+  searchLCSummary,
 } = require("../../controllers/lc.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const authorize = require("../../middleware/authorize.middleware");
@@ -38,5 +39,6 @@ lcRoutes.get("/active-lc", getActiveLcs);
 
 // New route for LC summary
 lcRoutes.get("/summary", getLCSummary); // Get summary of all LCs
+lcRoutes.get("/summary/search", searchLCSummary);
 
 module.exports = lcRoutes;

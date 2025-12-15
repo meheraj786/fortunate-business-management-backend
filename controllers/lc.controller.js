@@ -215,11 +215,17 @@ async function getLCById(req, res, next) {
 async function updateLC(req, res, next) {
   try {
     const { id } = req.params;
-    const updated = await LC.findByIdAndUpdate(id, req.body, {
-      new: true,
-      runValidators: true,
-    });
-    if (!updated) return next(new ApiError(404, "LC not found"));
+    const lc = await LC.findById(id);
+
+    if (!lc) {
+      return next(new ApiError(404, "LC not found"));
+    }
+
+    // Update fields from req.body
+    Object.assign(lc, req.body);
+
+    const updated = await lc.save(); // This will trigger the pre-save hook
+
     return res
       .status(200)
       .json(new ApiResponse(200, updated, "LC updated successfully"));
@@ -386,53 +392,41 @@ async function getActiveLcs(req,res,next){
 
 async function getLCSummary(req, res, next) {
   try {
-    // Get pagination parameters from query string
+    // 1. Get parameters
+    const { status, sortBy, sortOrder } = req.query;
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const skip = (page - 1) * limit;
 
-    // Get total documents and the paginated documents in parallel
+    // 2. Build filter and sort objects
+    const filter = {};
+    if (status) {
+      filter["basicInfo.status"] = status;
+    }
+
+    const sort = {};
+    const sortOrderValue = sortOrder === "desc" ? -1 : 1;
+    if (sortBy === "openingDate") {
+      sort["basicInfo.lcOpeningDate"] = sortOrderValue;
+    } else if (sortBy === "dueDate") {
+      sort["shippingCustomsInfo.expectedArrivalDate"] = sortOrderValue;
+    } else if (sortBy === "totalCost") {
+      sort["totalCost"] = sortOrderValue;
+    } else {
+      sort["createdAt"] = -1;
+    }
+
+    // 3. Perform queries
     const [totalDocuments, lcs] = await Promise.all([
-      LC.countDocuments(),
-      LC.find()
+      LC.countDocuments(filter),
+      LC.find(filter)
         .populate("productInfo.quantityUnit", "name")
-        .sort({ createdAt: -1 }) // Sort by newest first for consistent pagination
+        .sort(sort)
         .skip(skip)
         .limit(limit),
     ]);
 
-    const calculateTotalCost = (lc) => {
-      let totalCost = 0;
-      if (lc.financialInfo) {
-        totalCost += lc.financialInfo.lcAmountBdt || 0;
-        if (lc.financialInfo.costs) {
-          totalCost += lc.financialInfo.costs.reduce(
-            (sum, cost) => sum + (cost.amount || 0),
-            0
-          );
-        }
-      }
-      if (lc.shippingCustomsInfo && lc.shippingCustomsInfo.costs) {
-        totalCost += lc.shippingCustomsInfo.costs.reduce(
-          (sum, cost) => sum + (cost.amount || 0),
-          0
-        );
-      }
-      if (lc.agentTransportInfo && lc.agentTransportInfo.costs) {
-        totalCost += lc.agentTransportInfo.costs.reduce(
-          (sum, cost) => sum + (cost.amount || 0),
-          0
-        );
-      }
-      if (lc.otherExpenses && lc.otherExpenses.costs) {
-        totalCost += lc.otherExpenses.costs.reduce(
-          (sum, cost) => sum + (cost.amount || 0),
-          0
-        );
-      }
-      return totalCost;
-    };
-
+    // 4. Map to summary format
     const summary = lcs.map((lc) => ({
       _id: lc._id,
       lcNumber: lc.basicInfo.lcNumber,
@@ -445,10 +439,10 @@ async function getLCSummary(req, res, next) {
         quantity: p.quantity,
         unit: p.quantityUnit?.name || "N/A",
       })),
-      totalCost: calculateTotalCost(lc),
+      totalCost: lc.totalCost, // Use the stored value
     }));
 
-    // Construct the response object with pagination info
+    // 5. Construct response
     const responseData = {
       data: summary,
       pagination: {
@@ -582,6 +576,91 @@ async function addExpenseToLC(req, res, next) {
 }
 
 
+async function searchLCSummary(req, res, next) {
+  try {
+    // 1. Get parameters
+    const { searchQuery, status, sortBy, sortOrder } = req.query;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const skip = (page - 1) * limit;
+
+    // 2. Build filter and sort objects
+    const filter = {};
+    if (status) {
+      filter["basicInfo.status"] = status;
+    }
+    if (searchQuery) {
+      const regex = new RegExp(searchQuery, "i");
+      filter["$or"] = [
+        { "basicInfo.lcNumber": regex },
+        { "basicInfo.supplierName": regex },
+        { "productInfo.itemName": regex },
+      ];
+    }
+
+    const sort = {};
+    const sortOrderValue = sortOrder === "desc" ? -1 : 1;
+    if (sortBy === "openingDate") {
+      sort["basicInfo.lcOpeningDate"] = sortOrderValue;
+    } else if (sortBy === "dueDate") {
+      sort["shippingCustomsInfo.expectedArrivalDate"] = sortOrderValue;
+    } else if (sortBy === "totalCost") {
+      sort["totalCost"] = sortOrderValue;
+    } else {
+      sort["createdAt"] = -1;
+    }
+
+    // 3. Perform queries
+    const [totalDocuments, lcs] = await Promise.all([
+      LC.countDocuments(filter),
+      LC.find(filter)
+        .populate("productInfo.quantityUnit", "name")
+        .sort(sort)
+        .skip(skip)
+        .limit(limit),
+    ]);
+
+    // 4. Map to summary format
+    const summary = lcs.map((lc) => ({
+      _id: lc._id,
+      lcNumber: lc.basicInfo.lcNumber,
+      lcOpeningDate: lc.basicInfo.lcOpeningDate,
+      status: lc.basicInfo.status,
+      supplierName: lc.basicInfo.supplierName,
+      dueDate: lc.shippingCustomsInfo?.expectedArrivalDate,
+      products: lc.productInfo.map((p) => ({
+        itemName: p.itemName,
+        quantity: p.quantity,
+        unit: p.quantityUnit?.name || "N/A",
+      })),
+      totalCost: lc.totalCost, // Use the stored value
+    }));
+
+    // 5. Construct response
+    const responseData = {
+      data: summary,
+      pagination: {
+        totalDocuments,
+        totalPages: Math.ceil(totalDocuments / limit),
+        currentPage: page,
+        limit,
+      },
+    };
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          responseData,
+          "LCs summary search completed successfully"
+        )
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message));
+  }
+}
+
 module.exports = {
   createLC,
   getAllLCs,
@@ -597,4 +676,5 @@ module.exports = {
   getLCSummary,
   getActiveLcs,
   addExpenseToLC,
+  searchLCSummary,
 };

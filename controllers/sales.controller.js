@@ -6,7 +6,7 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
 const Account = require("../models/account.model");
-const DailyCash = require("../models/dailyCash.model");
+const { DailyCash } = require("../models/dailyCash.model");
 
 const mongoose = require("mongoose");
 const Transaction = require("../models/transaction.model");
@@ -75,6 +75,19 @@ async function createSale(req, res, next) {
     } = req.body;
 
     const validationErrors = [];
+    if (saleDate) {
+        const today = new Date();
+        const providedSaleDate = new Date(saleDate);
+        today.setHours(0, 0, 0, 0);
+        providedSaleDate.setHours(0, 0, 0, 0);
+
+        if (providedSaleDate > today) {
+            validationErrors.push({
+                field: "saleDate",
+                message: "Sale date cannot be in the future."
+            });
+        }
+    }
     if (!productId)
       validationErrors.push({
         field: "product",
@@ -241,13 +254,16 @@ async function createSale(req, res, next) {
     await session.commitTransaction();
     session.endSession();
 
-    return res
-      .status(201)
-      .json(new ApiResponse(201, sale, "Sale created successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(new ApiError(error.statusCode || 500, error.message));
+    
+    // If the error is already one of our custom ApiErrors, just pass it along.
+    // Otherwise, create a new generic one. This preserves the detailed validation errors.
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "An internal server error occurred during sale creation."));
   }
 }
 
@@ -736,7 +752,12 @@ async function addPartialPayment(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(new ApiError(error.statusCode || 500, error.message));
+
+    // If the error is already one of our custom ApiErrors, just pass it along.
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "An internal server error occurred while adding partial payment."));
   }
 }
 
