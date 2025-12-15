@@ -386,7 +386,20 @@ async function getActiveLcs(req,res,next){
 
 async function getLCSummary(req, res, next) {
   try {
-    const lcs = await LC.find().populate("productInfo.quantityUnit", "name");
+    // Get pagination parameters from query string
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const skip = (page - 1) * limit;
+
+    // Get total documents and the paginated documents in parallel
+    const [totalDocuments, lcs] = await Promise.all([
+      LC.countDocuments(),
+      LC.find()
+        .populate("productInfo.quantityUnit", "name")
+        .sort({ createdAt: -1 }) // Sort by newest first for consistent pagination
+        .skip(skip)
+        .limit(limit),
+    ]);
 
     const calculateTotalCost = (lc) => {
       let totalCost = 0;
@@ -435,9 +448,22 @@ async function getLCSummary(req, res, next) {
       totalCost: calculateTotalCost(lc),
     }));
 
+    // Construct the response object with pagination info
+    const responseData = {
+      data: summary,
+      pagination: {
+        totalDocuments,
+        totalPages: Math.ceil(totalDocuments / limit),
+        currentPage: page,
+        limit,
+      },
+    };
+
     return res
       .status(200)
-      .json(new ApiResponse(200, summary, "LCs summary fetched successfully"));
+      .json(
+        new ApiResponse(200, responseData, "LCs summary fetched successfully")
+      );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
