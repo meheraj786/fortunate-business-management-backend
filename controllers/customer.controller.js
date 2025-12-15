@@ -184,84 +184,137 @@ async function getCustomerStats(_, res, next) {
 
 async function getCustomersSummary(req, res, next) {
   try {
-    const salesStats = await Sales.aggregate([
-      {
-        $match: { "customer.customerId": { $ne: null } },
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      status,
+      customerType,
+      sortBy,
+      sortOrder = "desc",
+    } = req.query;
+
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
+    const sortOrderNum = sortOrder === "asc" ? 1 : -1;
+
+    // --- Aggregation Pipeline ---
+    const pipeline = [];
+
+    // Stage 1: Initial Filtering & Searching
+    const matchConditions = {};
+    if (status) {
+      matchConditions.customerStatus = status;
+    }
+    if (customerType) {
+      matchConditions.customerType = customerType;
+    }
+    if (search) {
+      const searchRegex = { $regex: search, $options: "i" };
+      matchConditions.$or = [
+        { name: searchRegex },
+        { phone: searchRegex },
+        { customerId: searchRegex },
+      ];
+    }
+    if (Object.keys(matchConditions).length > 0) {
+      pipeline.push({ $match: matchConditions });
+    }
+    
+    // Stage 2: Lookup to join with Sales
+    pipeline.push({
+      $lookup: {
+        from: "sales",
+        localField: "_id",
+        foreignField: "customer.customerId",
+        as: "sales",
       },
-      {
-        $group: {
-          _id: "$customer.customerId",
-          totalPurchases: { $sum: 1 },
-          totalSpent: { $sum: "$totalAmountToBePaid" },
-          totalNotInvoiced: {
-            $sum: {
-              $cond: [{ $eq: ["$invoiceStatus", "Not-invoiced"] }, 1, 0],
+    });
+
+    // Stage 3: Add fields to calculate summary stats
+    pipeline.push({
+      $addFields: {
+        totalPurchases: { $size: "$sales" },
+        totalSpent: { $sum: "$sales.totalAmountToBePaid" },
+        lastPurchaseDate: { $max: "$sales.saleDate" },
+        totalNotInvoiced: {
+          $sum: {
+            $map: {
+              input: "$sales",
+              as: "sale",
+              in: {
+                $cond: [{ $eq: ["$$sale.invoiceStatus", "Not-invoiced"] }, 1, 0],
+              },
             },
           },
-          lastPurchaseDate: { $max: "$saleDate" },
-          dueSales: {
-            $push: {
-              $cond: [
-                { $eq: ["$paymentStatus", "Due payment"] },
-                {
-                  totalAmountToBePaid: "$totalAmountToBePaid",
-                  payments: "$payments",
+        },
+        totalDue: {
+          $sum: {
+            $map: {
+              input: {
+                $filter: {
+                  input: "$sales",
+                  as: "sale",
+                  cond: { $eq: ["$$sale.paymentStatus", "Due payment"] },
                 },
-                "$$REMOVE",
-              ],
+              },
+              as: "dueSale",
+              in: {
+                $subtract: [
+                  "$$dueSale.totalAmountToBePaid",
+                  { $sum: "$$dueSale.payments.amount" },
+                ],
+              },
             },
           },
         },
       },
-    ]);
-
-    const salesStatsMap = new Map(
-      salesStats.map((stat) => [stat._id.toString(), stat])
-    );
-
-    const allCustomers = await Customer.find({}).lean();
-
-    const customersSummary = allCustomers.map((customer) => {
-      const stats = salesStatsMap.get(customer._id.toString());
-      let totalDue = 0;
-
-      if (stats && stats.dueSales.length > 0) {
-        totalDue = stats.dueSales.reduce((total, sale) => {
-          const totalPaid = sale.payments.reduce(
-            (acc, p) => acc + p.amount,
-            0
-          );
-          return total + (sale.totalAmountToBePaid - totalPaid);
-        }, 0);
-      }
-
-      return {
-        _id: customer._id,
-        customerId: customer.customerId,
-        name: customer.name,
-        phone: customer.phone,
-        billingAddress: customer.billingAddress,
-        customerStatus: customer.customerStatus,
-        creditLimit: customer.creditLimit,
-        joinDate: customer.joinDate,
-        customerType: customer.customerType,
-        totalPurchases: stats ? stats.totalPurchases : 0,
-        totalSpent: stats ? stats.totalSpent : 0,
-        totalDue,
-        totalNotInvoiced: stats ? stats.totalNotInvoiced : 0,
-        lastPurchaseDate: stats ? stats.lastPurchaseDate : null,
-      };
     });
 
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          customersSummary,
-          "Customers summary fetched successfully"
-        )
-      );
+    // --- Create a parallel pipeline for total count ---
+    const countPipeline = [...pipeline];
+    countPipeline.push({ $count: "totalCustomers" });
+    const totalResult = await Customer.aggregate(countPipeline);
+    const totalCustomers = totalResult.length > 0 ? totalResult[0].totalCustomers : 0;
+    
+    // Stage 4: Sorting
+    const sortStage = {};
+    const validSortBy = [
+      "creditLimit", "joinDate", "totalPurchases",
+      "totalSpent", "totalDue", "totalNotInvoiced", "lastPurchaseDate"
+    ];
+    if (validSortBy.includes(sortBy)) {
+      sortStage[sortBy] = sortOrderNum;
+    } else {
+      sortStage.joinDate = -1; // Default sort
+    }
+    pipeline.push({ $sort: sortStage });
+    
+    // Stage 5: Pagination
+    pipeline.push({ $skip: skip }, { $limit: limitNum });
+
+    // Stage 6: Final Projection
+    pipeline.push({
+      $project: {
+        sales: 0, // Exclude the full sales array from the final output
+      },
+    });
+
+    const customersSummary = await Customer.aggregate(pipeline);
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          customers: customersSummary,
+          totalPages: Math.ceil(totalCustomers / limitNum),
+          currentPage: pageNum,
+          totalItems: totalCustomers,
+        },
+        "Customers summary fetched successfully"
+      )
+    );
   } catch (error) {
     next(new ApiError(500, error.message));
   }

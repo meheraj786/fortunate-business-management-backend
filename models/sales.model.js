@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const mongoosePaginate = require("mongoose-paginate-v2");
 
 /*
  * Other Charges Sub-schema
@@ -90,6 +91,8 @@ const salesSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+salesSchema.plugin(mongoosePaginate);
 
 /*
  * Pre-save hook for amount calculations.

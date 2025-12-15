@@ -667,7 +667,12 @@ async function addPartialPayment(req, res, next) {
 async function getSalesByCustomerId(req, res, next) {
   try {
     const { customerId } = req.params;
-    const { invoiceStatus, paymentStatus } = req.query;
+    const { 
+      invoiceStatus, 
+      paymentStatus, 
+      page = 1, 
+      limit = 10 
+    } = req.query;
 
     if (!mongoose.Types.ObjectId.isValid(customerId)) {
       return next(new ApiError(400, "Invalid customer ID"));
@@ -678,36 +683,44 @@ async function getSalesByCustomerId(req, res, next) {
     if (invoiceStatus) {
       query.invoiceStatus = invoiceStatus;
     }
-
     if (paymentStatus) {
       query.paymentStatus = paymentStatus;
     }
 
-    const sales = await Sales.find(query)
-      .populate({
-        path: "product",
-        select: "name category unit LC",
-        populate: [
-          { path: "LC", select: "basicInfo.lcNumber" },
-          { path: "unit", select: "name type conversionFactor" }
-        ]
-      })
-      .populate("warehouse", "name")
-      .populate("category", "name")
-      .populate({
-        path: "payments.account",
-        model: "Account",
-      })
-      .sort({ saleDate: -1 });
+    const options = {
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+      sort: { saleDate: -1 },
+      select: 'saleDate product quantity unit pricePerUnit totalAmountToBePaid invoiceStatus paymentStatus',
+      populate: [
+        { 
+          path: 'product', 
+          select: 'name LC',
+          populate: {
+            path: 'LC',
+            select: 'basicInfo.lcNumber' // Select LC number
+          }
+        },
+        { path: 'unit', select: 'name' } // Select unit name
+      ],
+      lean: true
+    };
 
-    if (!sales) {
-      return next(new ApiError(404, "No sales found for this customer"));
-    }
+    const salesResult = await Sales.paginate(query, options);
 
     return res
       .status(200)
       .json(
-        new ApiResponse(200, sales, "Customer sales fetched successfully")
+        new ApiResponse(
+          200,
+          {
+            sales: salesResult.docs,
+            totalPages: salesResult.totalPages,
+            currentPage: salesResult.page,
+            totalItems: salesResult.totalDocs,
+          },
+          "Customer sales fetched successfully"
+        )
       );
   } catch (error) {
     next(new ApiError(500, error.message));

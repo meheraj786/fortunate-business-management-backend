@@ -386,21 +386,30 @@ async function getStockStatus(_, res, next) {
 async function getProductSalesHistory(req, res, next) {
   try {
     const { productId } = req.params;
-    const salesHistory = await Sales.find({ product: productId })
-      .select(
-        "customer product quantity pricePerUnit invoiceStatus paymentStatus saleDate totalAmount createdAt updatedAt"
-      )
-      .sort({ saleDate: -1 });
+    const { page = 1, limit = 10 } = req.query; // Get page and limit from query
 
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          salesHistory,
-          "Product sales history fetched successfully"
-        )
-      );
+    const options = {
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+      sort: { saleDate: -1 },
+      select:
+        "customer product quantity pricePerUnit invoiceStatus paymentStatus saleDate totalAmount totalAmountToBePaid createdAt updatedAt",
+    };
+
+    const salesHistory = await Sales.paginate({ product: productId }, options);
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          sales: salesHistory.docs,
+          totalPages: salesHistory.totalPages,
+          currentPage: salesHistory.page,
+          totalItems: salesHistory.totalDocs,
+        },
+        "Product sales history fetched successfully"
+      )
+    );
   } catch (error) {
     next(new ApiError(500, error.message));
   }
