@@ -47,6 +47,8 @@ const registerUser = async (req, res, next) => {
 
 const loginUser = async (req, res, next) => {
   try {
+    console.log(process.env.SECRET_KEY);
+    
     const { email, password } = req.body;
     const validationErrors = [];
     if (!email)
