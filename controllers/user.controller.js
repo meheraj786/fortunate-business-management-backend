@@ -166,16 +166,34 @@ const updateUser = async (req, res, next) => {
       updates.password = await bcrypt.hash(updates.password, 10);
     }
 
+    if (updates.access && Array.isArray(updates.access)) {
+      updates.access = updates.access.map(module => {
+        let permissions = module.permissions || [];
+        
+        permissions = permissions.flat(Infinity);
+        
+        permissions = [...new Set(permissions)];
+        
+        return {
+          module: module.module,
+          permissions: permissions
+        };
+      });
+    }
+
     Object.keys(updates).forEach((key) => {
       user[key] = updates[key];
     });
 
     await user.save();
 
+    const updatedUser = await User.findById(id).populate("warehouse");
+
     return res
       .status(200)
-      .json(new ApiResponse(200, user, "User updated successfully"));
+      .json(new ApiResponse(200, updatedUser, "User updated successfully"));
   } catch (error) {
+    console.error("Update user error:", error);
     next(new ApiError(500, "Failed to update user", [error.message]));
   }
 };
