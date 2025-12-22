@@ -8,7 +8,10 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const LC = require("../models/lc.model");
 const Unit = require("../models/unit.model"); // Import Unit model
 const Account = require("../models/account.model"); // Import Account model explicitly
+const DailyCash = require("../models/dailyCash.model"); // Added
+const Transaction = require("../models/transaction.model");
 require("../models/account.model"); // Ensure Account model is registered for population
+const mongoose = require("mongoose"); // Added
 
 // Ensure the uploads directory exists
 const uploadDir = path.join(__dirname, "../uploads");
@@ -39,6 +42,8 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 async function createLC(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     let lcData;
     // Handle data sent as a stringified field in multipart/form-data
@@ -51,44 +56,74 @@ async function createLC(req, res, next) {
       lcData = req.body;
     }
 
-    // Clean up empty accountId in costs to prevent CastError
-    const costCleaner = (cost) => {
-      if (!cost.accountId) {
-        cost.accountId = null;
-      }
-      return cost;
-    };
-
     const sectionsWithCosts = [
       "financialInfo",
       "shippingCustomsInfo",
       "agentTransportInfo",
       "otherExpenses",
     ];
-    sectionsWithCosts.forEach((section) => {
+    for (const section of sectionsWithCosts) {
       if (lcData[section] && lcData[section].costs) {
-        lcData[section].costs = lcData[section].costs.map(costCleaner);
+        for (const cost of lcData[section].costs) {
+          // Clean up empty accountId in costs to prevent CastError
+          if (!cost.accountId) {
+            cost.accountId = null;
+          }
+
+          // Validate that accountId is present for account-based payments
+          if (
+            ["Bank", "Mobile Banking", "Cash"].includes(cost.paymentMethod) &&
+            !cost.accountId
+          ) {
+            throw new ApiError(400, "Validation failed", [
+                {
+                  field: `${section}.costs.accountId`,
+                  message: `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`,
+                },
+              ]);
+          }
+
+          // If accountId is provided, validate it
+          if (cost.accountId) {
+            const existingAccount = await Account.findById(cost.accountId).session(session);
+            if (!existingAccount) {
+              throw new ApiError(400, "Validation failed", [
+                  {
+                    field: `${section}.costs.accountId`,
+                    message: `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
+                  },
+                ]);
+            }
+            // Validate that the account type matches the payment method
+            if (existingAccount.accountType !== cost.paymentMethod) {
+              throw new ApiError(400, "Validation failed", [
+                  {
+                    field: `${section}.costs.accountId`,
+                    message: `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`,
+                  },
+                ]);
+            }
+          }
+        }
       }
-    });
+    }
 
     // Add validation for productInfo.quantityUnit
-    if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
+    if (lcData.productInfo && Array.isArray(lcData.productInfo)) { // Fixed Array.isArray typo
       for (const product of lcData.productInfo) {
         if (product.quantityUnit) {
           // If product.quantityUnit is an object, extract the ID
           if (typeof product.quantityUnit === "object" && product.quantityUnit.id) {
             product.quantityUnit = product.quantityUnit.id;
           }
-          const existingUnit = await Unit.findById(product.quantityUnit);
+          const existingUnit = await Unit.findById(product.quantityUnit).session(session); // Ensure session is used
           if (!existingUnit) {
-            return next(
-              new ApiError(400, "Validation failed", [
+            throw new ApiError(400, "Validation failed", [
                 {
                   field: "quantityUnit",
                   message: `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
                 },
-              ])
-            );
+              ]);
           }
         }
       }
@@ -127,7 +162,7 @@ async function createLC(req, res, next) {
       lc.documentsNotes.uploadedDocuments = uploadedDocuments;
     }
 
-    await lc.save();
+    await lc.save({ session }); // Save LC within the session
 
     if (req.files && req.files.length > 0) {
       const newLcDir = path.join(uploadDir, lc._id.toString());
@@ -140,10 +175,70 @@ async function createLC(req, res, next) {
       }
     }
 
+    // After LC is saved, create transactions for costs
+    for (const section of sectionsWithCosts) {
+      if (lcData[section] && lcData[section].costs) {
+        for (const cost of lcData[section].costs) {
+          if (cost.accountId && cost.amount > 0) { // Only create transaction if accountId is present and amount > 0
+            // DailyCash Gatekeeper Check
+            const costDateNormalized = new Date(cost.date);
+            costDateNormalized.setHours(0, 0, 0, 0);
+            const dailyCash = await DailyCash.findOne({ date: costDateNormalized }).session(session);
+
+            if (!dailyCash || dailyCash.status === "Closed") {
+              throw new ApiError(
+                400,
+                `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost transaction.`
+              );
+            }
+
+            const account = await Account.findById(cost.accountId).session(session);
+            if (!account) {
+                throw new ApiError(404, `Account with ID ${cost.accountId} not found for cost ${cost.name}.`);
+            }
+            if (account.balance < cost.amount) {
+                throw new ApiError(400, `Insufficient balance in ${account.accountName} (${account.accountType}) account for cost ${cost.name}.`);
+            }
+
+            // Decrease account balance
+            account.balance -= cost.amount;
+            await account.save({ session });
+
+            // Create Transaction for LC cost
+            await Transaction.create([{
+                accountId: cost.accountId,
+                date: cost.date,
+                description: `LC Cost: ${cost.name} for LC Number: ${lc.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
+                transactionType: "Expense",
+                amount: cost.amount,
+                name: `LC Cost: ${cost.name}`,
+                source: "Auto",
+                category: "LC",
+                paymentMethod: cost.paymentMethod,
+                reference: lc._id,
+                referenceModel: "LC",
+                miscReference: {
+                    lcNumber: lc.basicInfo.lcNumber,
+                    costName: cost.name,
+                    costAmount: cost.amount,
+                    paymentMethod: cost.paymentMethod,
+                    accountId: cost.accountId,
+                },
+            }], { session });
+          }
+        }
+      }
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
     return res
       .status(201)
       .json(new ApiResponse(201, lc, "LC created successfully"));
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     // Handle Mongoose validation errors specifically
     if (error.name === "ValidationError") {
       const validationErrors = Object.values(error.errors).map((err) => ({
@@ -235,14 +330,78 @@ async function updateLC(req, res, next) {
 }
 
 async function deleteLC(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { id } = req.params;
-    const deleted = await LC.findByIdAndDelete(id);
-    if (!deleted) return next(new ApiError(404, "LC not found"));
+    const deletedLC = await LC.findByIdAndDelete(id, { session }); // Use session here
+
+    if (!deletedLC) {
+      throw new ApiError(404, "LC not found");
+    }
+
+    // DailyCash Gatekeeper Check for reversal transactions
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dailyCash = await DailyCash.findOne({ date: today }).session(session);
+
+    if (!dailyCash || dailyCash.status === "Closed") {
+        throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse LC costs.`);
+    }
+
+    // Iterate through all cost sections of the deleted LC to create reversal transactions
+    const sectionsWithCosts = [
+      deletedLC.financialInfo,
+      deletedLC.shippingCustomsInfo,
+      deletedLC.agentTransportInfo,
+      deletedLC.otherExpenses,
+    ];
+
+    for (const section of sectionsWithCosts) {
+      if (section && section.costs) {
+        for (const cost of section.costs) {
+          if (cost.accountId && cost.amount > 0) { // Only reverse costs that had an account and amount
+            const account = await Account.findById(cost.accountId).session(session);
+            if (account) {
+              account.balance += cost.amount; // Increase account balance (reversing the expense)
+              await account.save({ session });
+
+              // Create Reversal Transaction (Income type to offset original Expense)
+              await Transaction.create([{
+                accountId: cost.accountId,
+                date: new Date(), // Reversal transaction date is today
+                description: `Reversal of LC Cost: ${cost.name} for LC Number: ${deletedLC.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
+                transactionType: "Income", // Reverses the Expense
+                amount: cost.amount,
+                name: `LC Cost Reversal: ${cost.name}`,
+                source: "Auto",
+                category: "LC Reversal",
+                paymentMethod: cost.paymentMethod,
+                reference: deletedLC._id,
+                referenceModel: "LC",
+                miscReference: {
+                    lcNumber: deletedLC.basicInfo.lcNumber,
+                    costName: cost.name,
+                    costAmount: cost.amount,
+                    paymentMethod: cost.paymentMethod,
+                    accountId: cost.accountId,
+                },
+              }], { session });
+            }
+          }
+        }
+      }
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
     return res
       .status(200)
-      .json(new ApiResponse(200, deleted, "LC deleted successfully"));
+      .json(new ApiResponse(200, deletedLC, "LC deleted successfully"));
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     next(new ApiError(500, error.message));
   }
 }
@@ -464,15 +623,17 @@ async function getLCSummary(req, res, next) {
 }
 
 async function addExpenseToLC(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { lcId, category, expense } = req.body;
 
     // 1. Validate input
     if (!lcId) {
-      return next(new ApiError(400, "LC ID is required in the request body."));
+      throw new ApiError(400, "LC ID is required in the request body.");
     }
     if (!category || !expense) {
-      return next(new ApiError(400, "Category and expense data are required."));
+      throw new ApiError(400, "Category and expense data are required.");
     }
 
     const validCategories = [
@@ -482,18 +643,16 @@ async function addExpenseToLC(req, res, next) {
       "otherExpenses",
     ];
     if (!validCategories.includes(category)) {
-      return next(
-        new ApiError(
-          400,
-          `Invalid category. Must be one of: ${validCategories.join(", ")}`
-        )
+      throw new ApiError(
+        400,
+        `Invalid category. Must be one of: ${validCategories.join(", ")}`
       );
     }
 
     // 2. Find the LC
-    const lc = await LC.findById(lcId);
+    const lc = await LC.findById(lcId).session(session);
     if (!lc) {
-      return next(new ApiError(404, "LC not found"));
+      throw new ApiError(404, "LC not found");
     }
 
     // 3. Add the expense to the correct category
@@ -504,11 +663,11 @@ async function addExpenseToLC(req, res, next) {
     }
 
     // Explicitly validate accountId based on payment method before saving
-    if (["Bank", "Mobile Banking"].includes(expense.paymentMethod) && !expense.accountId) {
-      return next(new ApiError(400, "Validation failed", [{
+    if (["Bank", "Mobile Banking", "Cash"].includes(expense.paymentMethod) && !expense.accountId) {
+      throw new ApiError(400, "Validation failed", [{
         field: "expense.accountId",
-        message: "Account ID is required for Bank and Mobile Banking payment methods."
-      }]));
+        message: "Account ID is required for Bank, Mobile Banking and Cash payment methods."
+      }]);
     }
 
     // Clean up empty accountId in the new expense to prevent CastError
@@ -518,29 +677,78 @@ async function addExpenseToLC(req, res, next) {
 
     // Validate accountId if provided and not null
     if (expense.accountId) {
-      const existingAccount = await Account.findById(expense.accountId);
+      const existingAccount = await Account.findById(expense.accountId).session(session);
       if (!existingAccount) {
-        return next(new ApiError(400, "Validation failed", [{
+        throw new ApiError(400, "Validation failed", [{
           field: "expense.accountId",
           message: `Account not found.`
-        }]));
+        }]);
       }
 
       // Validate that the account type matches the payment method
-      if (expense.paymentMethod !== existingAccount.accountType && (expense.paymentMethod === 'Bank' || expense.paymentMethod === 'Mobile Banking')) {
-        return next(new ApiError(400, "Validation failed", [{
+      if (existingAccount.accountType !== expense.paymentMethod) {
+        throw new ApiError(400, "Validation failed", [{
             field: "expense.accountId",
             message: `Payment method '${expense.paymentMethod}' requires a '${expense.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided.`
-        }]));
+        }]);
       }
     }
 
     lc[category].costs.push(expense);
 
-    // 4. Save the updated LC
-    await lc.save();
+    // 4. DailyCash Gatekeeper Check for this new expense
+    const costDateNormalized = new Date(expense.date);
+    costDateNormalized.setHours(0, 0, 0, 0);
+    const dailyCash = await DailyCash.findOne({ date: costDateNormalized }).session(session);
 
-    // 5. Repopulate all fields to be consistent with GET responses
+    if (!dailyCash || dailyCash.status === "Closed") {
+      throw new ApiError(
+        400,
+        `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost transaction.`
+      );
+    }
+
+    const account = await Account.findById(expense.accountId).session(session);
+    if (!account) { // Re-check if account exists for consistency after DailyCash check
+        throw new ApiError(404, `Account with ID ${expense.accountId} not found for cost ${expense.name}.`);
+    }
+    if (account.balance < expense.amount) {
+        throw new ApiError(400, `Insufficient balance in ${account.accountName} (${account.accountType}) account for cost ${expense.name}.`);
+    }
+
+    // Decrease account balance
+    account.balance -= expense.amount;
+    await account.save({ session });
+
+    // 5. Create Auto Transaction for LC cost
+    await Transaction.create([{
+        accountId: expense.accountId,
+        date: expense.date,
+        description: `LC Cost: ${expense.name} for LC Number: ${lc.basicInfo.lcNumber} via ${expense.paymentMethod} account.`,
+        transactionType: "Expense",
+        amount: expense.amount,
+        name: `LC Cost: ${expense.name}`,
+        source: "Auto",
+        category: "LC",
+        paymentMethod: expense.paymentMethod,
+        reference: lcId,
+        referenceModel: "LC",
+        miscReference: {
+            lcNumber: lc.basicInfo.lcNumber,
+            costName: expense.name,
+            costAmount: expense.amount,
+            paymentMethod: expense.paymentMethod,
+            accountId: expense.accountId,
+        },
+    }], { session });
+
+    // 6. Save the updated LC
+    await lc.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // 7. Repopulate all fields to be consistent with GET responses
     await lc.populate([
       {
         path: "productInfo.quantityUnit",
@@ -557,6 +765,8 @@ async function addExpenseToLC(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, lc, "Expense added successfully"));
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     if (error.name === "ValidationError") {
       const validationErrors = Object.values(error.errors).map((err) => ({
         field: err.path,

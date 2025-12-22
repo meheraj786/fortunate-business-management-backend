@@ -4,7 +4,7 @@ const accountSchema = new mongoose.Schema(
   {
     accountType: {
       type: String,
-      enum: ["Bank", "Mobile Banking"],
+      enum: ["Bank", "Mobile Banking", "Cash"],
       required: true,
     },
     // Common fields

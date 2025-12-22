@@ -6,56 +6,40 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 
 const Account = require("../models/account.model");
-const { DailyCash } = require("../models/dailyCash.model");
+const DailyCash = require("../models/dailyCash.model");
 
 const mongoose = require("mongoose");
 const Transaction = require("../models/transaction.model");
 
-async function addCashIncomeFromSale(
-  saleDate,
-  amount,
-  description,
-  saleId,
-  session
-) {
-  const targetDate = new Date(saleDate);
-  targetDate.setHours(0, 0, 0, 0);
 
-  const dailyCash = await DailyCash.findOne({ date: targetDate }).session(
-    session
-  );
-
-  if (!dailyCash) {
-    throw new ApiError(
-      404,
-      `Daily cash for ${targetDate.toDateString()} is not open. Cannot record cash payment.`
-    );
-  }
-  if (dailyCash.isClosed) {
-    throw new ApiError(
-      400,
-      `Daily cash for ${targetDate.toDateString()} is closed. Cannot record cash payment.`
-    );
-  }
-
-  dailyCash.totalIncome += amount;
-  dailyCash.runningBalance += amount;
-  dailyCash.incomeList.push({
-    category: "Sale",
-    description: description,
-    amount: amount,
-    paymentMethod: "cash",
-    sales: saleId,
-    time: new Date().toLocaleTimeString(),
-  });
-
-  await dailyCash.save({ session });
-}
 
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
+    // Generate saleId
+    const currentYear = new Date().getFullYear();
+    const shortYear = currentYear.toString().slice(-2);
+    
+    // Find the last sale for the current year to get the highest sequential number
+    const lastSale = await Sales.findOne({
+      saleId: new RegExp(`^SALE-${shortYear}-`, "i"),
+    }).sort({ saleId: -1 });
+
+    let lastSaleIdNumber = 0;
+    if (lastSale && lastSale.saleId) {
+      const match = lastSale.saleId.match(/(\d+)$/);
+      if (match) {
+        lastSaleIdNumber = parseInt(match[1], 10);
+      }
+    }
+
+    const newSaleId = `SALE-${shortYear}-${(lastSaleIdNumber + 1)
+      .toString()
+      .padStart(6, "0")}`; // Pad with 6 zeros for up to 999,999 sales per year
+
+    req.body.saleId = newSaleId; // Assign the generated saleId to the request body
+
     const {
       product: productId,
       customer: customerInfo, // { customerId, name, phone, address }
@@ -69,10 +53,18 @@ async function createSale(req, res, next) {
       discount = 0,
       invoiceStatus,
       paymentStatus,
-      payments = [],
+      payments: originalPayments = [], // Rename to avoid conflict
       notes,
       saleDate,
     } = req.body;
+
+    // Transform payments to ensure accountId is used consistently
+    const transformedPayments = originalPayments.map(p => ({
+      ...p,
+      accountId: p.account || p.accountId, // Map 'account' to 'accountId' if present
+      // Ensure 'account' field is not passed if 'accountId' is preferred by schema
+      account: undefined
+    }));
 
     const validationErrors = [];
     if (saleDate) {
@@ -179,6 +171,7 @@ async function createSale(req, res, next) {
     }
 
     const sale = new Sales({
+      saleId: req.body.saleId, // Explicitly pass saleId
       product: productId,
       customer: finalCustomerInfo,
       warehouse,
@@ -191,7 +184,7 @@ async function createSale(req, res, next) {
       discount,
       invoiceStatus,
       paymentStatus,
-      payments,
+      payments: transformedPayments, // Use transformed payments
       notes,
       saleDate,
     });
@@ -200,39 +193,71 @@ async function createSale(req, res, next) {
       throw new ApiError(400, "Total amount to be paid cannot be negative.");
     }
 
-    // Handle payments and update account/cash accounts
-    for (const payment of payments) {
-      if (payment.method === "bank" || payment.method === "mobile-banking") {
-        const account = await Account.findById(
-          payment.account
-        ).session(session);
-        if (!account) {
-          throw new ApiError(404, `Account not found for payment`);
+    // Handle payments and update account balances
+    for (const payment of transformedPayments) { // Iterate over transformed payments
+      // For any account-based payment, we need an account ID
+      if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+        if (!payment.accountId) { // Check for accountId
+          throw new ApiError(
+            400,
+            `Account ID is required for ${payment.method} payment.`
+          );
         }
+        const account = await Account.findById(payment.accountId).session(session); // Use payment.accountId
+        if (!account) {
+          throw new ApiError(404, `Account not found for payment.`);
+        }
+
+        // Validate that the account type matches the payment method
+        const expectedAccountType =
+          payment.method === "Mobile Banking" ? "Mobile Banking" : payment.method;
+        if (account.accountType !== expectedAccountType) {
+          throw new ApiError(
+            400,
+            `Payment method '${payment.method}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`
+          );
+        }
+
+        // Increase account balance
         account.balance += payment.amount;
         await account.save({ session });
+
+        // Create a corresponding transaction record
+        // 1. DailyCash Gatekeeper Check
+        const paymentDateNormalized = new Date(payment.date);
+        paymentDateNormalized.setHours(0, 0, 0, 0);
+        const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).session(session);
+
+        if (!dailyCash || dailyCash.status === "Closed") {
+          throw new ApiError(
+            400,
+            `Daily cash is closed for ${paymentDateNormalized.toDateString()}. Cannot record payment.`
+          );
+        }
 
         await Transaction.create(
           [
             {
-              account: account._id,
+              accountId: account._id,
               date: payment.date,
-              description: `Sale to ${finalCustomerInfo.name}`,
-              type: "Credit",
+              description: `Payment received for Sale ID: ${req.body.saleId} from ${finalCustomerInfo.name} via ${payment.method}.`,
+              transactionType: "Income",
               amount: payment.amount,
-              source: "Sale",
+              name: "Sales Payment",
+              source: "Auto",
+              category: "Sales",
+              paymentMethod: payment.method,
               reference: sale._id,
+              referenceModel: "Sale",
+              miscReference: {
+                saleId: req.body.saleId,
+                customerName: finalCustomerInfo.name,
+                paymentAmount: payment.amount,
+                paymentMethod: payment.method,
+              },
             },
           ],
           { session }
-        );
-      } else if (payment.method === "cash") {
-        await addCashIncomeFromSale(
-          sale.saleDate,
-          payment.amount,
-          `Payment for new sale to ${finalCustomerInfo.name}`,
-          sale._id,
-          session
         );
       }
     }
@@ -286,7 +311,7 @@ async function getAllSales(_, res, next) {
       .populate("warehouse", "name")
       .populate("category", "name")
       .populate({
-        path: "payments.account",
+        path: "payments.accountId",
         model: "Account",
       });
 
@@ -314,7 +339,7 @@ async function getSaleById(req, res, next) {
       .populate("warehouse", "name")
       .populate("category", "name description")
       .populate({
-        path: "payments.account",
+        path: "payments.accountId",
         model: "Account",
       });
 
@@ -414,18 +439,22 @@ async function updateSale(req, res, next) {
 }
 
 async function deleteSale(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { id } = req.params;
 
-    const deletedSale = await Sales.findByIdAndDelete(id).populate('unit').populate({
-      path: 'product',
-      populate: {
-        path: 'unit'
-      }
-    });
+    const deletedSale = await Sales.findByIdAndDelete(id, { session })
+      .populate('unit')
+      .populate({
+        path: 'product',
+        populate: {
+          path: 'unit'
+        }
+      });
 
     if (!deletedSale) {
-      return next(new ApiError(404, "Sale not found"));
+      throw new ApiError(404, "Sale not found");
     }
 
     // Restore product quantity with unit conversion
@@ -435,51 +464,79 @@ async function deleteSale(req, res, next) {
 
       // Check if units are compatible (same type)
       if (product.unit.type !== saleUnit.type) {
-        // Log an error or handle this case, as it indicates a data inconsistency
         console.error(
           `Data inconsistency: Product unit type (${product.unit.type}) does not match sale unit type (${saleUnit.type}) during sale deletion.`
         );
-        // Proceed with a direct quantity restoration as a fallback, or throw an error
         await Product.findByIdAndUpdate(product._id, {
           $inc: { quantity: deletedSale.quantity },
-        });
+        }, { session });
       } else {
-        // Convert the deleted sale quantity to the product's base unit
         const deletedSaleQuantityInBaseUnit = deletedSale.quantity * saleUnit.conversionFactor;
-
-        // Convert this quantity to the product's unit
         const quantityToRestoreToProduct = deletedSaleQuantityInBaseUnit / product.unit.conversionFactor;
 
         await Product.findByIdAndUpdate(product._id, {
           $inc: { quantity: quantityToRestoreToProduct },
-        });
+        }, { session });
       }
     }
 
-    // Reverse financial transactions and delete them
+    // Reverse financial transactions by creating counter-transactions
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dailyCash = await DailyCash.findOne({ date: today }).session(session);
+
+    if (!dailyCash || dailyCash.status === "Closed") {
+        throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse sales payments.`);
+    }
+
     for (const payment of deletedSale.payments) {
-      if (payment.method === "bank" || payment.method === "mobile-banking") {
-        const account = await Account.findById(payment.account);
+      if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+        const account = await Account.findById(payment.account).session(session);
         if (account) {
           account.balance -= payment.amount;
-          await account.save();
+          await account.save({ session });
+
+          await Transaction.create([{
+            accountId: payment.account,
+            date: new Date(), // Reversal transaction date is today
+            description: `Reversal of payment for Sale ID: ${deletedSale.saleId} (Customer: ${deletedSale.customer.name}) via ${payment.method}.`,
+            transactionType: "Expense", // To reverse the Income
+            amount: payment.amount,
+            source: "Auto", // Auto generated reversal
+            category: "Sales Reversal",
+            reference: deletedSale._id,
+            referenceModel: "Sale",
+            miscReference: {
+              saleId: deletedSale.saleId,
+              customerName: deletedSale.customer.name,
+              originalPaymentAmount: payment.amount,
+              originalPaymentMethod: payment.method,
+            },
+          }], { session });
         }
       }
     }
-    // Delete all transaction documents associated with this sale
-    await Transaction.deleteMany({ reference: deletedSale._id });
-
+    
     // Remove sale from customer's transactions if it's a registered customer
     if (deletedSale.customer && deletedSale.customer.customerId) {
-      await Customer.findByIdAndUpdate(deletedSale.customer.customerId, {
-        $pull: { transactions: deletedSale._id },
-      });
+      await Customer.findByIdAndUpdate(
+        deletedSale.customer.customerId,
+        {
+          $pull: { transactions: deletedSale._id },
+        },
+        { session }
+      );
     }
+
+    await session.commitTransaction();
+    session.endSession();
 
     return res
       .status(200)
       .json(new ApiResponse(200, deletedSale, "Sale deleted successfully"));
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     next(new ApiError(500, error.message));
   }
 }
@@ -586,13 +643,12 @@ async function addPartialPayment(req, res, next) {
       validationErrors.push({ field: "date", message: "Date is required" });
     if (!method)
       validationErrors.push({ field: "method", message: "Method is required" });
-    if (
-      (method === "bank" || method === "mobile-banking") &&
-      !accountId
-    ) {
+    
+    // Account is required for all payment methods now as per new schema
+    if (!accountId) {
       validationErrors.push({
         field: "account",
-        message: "Account is required for this payment method",
+        message: "Account is required for the payment",
       });
     }
 
@@ -605,44 +661,65 @@ async function addPartialPayment(req, res, next) {
       throw new ApiError(404, "Sale not found");
     }
 
-    const payment = { amount, date, method };
+    const payment = { amount, date, method, account: accountId };
 
-    if (method === "bank" || method === "mobile-banking") {
-      const account = await Account.findById(accountId).session(
-        session
-      );
-      if (!account) {
-        throw new ApiError(404, "Account not found");
-      }
-      payment.account = accountId;
+    // For any account-based payment, we need an account ID
+    if (["Bank", "Mobile Banking", "Cash"].includes(method)) {
+        // 1. DailyCash Gatekeeper Check
+        const paymentDateNormalized = new Date(date);
+        paymentDateNormalized.setHours(0, 0, 0, 0);
+        const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).session(session);
 
-      account.balance += amount;
-      await account.save({ session });
+        if (!dailyCash || dailyCash.status === "Closed") {
+          throw new ApiError(
+            400,
+            `Daily cash is closed for ${paymentDateNormalized.toDateString()}. Cannot record payment.`
+          );
+        }
 
-      await Transaction.create(
-        [
-          {
-            account: accountId,
-            date,
-            description: `Partial payment for sale to ${sale.customer.name}`,
-            type: "Credit",
-            amount,
-            source: "Sale",
-            reference: sale._id,
-          },
-        ],
-        { session }
-      );
-    } else if (method === "cash") {
-      await addCashIncomeFromSale(
-        date,
-        amount,
-        `Partial payment for sale to ${sale.customer.name}`,
-        sale._id,
-        session
-      );
-    }
+        const account = await Account.findById(accountId).session(session);
+        if (!account) {
+            throw new ApiError(404, "Account not found");
+        }
 
+        // Validate that the account type matches the payment method
+        const expectedAccountType =
+            method === "Mobile Banking" ? "Mobile Banking" : method;
+        if (account.accountType !== expectedAccountType) {
+            throw new new ApiError(
+                400,
+                `Payment method '${method}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`
+            );
+        }
+
+        account.balance += amount;
+        await account.save({ session });
+
+        await Transaction.create(
+            [
+                {
+                    accountId: accountId,
+                    date,
+                    description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${method}.`,
+                    transactionType: "Income",
+                    amount,
+                    source: "Auto",
+                    category: "Sales",
+                    reference: sale._id,
+                    referenceModel: "Sale",
+                    miscReference: {
+                        saleId: sale.saleId,
+                        customerName: sale.customer.name,
+                        paymentAmount: amount,
+                        paymentMethod: method,
+                    },
+                },
+            ],
+            { session }
+        );
+    } // Correctly close the if block here
+
+    // These operations should happen regardless of the payment method specific logic
     sale.payments.push(payment);
     await sale.save({ session });
 
@@ -652,7 +729,7 @@ async function addPartialPayment(req, res, next) {
     return res
       .status(200)
       .json(new ApiResponse(200, sale, "Partial payment added successfully"));
-  } catch (error) {
+  } catch (error) { // The catch block now properly follows the try block
     await session.abortTransaction();
     session.endSession();
 
@@ -728,41 +805,62 @@ async function getSalesByCustomerId(req, res, next) {
 }
 
 async function cancelSale(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { id } = req.params;
 
-    const saleToCancel = await Sales.findById(id).populate('unit').populate({
-      path: 'product',
-      populate: {
-        path: 'unit'
-      }
-    });
+    const saleToCancel = await Sales.findById(id, { session })
+      .populate('unit')
+      .populate({
+        path: 'product',
+        populate: {
+          path: 'unit'
+        }
+      });
 
     if (!saleToCancel) {
-      return next(new ApiError(404, "Sale not found"));
+      throw new ApiError(404, "Sale not found");
     }
 
     if (saleToCancel.invoiceStatus === "Cancelled") {
-      return next(new ApiError(400, "Sale is already cancelled"));
+      throw new ApiError(400, "Sale is already cancelled");
+    }
+
+    // DailyCash Gatekeeper Check for reversal transactions
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dailyCash = await DailyCash.findOne({ date: today }).session(session);
+
+    if (!dailyCash || dailyCash.status === "Closed") {
+        throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot cancel sales payments.`);
     }
 
     // Reverse financial transactions by creating counter-transactions
     for (const payment of saleToCancel.payments) {
-      if (payment.method === "bank" || payment.method === "mobile-banking") {
-        const account = await Account.findById(payment.account);
+      if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+        const account = await Account.findById(payment.account).session(session);
         if (account) {
           account.balance -= payment.amount;
-          await account.save();
+          await account.save({ session });
 
-          await Transaction.create({
-            account: account._id,
-            date: new Date(),
-            description: `Reversal for cancelled sale to ${saleToCancel.customer.name}`,
-            type: "Debit",
+          await Transaction.create([{
+            accountId: payment.account,
+            date: new Date(), // Reversal transaction date is today
+            description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}.`,
+            transactionType: "Expense", // To reverse the Income
             amount: payment.amount,
-            source: "Sale Cancellation",
+            source: "Auto", // Auto generated reversal
+            category: "Sales Reversal (Cancelled)",
             reference: saleToCancel._id,
-          });
+            referenceModel: "Sale",
+            miscReference: {
+              saleId: saleToCancel.saleId,
+              customerName: saleToCancel.customer.name,
+              originalPaymentAmount: payment.amount,
+              originalPaymentMethod: payment.method,
+            },
+          }], { session });
         }
       }
     }
@@ -774,24 +872,19 @@ async function cancelSale(req, res, next) {
 
       // Check if units are compatible (same type)
       if (product.unit.type !== saleUnit.type) {
-        // Log an error or handle this case, as it indicates a data inconsistency
         console.error(
           `Data inconsistency: Product unit type (${product.unit.type}) does not match sale unit type (${saleUnit.type}) during sale cancellation.`
         );
-        // Proceed with a direct quantity restoration as a fallback, or throw an error
         await Product.findByIdAndUpdate(product._id, {
           $inc: { quantity: saleToCancel.quantity },
-        });
+        }, { session });
       } else {
-        // Convert the cancelled sale quantity to the product's base unit
         const cancelledSaleQuantityInBaseUnit = saleToCancel.quantity * saleUnit.conversionFactor;
-
-        // Convert this quantity to the product's unit
         const quantityToRestoreToProduct = cancelledSaleQuantityInBaseUnit / product.unit.conversionFactor;
 
         await Product.findByIdAndUpdate(product._id, {
           $inc: { quantity: quantityToRestoreToProduct },
-        });
+        }, { session });
       }
     }
 
@@ -799,17 +892,22 @@ async function cancelSale(req, res, next) {
     if (saleToCancel.customer && saleToCancel.customer.customerId) {
       await Customer.findByIdAndUpdate(saleToCancel.customer.customerId, {
         $pull: { transactions: saleToCancel._id },
-      });
+      }, { session });
     }
 
     saleToCancel.invoiceStatus = "Cancelled";
     saleToCancel.paymentStatus = undefined; // Clear payment status for cancelled sales
-    await saleToCancel.save();
+    await saleToCancel.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
 
     return res
       .status(200)
       .json(new ApiResponse(200, saleToCancel, "Sale cancelled successfully"));
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     next(new ApiError(500, error.message));
   }
 }

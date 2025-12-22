@@ -10,7 +10,7 @@ const unitRouter = require("./unit.api")
 const dailyCashRouter = require("./dailyCash.api")
 const invoiceRouter = require("./invoice.api")
 const accountRoutes = require("./account.api")
-const transactionRoutes = require("./transaction.api")
+const transactionRoutes = require("./transaction.api") // Added
 const apiRoutes=express.Router()
 
 apiRoutes.use("/auth", userRoutes)
@@ -24,7 +24,6 @@ apiRoutes.use("/unit", unitRouter)
 apiRoutes.use("/cash", dailyCashRouter)
 apiRoutes.use("/invoice", invoiceRouter)
 apiRoutes.use("/account", accountRoutes)
-apiRoutes.use("/transaction", transactionRoutes)
-
+apiRoutes.use("/transactions", transactionRoutes) // Added
 
 module.exports=apiRoutes

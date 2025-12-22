@@ -1,87 +1,5 @@
 const mongoose = require("mongoose");
-
-const incomeSchema = new mongoose.Schema({
-  category: {
-    type: String,
-    required: true,
-  },
-  description: {
-    type: String,
-  },
-  amount: {
-    type: Number,
-    required: true,
-  },
-  paymentMethod: {
-    type: String,
-    required: true,
-    enum: ["bank", "mobile-banking", "cash"],
-  },
-  bankNumber: {
-    type: String,
-  },
-  mobileBank: {
-    type: String,
-  },
-  time: {
-    type: String,
-    required: true,
-  },
-  lcId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "LC",
-  },
-  sales: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Sales",
-  },
-});
-
-const expenseSchema = new mongoose.Schema({
-  category: {
-    type: String,
-    required: true,
-    enum: [
-      "sales",
-      "transport",
-      "commission",
-      "utilities",
-      "office",
-      "lc",
-      "others",
-    ],
-  },
-  description: {
-    type: String,
-  },
-  amount: {
-    type: Number,
-    required: true,
-  },
-  paymentMethod: {
-    type: String,
-    required: true,
-    // enum: ["bank", "mobile-banking", "cash"],
-  },
-  bankNumber: {
-    type: String,
-  },
-  mobileBank: {
-    type: String,
-  },
-  time: {
-    type: String,
-    required: true,
-  },
-  lcId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "LC",
-  },
-  sales: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Sales",
-  },
-});
+const mongoosePaginate = require("mongoose-paginate-v2");
 
 const dailyCashSchema = new mongoose.Schema(
   {
@@ -89,33 +7,34 @@ const dailyCashSchema = new mongoose.Schema(
       type: Date,
       required: true,
       unique: true,
+      // The time part will be ignored by the logic, only the date part matters.
+    },
+    status: {
+      type: String,
+      enum: ["Open", "Closed"],
+      required: true,
     },
     openingBalance: {
       type: Number,
       required: true,
-      default: 0,
     },
-    totalIncome: {
+    closingBalance: {
+      // This will be set when the cash is closed.
       type: Number,
-      default: 0,
     },
-    totalExpense: {
-      type: Number,
-      default: 0,
+    openedAt: {
+      type: Date,
+      default: Date.now,
     },
-    runningBalance: {
-      type: Number,
-      default: 0,
-    },
-    incomeList: [incomeSchema],
-    expenseList: [expenseSchema],
-    isClosed: {
-      type: Boolean,
-      default: false,
+    closedAt: {
+      type: Date,
     },
   },
   { timestamps: true }
 );
 
+dailyCashSchema.plugin(mongoosePaginate);
+
 const DailyCash = mongoose.model("DailyCash", dailyCashSchema);
-module.exports = { DailyCash, expenseSchema };
+
+module.exports = DailyCash;
