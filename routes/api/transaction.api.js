@@ -1,20 +1,24 @@
 const express = require("express");
 const {
-  createTransaction,
   getAllTransactions,
-  getTransactionById,
-  getTransactionsByAccountId,
-  deleteTransaction,
+  getTransactionDetails,
   getTransactionStats,
 } = require("../../controllers/transaction.controller");
+const { authenticate } = require("../../middleware/auth.middleware");
+const authorize = require("../../middleware/authorize.middleware");
 
 const transactionRoutes = express.Router();
 
-transactionRoutes.post("/create", createTransaction);
-transactionRoutes.get("/get-all", getAllTransactions);
-transactionRoutes.get("/get-stats", getTransactionStats);
-transactionRoutes.get("/get/:id", getTransactionById);
-transactionRoutes.get("/get-by-account/:accountId", getTransactionsByAccountId);
-transactionRoutes.delete("/delete/:id", deleteTransaction);
+// All routes are protected and require authentication
+transactionRoutes.use(authenticate);
+
+// Route for getting all transactions
+transactionRoutes.get("/", authorize("TRANSACTION", "GET"), getAllTransactions);
+
+// Route for getting transaction statistics
+transactionRoutes.get("/stats", authorize("TRANSACTION", "GET"), getTransactionStats);
+
+// Route for getting detailed transaction information
+transactionRoutes.get("/:id", authorize("TRANSACTION", "GET"), getTransactionDetails);
 
 module.exports = transactionRoutes;

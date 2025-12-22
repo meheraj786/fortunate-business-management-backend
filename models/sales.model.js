@@ -19,14 +19,14 @@ const paymentSchema = new mongoose.Schema({
   date: { type: Date, required: true },
   method: {
     type: String,
-    enum: ["cash", "bank", "mobile-banking"],
+    enum: ["Cash", "Bank", "Mobile Banking"],
     required: true,
   },
-  account: {
+  accountId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Account",
     required: function () {
-      return this.method === "bank" || this.method === "mobile-banking";
+      return ["Bank", "Mobile Banking", "Cash"].includes(this.method);
     },
   },
 });
@@ -36,6 +36,7 @@ const paymentSchema = new mongoose.Schema({
  */
 const salesSchema = new mongoose.Schema(
   {
+    saleId: { type: String, required: true, unique: true, trim: true },
     product: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",

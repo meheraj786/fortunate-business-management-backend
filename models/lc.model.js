@@ -12,6 +12,9 @@ const costSchema = new mongoose.Schema({
   accountId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Account",
+    required: function () {
+      return ["Cash", "Bank", "Mobile Banking"].includes(this.paymentMethod);
+    },
   },
 });
 

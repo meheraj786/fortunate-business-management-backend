@@ -1,25 +1,28 @@
 const express = require("express");
 const {
-  openDailyCash,
+  openCash,
+  closeCash,
+  getDailyCashStatus,
+  getDailyCashSummary,
   addIncome,
   addExpense,
-  closeDailyCash,
-  updateTransaction,
-  toggleDailyCashStatus,
-  getTransactionsByDateRange,
-  getDailyCash,
 } = require("../../controllers/dailyCash.controller");
-const authorize = require("../../middleware/authorize.middleware");
 const { authenticate } = require("../../middleware/auth.middleware");
+const authorize = require("../../middleware/authorize.middleware");
+
 const dailyCashRouter = express.Router();
 
-dailyCashRouter.post("/open", authenticate, authorize("DAILY_CASH", "CREATE"), openDailyCash);
-dailyCashRouter.post("/income", authenticate, authorize("DAILY_CASH", "CREATE"), addIncome);
-dailyCashRouter.post("/expense", authenticate, authorize("DAILY_CASH", "CREATE"), addExpense);
-dailyCashRouter.post("/close", authenticate, authorize("DAILY_CASH", "CREATE"), closeDailyCash);
-dailyCashRouter.put("/update/:date", authenticate, authorize("DAILY_CASH", "UPDATE"), updateTransaction);
-dailyCashRouter.patch("/toggle-status", authenticate, authorize("DAILY_CASH", "UPDATE"), toggleDailyCashStatus);
-dailyCashRouter.get("/filter",  getTransactionsByDateRange);
-dailyCashRouter.get("/get-cash", authenticate, authorize("DAILY_CASH", "GET"), getDailyCash);
+// All routes are protected and require authentication
+dailyCashRouter.use(authenticate);
+
+// Routes for managing daily cash status
+dailyCashRouter.post("/open", authorize("DAILY_CASH", "CREATE"), openCash);
+dailyCashRouter.post("/close", authorize("DAILY_CASH", "UPDATE"), closeCash);
+dailyCashRouter.get("/status", authorize("DAILY_CASH", "GET"), getDailyCashStatus);
+dailyCashRouter.get("/summary", authorize("DAILY_CASH", "GET"), getDailyCashSummary);
+
+// Routes for adding manual transactions
+dailyCashRouter.post("/income", authorize("TRANSACTION", "CREATE"), addIncome);
+dailyCashRouter.post("/expense", authorize("TRANSACTION", "CREATE"), addExpense);
 
 module.exports = dailyCashRouter;
