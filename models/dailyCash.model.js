@@ -6,7 +6,6 @@ const dailyCashSchema = new mongoose.Schema(
     date: {
       type: Date,
       required: true,
-      unique: true,
       // The time part will be ignored by the logic, only the date part matters.
     },
     status: {

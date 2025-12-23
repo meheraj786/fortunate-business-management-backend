@@ -8,8 +8,19 @@ const { dbConnect } = require("./database/db.config");
 const { ApiError } = require("./utils/ApiError");
 const routers = require("./routes");
 const cookieParser = require("cookie-parser");
+const cron = require("node-cron");
+const { autoCloseDailyCashForCron, closeMissedDailyCashEntries } = require("./controllers/dailyCash.controller");
 
 const app = express();
+
+// Schedule a cron job to run at 23:59 every day
+cron.schedule('59 23 * * *', () => {
+  console.log('Running a daily cron job to check and close open cash...');
+  autoCloseDailyCashForCron();
+}, {
+  scheduled: true,
+  timezone: "Asia/Dhaka" // It's good practice to set a timezone
+});
 
 app.use(
   cors({
@@ -41,6 +52,7 @@ app.use(limiter);
   try {
     app.use(cookieParser());
     await dbConnect();
+    await closeMissedDailyCashEntries(); // Run the catch-up mechanism on startup
     app.use(routers);
 
     // Custom error handling middleware. This MUST be the last middleware.
