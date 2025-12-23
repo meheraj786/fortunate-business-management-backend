@@ -124,16 +124,14 @@ salesSchema.pre("validate", function (next) {
  */
 salesSchema.pre("save", function (next) {
   if (this.invoiceStatus === "Invoiced") {
-    if (this.paymentStatus !== "Paid payment") {
-      const totalPaid = this.payments.reduce(
-        (acc, payment) => acc + payment.amount,
-        0
-      );
-      if (totalPaid >= this.totalAmountToBePaid) {
-        this.paymentStatus = "Paid payment";
-      } else {
-        this.paymentStatus = "Due payment";
-      }
+    const totalPaid = this.payments.reduce(
+      (acc, payment) => acc + payment.amount,
+      0
+    );
+    if (totalPaid >= this.totalAmountToBePaid) {
+      this.paymentStatus = "Paid payment";
+    } else {
+      this.paymentStatus = "Due payment";
     }
   } else {
     this.paymentStatus = undefined;

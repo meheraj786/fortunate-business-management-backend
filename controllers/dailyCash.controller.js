@@ -318,23 +318,34 @@ async function addIncome(req, res, next) {
     if (!incomeCategories.includes(category)) throw new ApiError(400, "Invalid income category.");
 
     if (category === "LC") {
-      if (!lcId) throw new ApiError(400, "LC ID is mandatory for LC income category.");
+      if (!lcId) {
+        throw new ApiError(400, "LC ID is mandatory for LC income category.");
+      }
       const lc = await LC.findById(lcId);
-      if (!lc) throw new ApiError(404, "LC not found.");
-      finalDescription = `Income from LC Number: ${lc.basicInfo.lcNumber} via ${paymentMethod} Account: ${account.accountName}.`;
+      if (!lc) {
+        throw new ApiError(404, "LC not found.");
+      }
+      // Updated description format for LC income
+      finalDescription = `${name} Income from LC Number: ${lc.basicInfo.lcNumber} via ${paymentMethod} Account: ${account.accountName} - holder name:${account.accountName}.`;
       reference = lcId;
       referenceModel = "LC";
       miscReference = { lcNumber: lc.basicInfo.lcNumber };
     } else if (category === "Sales") {
-      if (!salesId) throw new ApiError(400, "Sales ID is mandatory for Sales income category.");
+      if (!salesId) {
+        throw new ApiError(400, "Sales ID is mandatory for Sales income category.");
+      }
       const sale = await Sale.findById(salesId);
-      if (!sale) throw new ApiError(404, "Sale not found.");
-      finalDescription = `Income from Sale ID: ${sale.saleId} (Customer: ${sale.customer.name}) via ${paymentMethod} Account: ${account.accountName}.`;
+      if (!sale) {
+        throw new ApiError(404, "Sale not found.");
+      }
+      // Updated description format for Sales income
+      finalDescription = `${name} Income from Sale ID: ${sale.saleId} (Customer: ${sale.customer.name}) via ${paymentMethod} Account: ${account.accountName} - holder name:${account.accountName}.`;
       reference = salesId;
       referenceModel = "Sale";
       miscReference = { saleId: sale.saleId, customerName: sale.customer.name };
     }
 
+    // 3. Update Account Balance
     account.balance += amount;
     await account.save({ session });
 
@@ -359,7 +370,7 @@ async function addExpense(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { amount, category, name, paymentMethod, accountId, description, lcId, salesId, costName } = req.body;
+    const { amount, category, name, paymentMethod, accountId, description, lcId, salesId, lcCostCategory } = req.body;
 
     // 1. Gatekeeper: Check if Daily Cash for today is Open
     const today = new Date();
@@ -367,10 +378,9 @@ async function addExpense(req, res, next) {
     const openSession = await DailyCash.findOne({ date: today, status: "Open" });
     if (!openSession) throw new ApiError(400, "Daily cash is closed. Cannot add expense.");
 
-    // 2. Validate input
+    // 2. Universal Validation
     if (!amount || amount <= 0) throw new ApiError(400, "Amount is required and must be positive.");
     if (!category) throw new ApiError(400, "Category is required.");
-    if (!name) throw new ApiError(400, "Expense name is required.");
     if (!paymentMethod) throw new ApiError(400, "Payment method is required.");
     if (!accountId) throw new ApiError(400, "Account ID is required for payment.");
 
@@ -380,40 +390,62 @@ async function addExpense(req, res, next) {
     if (account.balance < amount) throw new ApiError(400, `Insufficient balance in ${account.accountName}.`);
 
     let finalDescription = description;
+    let transactionName = name; // Default to user-provided name
     let reference = null;
     let referenceModel = null;
     let miscReference = {};
     const expenseCategories = ["LC", "Sales", "Rent", "Salary", "Office Expense", "Transport", "Utility", "Others"];
     if (!expenseCategories.includes(category)) throw new ApiError(400, "Invalid expense category.");
 
+    // 3. Category-Specific Logic
     if (category === "LC") {
-      if (!lcId || !costName) throw new ApiError(400, "LC ID and Cost Name are mandatory for LC expense.");
+      if (!name) throw new ApiError(400, "An expense name is required for LC expenses.");
+      if (!lcId) throw new ApiError(400, "LC ID is mandatory for an LC expense.");
       const lc = await LC.findById(lcId).session(session);
       if (!lc) throw new ApiError(404, "LC not found.");
-      if (!lc.otherExpenses) lc.otherExpenses = { costs: [] };
-      lc.otherExpenses.costs.push({ name: costName, amount, date: new Date(), paymentMethod, accountId });
+
+      const validLCCategories = ["financialInfo", "shippingCustomsInfo", "agentTransportInfo", "otherExpenses"];
+      const targetLCCostCategory = lcCostCategory && validLCCategories.includes(lcCostCategory) ? lcCostCategory : "otherExpenses";
+
+      if (!lc[targetLCCostCategory]) lc[targetLCCostCategory] = { costs: [] };
+      else if (!lc[targetLCCostCategory].costs) lc[targetLCCostCategory].costs = [];
+      
+      lc[targetLCCostCategory].costs.push({ name: name, amount, date: new Date(), paymentMethod, accountId });
       await lc.save({ session });
-      finalDescription = `Expense for LC: ${lc.basicInfo.lcNumber}, Cost: ${costName}.`;
+
+      finalDescription = `Expense for LC: ${lc.basicInfo.lcNumber}, Cost: ${name}.`;
       reference = lcId;
       referenceModel = "LC";
-      miscReference = { costName, lcNumber: lc.basicInfo.lcNumber };
+      miscReference = { costName: name, lcNumber: lc.basicInfo.lcNumber, lcCostCategory: targetLCCostCategory };
+    
     } else if (category === "Sales") {
-      if (!salesId || !costName) throw new ApiError(400, "Sales ID and Cost Name are mandatory for Sales expense.");
+      if (!name) throw new ApiError(400, "An expense name is required for Sales expenses.");
+      if (!salesId) throw new ApiError(400, "Sales ID is mandatory for a Sales expense.");
       const sale = await Sale.findById(salesId).session(session);
       if (!sale) throw new ApiError(404, "Sale not found.");
-      sale.otherCharges.push({ name: costName, amount });
-      sale.paymentStatus = "Due payment";
-      await sale.save({ session });
-      finalDescription = `Expense for Sale: ${sale.saleId}, Cost: ${costName}.`;
+
+      sale.otherCharges.push({ name: name, amount });
+      await sale.save({ session }); // Let pre-save hook handle paymentStatus
+
+      finalDescription = `Expense for Sale: ${sale.saleId}, Cost: ${name}.`;
       reference = salesId;
       referenceModel = "Sale";
-      miscReference = { costName, saleId: sale.saleId, customerName: sale.customer.name };
+      miscReference = { costName: name, saleId: sale.saleId, customerName: sale.customer.name };
+
+    } else {
+      // For all other categories, description is required, and name is derived
+      if (!description) {
+        throw new ApiError(400, "A description is required for this expense category.");
+      }
+      finalDescription = description;
+      transactionName = category; // Set the transaction name to the category itself
     }
 
+    // 4. Update Account Balance and Create Transaction
     account.balance -= amount;
     await account.save({ session });
 
-    const newTransaction = new Transaction({ accountId, date: new Date(), transactionType: "Expense", amount, name, source: "Manual", paymentMethod, description: finalDescription, category, reference, referenceModel, miscReference });
+    const newTransaction = new Transaction({ accountId, date: new Date(), transactionType: "Expense", amount, name: transactionName, source: "Manual", paymentMethod, description: finalDescription, category, reference, referenceModel, miscReference });
     await newTransaction.save({ session });
 
     await session.commitTransaction();
