@@ -370,10 +370,88 @@ async function deleteAccount(req, res, next) {
   }
 }
 
+async function getAccountDetails(req, res, next) {
+  try {
+    const { id } = req.params;
+    const account = await Account.findById(id);
+
+    if (!account) {
+      return next(new ApiError(404, "Account not found"));
+    }
+
+    const transactions = await Transaction.find({ accountId: id }).sort({
+      date: -1,
+    });
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+    let largestIncome = 0;
+    let largestExpense = 0;
+    let totalTransactionAmount = 0;
+    let totalIncomingTransactionsCount = 0;
+    let totalOutgoingTransactionsCount = 0;
+
+    transactions.forEach((transaction) => {
+      totalTransactionAmount += transaction.amount;
+      if (transaction.transactionType === "Income") {
+        totalIncome += transaction.amount;
+        totalIncomingTransactionsCount++;
+        if (transaction.amount > largestIncome) {
+          largestIncome = transaction.amount;
+        }
+      } else if (transaction.transactionType === "Expense") {
+        totalExpense += transaction.amount;
+        totalOutgoingTransactionsCount++;
+        if (transaction.amount > largestExpense) {
+          largestExpense = transaction.amount;
+        }
+      }
+    });
+
+    const averageTransactionAmount =
+      transactions.length > 0
+        ? totalTransactionAmount / transactions.length
+        : 0;
+
+    const stats = {
+      currentBalance: account.balance,
+      totalIncome,
+      totalExpense,
+      largestIncome,
+      largestExpense,
+      averageTransactionAmount,
+      totalTransactionsCount: transactions.length,
+      totalIncomingTransactionsCount,
+      totalOutgoingTransactionsCount,
+    };
+
+    const accountDetails = {
+      account,
+      stats,
+    };
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          accountDetails,
+          "Account details fetched successfully"
+        )
+      );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
+  }
+}
+
 module.exports = {
   createAccount,
   getAllAccounts,
   getAccountById,
   updateAccount,
   deleteAccount,
+  getAccountDetails,
 };
