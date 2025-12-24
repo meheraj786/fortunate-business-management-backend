@@ -43,6 +43,26 @@ async function generateInvoice(req, res, next) {
       );
     }
 
+    const currentYear = new Date().getFullYear();
+    const shortYear = currentYear.toString().slice(-2);
+    
+    // Find the last invoice to get the highest sequential number
+    const lastInvoice = await Invoice.findOne({
+      invoiceId: new RegExp(`^INV-${shortYear}-`, "i"),
+    }).sort({ invoiceId: -1 });
+
+    let lastInvoiceNumber = 0;
+    if (lastInvoice && lastInvoice.invoiceId) {
+      const match = lastInvoice.invoiceId.match(/(\d+)$/);
+      if (match) {
+        lastInvoiceNumber = parseInt(match[1], 10);
+      }
+    }
+
+    const newInvoiceId = `INV-${shortYear}-${(lastInvoiceNumber + 1)
+      .toString()
+      .padStart(6, "0")}`;
+
     let customerDetails = {
       name: sale.customer.name,
       phone: sale.customer.phone,
@@ -63,6 +83,7 @@ async function generateInvoice(req, res, next) {
     }
 
     const invoice = await Invoice.create({
+      invoiceId: newInvoiceId,
       salesId: sale._id,
       salesDate: sale.saleDate,
       productDetails: {

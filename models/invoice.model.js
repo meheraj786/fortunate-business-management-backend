@@ -17,6 +17,11 @@ const paymentSchema = new mongoose.Schema({
 
 const invoiceSchema = new mongoose.Schema(
   {
+    invoiceId: {
+      type: String,
+      required: true,
+      unique: true,
+    },
     salesId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Sales",

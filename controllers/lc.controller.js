@@ -271,6 +271,63 @@ async function createLC(req, res, next) {
   }
 }
 
+/**
+ * @param {object} cost The cost object from the LC
+ * @param {mongoose.Model} lc The LC document
+ * @param {mongoose.ClientSession} session The mongoose session for the transaction
+ */
+async function _handleLCCostTransaction(cost, lc, session) {
+    // Only process costs that have an account and a valid amount
+    if (!cost.accountId || !cost.amount || cost.amount <= 0) {
+        return;
+    }
+
+    // 1. DailyCash Gatekeeper Check
+    const costDate = cost.date || new Date();
+    const costDateNormalized = new Date(costDate);
+    costDateNormalized.setHours(0, 0, 0, 0);
+
+    const openSession = await DailyCash.findOne({ date: costDateNormalized, status: "Open" }).session(session);
+    if (!openSession) {
+        throw new ApiError(400, `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost.`);
+    }
+
+    // 2. Find account and update balance
+    const account = await Account.findById(cost.accountId).session(session);
+    if (!account) {
+        throw new ApiError(404, `Account with ID ${cost.accountId} not found for cost '${cost.name}'.`);
+    }
+    if (account.balance < cost.amount) {
+        throw new ApiError(400, `Insufficient balance in account '${account.accountName}' for cost '${cost.name}'.`);
+    }
+
+    account.balance -= cost.amount;
+    await account.save({ session });
+
+    // 3. Create Transaction for the LC cost
+    await Transaction.create([{
+        accountId: cost.accountId,
+        date: costDate,
+        description: `LC Cost: ${cost.name} for LC Number: ${lc.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
+        transactionType: "Expense",
+        amount: cost.amount,
+        name: `LC Cost: ${cost.name}`,
+        source: "Auto",
+        category: "LC",
+        paymentMethod: cost.paymentMethod,
+        reference: lc._id,
+        referenceModel: "LC",
+        miscReference: {
+            lcNumber: lc.basicInfo.lcNumber,
+            costName: cost.name,
+            costAmount: cost.amount,
+            paymentMethod: cost.paymentMethod,
+            accountId: cost.accountId,
+        },
+    }], { session });
+}
+
+
 async function getAllLCs(_, res, next) {
   try {
     const lcs = await LC.find()
@@ -343,9 +400,9 @@ async function deleteLC(req, res, next) {
     // DailyCash Gatekeeper Check for reversal transactions
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const dailyCash = await DailyCash.findOne({ date: today }).session(session);
+    const dailyCash = await DailyCash.findOne({ date: today, status: "Open" }).session(session);
 
-    if (!dailyCash || dailyCash.status === "Closed") {
+    if (!dailyCash) {
         throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse LC costs.`);
     }
 
@@ -661,94 +718,24 @@ async function addExpenseToLC(req, res, next) {
     } else if (!lc[category].costs) {
       lc[category].costs = [];
     }
-
-    // Explicitly validate accountId based on payment method before saving
-    if (["Bank", "Mobile Banking", "Cash"].includes(expense.paymentMethod) && !expense.accountId) {
-      throw new ApiError(400, "Validation failed", [{
-        field: "expense.accountId",
-        message: "Account ID is required for Bank, Mobile Banking and Cash payment methods."
-      }]);
-    }
-
+    
     // Clean up empty accountId in the new expense to prevent CastError
     if (expense && (!expense.accountId || expense.accountId === '')) {
       expense.accountId = null; // Set to null if empty string
     }
 
-    // Validate accountId if provided and not null
-    if (expense.accountId) {
-      const existingAccount = await Account.findById(expense.accountId).session(session);
-      if (!existingAccount) {
-        throw new ApiError(400, "Validation failed", [{
-          field: "expense.accountId",
-          message: `Account not found.`
-        }]);
-      }
-
-      // Validate that the account type matches the payment method
-      if (existingAccount.accountType !== expense.paymentMethod) {
-        throw new ApiError(400, "Validation failed", [{
-            field: "expense.accountId",
-            message: `Payment method '${expense.paymentMethod}' requires a '${expense.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided.`
-        }]);
-      }
-    }
-
     lc[category].costs.push(expense);
 
-    // 4. DailyCash Gatekeeper Check for this new expense
-    const costDateNormalized = new Date(expense.date);
-    costDateNormalized.setHours(0, 0, 0, 0);
-    const dailyCash = await DailyCash.findOne({ date: costDateNormalized }).session(session);
+    // 4. Handle the financial transaction for the new expense
+    await _handleLCCostTransaction(expense, lc, session);
 
-    if (!dailyCash || dailyCash.status === "Closed") {
-      throw new ApiError(
-        400,
-        `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost transaction.`
-      );
-    }
-
-    const account = await Account.findById(expense.accountId).session(session);
-    if (!account) { // Re-check if account exists for consistency after DailyCash check
-        throw new ApiError(404, `Account with ID ${expense.accountId} not found for cost ${expense.name}.`);
-    }
-    if (account.balance < expense.amount) {
-        throw new ApiError(400, `Insufficient balance in ${account.accountName} (${account.accountType}) account for cost ${expense.name}.`);
-    }
-
-    // Decrease account balance
-    account.balance -= expense.amount;
-    await account.save({ session });
-
-    // 5. Create Auto Transaction for LC cost
-    await Transaction.create([{
-        accountId: expense.accountId,
-        date: expense.date,
-        description: `LC Cost: ${expense.name} for LC Number: ${lc.basicInfo.lcNumber} via ${expense.paymentMethod} account.`,
-        transactionType: "Expense",
-        amount: expense.amount,
-        name: `LC Cost: ${expense.name}`,
-        source: "Auto",
-        category: "LC",
-        paymentMethod: expense.paymentMethod,
-        reference: lcId,
-        referenceModel: "LC",
-        miscReference: {
-            lcNumber: lc.basicInfo.lcNumber,
-            costName: expense.name,
-            costAmount: expense.amount,
-            paymentMethod: expense.paymentMethod,
-            accountId: expense.accountId,
-        },
-    }], { session });
-
-    // 6. Save the updated LC
+    // 5. Save the updated LC
     await lc.save({ session });
 
     await session.commitTransaction();
     session.endSession();
 
-    // 7. Repopulate all fields to be consistent with GET responses
+    // 6. Repopulate all fields to be consistent with GET responses
     await lc.populate([
       {
         path: "productInfo.quantityUnit",

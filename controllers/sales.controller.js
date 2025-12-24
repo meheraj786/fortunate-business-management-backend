@@ -48,8 +48,7 @@ async function createSale(req, res, next) {
       quantity,
       unit,
       pricePerUnit,
-      deliveryCharge = 0,
-      otherCharges = [],
+      costs = [], // Replaces deliveryCharge and otherCharges
       discount = 0,
       invoiceStatus,
       paymentStatus,
@@ -179,8 +178,7 @@ async function createSale(req, res, next) {
       quantity,
       unit,
       pricePerUnit,
-      deliveryCharge,
-      otherCharges,
+      costs, // Use the new costs field
       discount,
       invoiceStatus,
       paymentStatus,
@@ -263,6 +261,54 @@ async function createSale(req, res, next) {
     }
 
     await sale.save({ session });
+
+    // Create expense transactions for each cost associated with the sale
+    for (const cost of sale.costs) {
+      if (cost.accountId) {
+        const costAccount = await Account.findById(cost.accountId).session(session);
+        if (!costAccount) {
+          throw new ApiError(404, `Account for cost '${cost.name}' not found.`);
+        }
+
+        // DailyCash check for the cost transaction date
+        const saleDateNormalized = new Date(sale.saleDate);
+        saleDateNormalized.setHours(0, 0, 0, 0);
+        const dailyCash = await DailyCash.findOne({ date: saleDateNormalized }).session(session);
+
+        if (!dailyCash || dailyCash.status === "Closed") {
+          throw new ApiError(
+            400,
+            `Daily cash is closed for ${saleDateNormalized.toDateString()}. Cannot record cost transaction.`
+          );
+        }
+
+        costAccount.balance -= cost.amount;
+        await costAccount.save({ session });
+
+        await Transaction.create(
+          [
+            {
+              accountId: cost.accountId,
+              date: sale.saleDate,
+              description: `Cost for sale ${sale.saleId}: ${cost.name}`,
+              transactionType: "Expense",
+              amount: cost.amount,
+              name: `Sale Cost - ${cost.name}`,
+              source: "Auto",
+              category: "Sales Expense",
+              reference: sale._id,
+              referenceModel: "Sale",
+              miscReference: {
+                saleId: sale.saleId,
+                costName: cost.name,
+                costAmount: cost.amount,
+              },
+            },
+          ],
+          { session }
+        );
+      }
+    }
 
     await Product.findByIdAndUpdate(
       productId,
@@ -489,15 +535,16 @@ async function deleteSale(req, res, next) {
         throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse sales payments.`);
     }
 
+    // Reverse financial transactions for payments
     for (const payment of deletedSale.payments) {
       if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
-        const account = await Account.findById(payment.account).session(session);
+        const account = await Account.findById(payment.accountId).session(session);
         if (account) {
           account.balance -= payment.amount;
           await account.save({ session });
 
           await Transaction.create([{
-            accountId: payment.account,
+            accountId: payment.accountId,
             date: new Date(), // Reversal transaction date is today
             description: `Reversal of payment for Sale ID: ${deletedSale.saleId} (Customer: ${deletedSale.customer.name}) via ${payment.method}.`,
             transactionType: "Expense", // To reverse the Income
@@ -506,13 +553,46 @@ async function deleteSale(req, res, next) {
             category: "Sales Reversal",
             reference: deletedSale._id,
             referenceModel: "Sale",
-            miscReference: {
+miscReference: {
               saleId: deletedSale.saleId,
               customerName: deletedSale.customer.name,
               originalPaymentAmount: payment.amount,
               originalPaymentMethod: payment.method,
             },
           }], { session });
+        }
+      }
+    }
+    
+    // Reverse expense transactions for costs
+    for (const cost of deletedSale.costs) {
+      if (cost.accountId) {
+        const account = await Account.findById(cost.accountId).session(session);
+        if (account) {
+          account.balance += cost.amount;
+          await account.save({ session });
+
+          await Transaction.create(
+            [
+              {
+                accountId: cost.accountId,
+                date: new Date(),
+                description: `Reversal of cost for deleted Sale ID: ${deletedSale.saleId} - ${cost.name}`,
+                transactionType: "Income", // To reverse the Expense
+                amount: cost.amount,
+                source: "Auto",
+                category: "Sales Expense Reversal",
+                reference: deletedSale._id,
+                referenceModel: "Sale",
+                miscReference: {
+                  saleId: deletedSale.saleId,
+                  costName: cost.name,
+                  costAmount: cost.amount,
+                },
+              },
+            ],
+            { session }
+          );
         }
       }
     }
@@ -661,7 +741,7 @@ async function addPartialPayment(req, res, next) {
       throw new ApiError(404, "Sale not found");
     }
 
-    const payment = { amount, date, method, account: accountId };
+    const payment = { amount, date, method, accountId: accountId };
 
     // For any account-based payment, we need an account ID
     if (["Bank", "Mobile Banking", "Cash"].includes(method)) {
@@ -839,13 +919,13 @@ async function cancelSale(req, res, next) {
     // Reverse financial transactions by creating counter-transactions
     for (const payment of saleToCancel.payments) {
       if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
-        const account = await Account.findById(payment.account).session(session);
+        const account = await Account.findById(payment.accountId).session(session);
         if (account) {
           account.balance -= payment.amount;
           await account.save({ session });
 
           await Transaction.create([{
-            accountId: payment.account,
+            accountId: payment.accountId,
             date: new Date(), // Reversal transaction date is today
             description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}.`,
             transactionType: "Expense", // To reverse the Income
@@ -861,6 +941,39 @@ async function cancelSale(req, res, next) {
               originalPaymentMethod: payment.method,
             },
           }], { session });
+        }
+      }
+    }
+
+    // Reverse expense transactions for costs
+    for (const cost of saleToCancel.costs) {
+      if (cost.accountId) {
+        const account = await Account.findById(cost.accountId).session(session);
+        if (account) {
+          account.balance += cost.amount;
+          await account.save({ session });
+
+          await Transaction.create(
+            [
+              {
+                accountId: cost.accountId,
+                date: new Date(),
+                description: `Reversal of cost for cancelled Sale ID: ${saleToCancel.saleId} - ${cost.name}`,
+                transactionType: "Income", // To reverse the Expense
+                amount: cost.amount,
+                source: "Auto",
+                category: "Sales Expense Reversal",
+                reference: saleToCancel._id,
+                referenceModel: "Sale",
+                miscReference: {
+                  saleId: saleToCancel.saleId,
+                  costName: cost.name,
+                  costAmount: cost.amount,
+                },
+              },
+            ],
+            { session }
+          );
         }
       }
     }
