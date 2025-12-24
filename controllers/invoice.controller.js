@@ -114,6 +114,22 @@ async function generateInvoice(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `An invoice with the same ${field} '${value}' already exists.`)); // Specific message for invoice
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -127,6 +143,22 @@ async function getAllInvoices(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `An invoice with the same ${field} '${value}' already exists.`)); // Specific message for invoice
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -147,6 +179,22 @@ async function getInvoiceById(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `An invoice with the same ${field} '${value}' already exists.`)); // Specific message for invoice
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -171,6 +219,22 @@ async function getInvoicesBySaleId(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `An invoice with the same ${field} '${value}' already exists.`)); // Specific message for invoice
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }

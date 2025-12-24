@@ -253,24 +253,22 @@ async function createLC(req, res, next) {
       return next(error);
     }
 
-    // Handle Mongoose validation errors specifically
-    if (error.name === "ValidationError") {
-      const validationErrors = Object.values(error.errors).map((err) => ({
-        field: err.path,
-        message: err.message,
-      }));
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `An LC with the same ${field} '${value}' already exists.`)); // Specific message for LC
+    }
 
-      // De-duplicate errors to handle Mongoose sub-document validation quirks
-      const uniqueErrorStrings = new Set(
-        validationErrors.map((e) => JSON.stringify(e))
-      );
-      const uniqueErrors = Array.from(uniqueErrorStrings).map((e) =>
-        JSON.parse(e)
-      );
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
 
-      return next(
-        new ApiError(400, uniqueErrors[0].message, uniqueErrors)
-      );
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
 
     // Cleanup uploaded files on any other error
@@ -364,6 +362,22 @@ async function getAllLCs(_, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -385,6 +399,22 @@ async function getLCById(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -410,6 +440,22 @@ async function updateLC(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -491,6 +537,22 @@ async function deleteLC(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -506,6 +568,22 @@ async function getAllCompletedLCs(_, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -547,6 +625,22 @@ async function getLCCountsByStatus(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -568,6 +662,22 @@ async function getTotalLCCount(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -618,6 +728,22 @@ async function downloadDocument(req, res, next) {
     if (error.code === 'ENOENT') {
       return next(new ApiError(404, "File not found"));
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -637,6 +763,22 @@ async function exportLCAsPDF(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -651,6 +793,22 @@ async function getActiveLcs(req,res,next){
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -727,6 +885,22 @@ async function getLCSummary(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -812,23 +986,22 @@ async function addExpenseToLC(req, res, next) {
       return next(error);
     }
 
-    if (error.name === "ValidationError") {
-      const validationErrors = Object.values(error.errors).map((err) => ({
-        field: err.path,
-        message: err.message,
-      }));
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `An LC expense with the same ${field} '${value}' already exists.`)); // Specific message for LC expense
+    }
 
-      // De-duplicate errors to handle Mongoose sub-document validation quirks
-      const uniqueErrorStrings = new Set(
-        validationErrors.map((e) => JSON.stringify(e))
-      );
-      const uniqueErrors = Array.from(uniqueErrorStrings).map((e) =>
-        JSON.parse(e)
-      );
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
 
-      return next(
-        new ApiError(400, uniqueErrors[0].message, uniqueErrors)
-      );
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -918,6 +1091,22 @@ async function searchLCSummary(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }

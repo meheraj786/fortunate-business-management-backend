@@ -33,6 +33,22 @@ async function createCustomer(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -47,6 +63,22 @@ async function getAllCustomers(_, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -128,6 +160,22 @@ async function getCustomerById(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -151,6 +199,22 @@ async function updateCustomer(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -170,6 +234,22 @@ async function deleteCustomer(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -195,6 +275,22 @@ async function getCustomerStats(_, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -336,6 +432,22 @@ async function getCustomersSummary(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }

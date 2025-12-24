@@ -334,9 +334,24 @@ async function createSale(req, res, next) {
     session.endSession();
     
     // If the error is already one of our custom ApiErrors, just pass it along.
-    // Otherwise, create a new generic one. This preserves the detailed validation errors.
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Specific message for sales
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "An internal server error occurred during sale creation."));
   }
@@ -367,6 +382,22 @@ async function getAllSales(_, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -400,6 +431,22 @@ async function getSaleById(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -488,6 +535,22 @@ async function updateSale(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -629,6 +692,22 @@ miscReference: {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Generic message for sales
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -661,6 +740,22 @@ async function getSalesSummary(_, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -722,6 +817,22 @@ async function getAll_invoices_status_count(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -835,6 +946,22 @@ async function addPartialPayment(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Generic message for sales
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "An internal server error occurred while adding partial payment."));
   }
 }
@@ -900,6 +1027,22 @@ async function getSalesByCustomerId(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -1038,12 +1181,27 @@ async function cancelSale(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, saleToCancel, "Sale cancelled successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Generic message for sales
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -1225,6 +1383,25 @@ async function getPaginatedSalesSummary(req, res, next) {
         )
       );
   } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "An internal server error occurred while fetching sales summary."));
   }
 }

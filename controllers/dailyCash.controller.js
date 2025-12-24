@@ -93,6 +93,22 @@ async function openCash(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
@@ -136,6 +152,22 @@ async function closeCash(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -181,6 +213,22 @@ async function getDailyCashStatus(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -274,6 +322,22 @@ async function getDailyCashSummary(req, res, next) {
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -390,7 +454,27 @@ async function addIncome(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(error instanceof ApiError ? error : new ApiError(500, error.message || "An internal server error occurred."));
+    if (error instanceof ApiError) { // This handles custom ApiError thrown earlier in the function
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    // Fallback for any other unexpected errors
+    next(new ApiError(500, error.message || "An internal server error occurred."));
   }
 }
 
@@ -504,7 +588,27 @@ async function addExpense(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(error instanceof ApiError ? error : new ApiError(500, "An internal server error occurred."));
+    if (error instanceof ApiError) { // This handles custom ApiError thrown earlier in the function
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    // Fallback for any other unexpected errors
+    next(new ApiError(500, error.message || "An internal server error occurred."));
   }
 }
 

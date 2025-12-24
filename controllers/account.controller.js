@@ -9,10 +9,30 @@ async function createAccount(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
+    // Strict validation for payload keys
+    const allowedFields = new Set([
+      "accountType", "accountName", "initialBalance", "accountHolderName",
+      "bankName", "branchName", "accountNumber", "swiftCode",
+      "serviceName", "mobileNumber", "routingNumber"
+    ]);
+
+    const validationErrors = [];
+    const bodyKeys = Object.keys(req.body);
+
+    for (const key of bodyKeys) {
+      if (!allowedFields.has(key)) {
+        validationErrors.push({ field: key, message: `Field '${key}' is not allowed.` });
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
+    }
+    
     const {
       accountType,
       accountName,
-      balance, // Changed from initialBalance to balance
+      initialBalance, // Changed from balance to initialBalance
       accountHolderName,
       bankName,
       branchName,
@@ -23,22 +43,10 @@ async function createAccount(req, res, next) {
       routingNumber,
     } = req.body;
 
-    const validationErrors = [];
-    if (!accountType) {
+    // Business logic validation for initialBalance
+    if (initialBalance < 0) {
       validationErrors.push({
-        field: "accountType",
-        message: "Account type is required",
-      });
-    }
-    if (!accountName) {
-      validationErrors.push({
-        field: "accountName",
-        message: "Account name is required",
-      });
-    }
-    if (balance < 0) {
-      validationErrors.push({
-        field: "balance",
+        field: "initialBalance",
         message: "Initial balance cannot be negative",
       });
     }
@@ -52,7 +60,7 @@ async function createAccount(req, res, next) {
         {
           accountType,
           accountName,
-          balance: balance || 0,
+          balance: initialBalance || 0,
           accountHolderName,
           bankName,
           branchName,
@@ -69,7 +77,7 @@ async function createAccount(req, res, next) {
     const createdAccount = account[0]; // Mongoose create with session returns an array
 
     // If there's an initial balance, create a corresponding transaction
-    if (balance && balance > 0) {
+    if (initialBalance && initialBalance > 0) {
       // 1. DailyCash Gatekeeper Check
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -91,7 +99,7 @@ async function createAccount(req, res, next) {
             accountId: createdAccount._id,
             date: new Date(),
             transactionType: "Income",
-            amount: balance,
+            amount: initialBalance,
             name: "Initial Balance",
             source: "Account",
             paymentMethod: createdAccount.accountType, // Use the account's type as payment method
@@ -121,6 +129,21 @@ async function createAccount(req, res, next) {
     session.endSession();
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle duplicate account errors from model's pre-save hook
+    if (error.name === 'DuplicateAccountError') {
+      return next(new ApiError(409, error.message)); // 409 Conflict
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0]; // Get the first field with an error
+      let userFriendlyMessage = "Validation failed."; // Default message
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      // The 'errors' object in ApiError will now contain all validation errors
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
   }
@@ -165,6 +188,11 @@ async function updateAccount(req, res, next) {
   try {
     const { id } = req.params;
     const updateData = req.body;
+
+    // Prevent direct update of the balance
+    if (updateData.balance) {
+      delete updateData.balance;
+    }
 
     const updatedAccount = await Account.findByIdAndUpdate(id, updateData, {
       new: true,
