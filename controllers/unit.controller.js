@@ -18,16 +18,16 @@ exports.createUnit = async (req, res, next) => {
       });
 
     if (validationErrors.length > 0) {
-      return next(new ApiError(400, "Validation failed", validationErrors));
+      return next(new ApiError(400, validationErrors[0].message, validationErrors));
     }
 
     const existing = await Unit.findOne({ name: name.trim() });
     if (existing) {
-      return next(
-        new ApiError(400, "Validation failed", [
-          { field: "name", message: "Unit already exists" },
-        ])
-      );
+      const validationError = {
+        field: "name",
+        message: "Unit already exists",
+      };
+      return next(new ApiError(400, validationError.message, [validationError]));
     }
 
     const unit = await Unit.create({
@@ -39,7 +39,10 @@ exports.createUnit = async (req, res, next) => {
       .status(201)
       .json(new ApiResponse(201, unit, "Unit created successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -50,7 +53,10 @@ exports.getUnits = async (_, res, next) => {
       .status(200)
       .json(new ApiResponse(200, units, "Units fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -64,7 +70,10 @@ exports.getUnitById = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, unit, "Unit fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -85,7 +94,10 @@ exports.updateUnit = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, unit, "Unit updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -99,6 +111,9 @@ exports.deleteUnit = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, unit, "Unit deleted successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };

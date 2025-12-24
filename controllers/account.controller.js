@@ -36,9 +36,15 @@ async function createAccount(req, res, next) {
         message: "Account name is required",
       });
     }
+    if (balance < 0) {
+      validationErrors.push({
+        field: "balance",
+        message: "Initial balance cannot be negative",
+      });
+    }
 
     if (validationErrors.length > 0) {
-      throw new ApiError(400, "Validation failed", validationErrors);
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
 
     const account = await Account.create(
@@ -67,7 +73,9 @@ async function createAccount(req, res, next) {
       // 1. DailyCash Gatekeeper Check
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const dailyCash = await DailyCash.findOne({ date: today }).session(session);
+      const dailyCash = await DailyCash.findOne({ date: today })
+        .sort({ createdAt: -1 })
+        .session(session);
 
       if (!dailyCash || dailyCash.status === "Closed") {
         throw new ApiError(
@@ -111,7 +119,10 @@ async function createAccount(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -122,7 +133,10 @@ async function getAllAccounts(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, accounts, "Accounts fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -140,7 +154,10 @@ async function getAccountById(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, account, "Account fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -162,7 +179,10 @@ async function updateAccount(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, updatedAccount, "Account updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -182,7 +202,10 @@ async function deleteAccount(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, deletedAccount, "Account deleted successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 

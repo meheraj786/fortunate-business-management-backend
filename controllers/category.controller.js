@@ -6,20 +6,20 @@ exports.createCategory = async (req, res, next) => {
   try {
     const { name, description } = req.body;
     if (!name) {
-      return next(
-        new ApiError(400, "Validation failed", [
-          { field: "name", message: "Category name is required" },
-        ])
-      );
+      const validationError = {
+        field: "name",
+        message: "Category name is required",
+      };
+      return next(new ApiError(400, validationError.message, [validationError]));
     }
 
     const existing = await Category.findOne({ name: name.trim() });
     if (existing) {
-      return next(
-        new ApiError(400, "Validation failed", [
-          { field: "name", message: "Category already exists" },
-        ])
-      );
+      const validationError = {
+        field: "name",
+        message: "Category already exists",
+      };
+      return next(new ApiError(400, validationError.message, [validationError]));
     }
 
     const category = await Category.create({ name: name.trim(), description });
@@ -27,7 +27,10 @@ exports.createCategory = async (req, res, next) => {
       .status(201)
       .json(new ApiResponse(201, category, "Category created successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -38,7 +41,10 @@ exports.getCategories = async (_, res, next) => {
       .status(200)
       .json(new ApiResponse(200, categories, "Categories fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -52,7 +58,10 @@ exports.getCategoryById = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, category, "Category fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -73,7 +82,10 @@ exports.updateCategory = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, category, "Category updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -87,6 +99,9 @@ exports.deleteCategory = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, category, "Category deleted successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };

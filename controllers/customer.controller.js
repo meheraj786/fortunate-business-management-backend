@@ -30,7 +30,10 @@ async function createCustomer(req, res, next) {
       .status(201)
       .json(new ApiResponse(201, customer, "Customer created successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -42,7 +45,10 @@ async function getAllCustomers(_, res, next) {
       .status(200)
       .json(new ApiResponse(200, customers, "Customers fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -119,7 +125,10 @@ async function getCustomerById(req, res, next) {
         new ApiResponse(200, customerData, "Customer fetched successfully")
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -139,7 +148,10 @@ async function updateCustomer(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, updated, "Customer updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -156,7 +168,10 @@ async function deleteCustomer(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, deleted, "Customer deleted successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -178,7 +193,10 @@ async function getCustomerStats(_, res, next) {
         new ApiResponse(200, stats, "Customer statistics fetched successfully")
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -316,7 +334,10 @@ async function getCustomersSummary(req, res, next) {
       )
     );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 

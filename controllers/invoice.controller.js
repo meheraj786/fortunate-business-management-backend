@@ -9,11 +9,11 @@ async function generateInvoice(req, res, next) {
     const { saleId } = req.body;
 
     if (!saleId) {
-      return next(
-        new ApiError(400, "Validation failed", [
-          { field: "saleId", message: "Sale ID is required" },
-        ])
-      );
+      const validationError = {
+        field: "saleId",
+        message: "Sale ID is required",
+      };
+      return next(new ApiError(400, validationError.message, [validationError]));
     }
 
     const sale = await Sales.findById(saleId).populate("product category unit");
@@ -111,7 +111,10 @@ async function generateInvoice(req, res, next) {
       .status(201)
       .json(new ApiResponse(201, invoice, "Invoice generated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -122,7 +125,10 @@ async function getAllInvoices(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, invoices, "Invoices fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -139,7 +145,10 @@ async function getInvoiceById(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, invoice, "Invoice fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -160,7 +169,10 @@ async function getInvoicesBySaleId(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 

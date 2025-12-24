@@ -113,7 +113,7 @@ async function createSale(req, res, next) {
       });
 
     if (validationErrors.length > 0) {
-      throw new ApiError(400, "Validation failed", validationErrors);
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
 
     const sellingProduct = await Product.findById(productId).session(session).populate('unit');
@@ -365,7 +365,10 @@ async function getAllSales(_, res, next) {
       .status(200)
       .json(new ApiResponse(200, sales, "Sales fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -395,7 +398,10 @@ async function getSaleById(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, sale, "Sale fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -480,7 +486,10 @@ async function updateSale(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, updatedSale, "Sale updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -617,7 +626,10 @@ miscReference: {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -647,7 +659,10 @@ async function getSalesSummary(_, res, next) {
       )
     );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -705,7 +720,10 @@ async function getAll_invoices_status_count(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -733,7 +751,7 @@ async function addPartialPayment(req, res, next) {
     }
 
     if (validationErrors.length > 0) {
-      throw new ApiError(400, "Validation failed", validationErrors);
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
 
     const sale = await Sales.findById(id).session(session);
@@ -880,7 +898,10 @@ async function getSalesByCustomerId(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -1021,7 +1042,10 @@ async function cancelSale(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 

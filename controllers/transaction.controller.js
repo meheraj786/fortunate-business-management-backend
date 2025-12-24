@@ -23,7 +23,10 @@ async function getTransactionDetails(req, res, next) {
         new ApiResponse(200, transaction, "Transaction details fetched successfully.")
       );
   } catch (error) {
-    next(new ApiError(500, error.message || "Error fetching transaction details."));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -87,9 +90,10 @@ async function getAllTransactions(req, res, next) {
         )
       );
   } catch (error) {
-    next(
-      new ApiError(500, error.message || "Error fetching all transactions.")
-    );
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -207,9 +211,10 @@ async function getTransactionStats(req, res, next) {
         )
       );
   } catch (error) {
-    next(
-      new ApiError(500, error.message || "Error fetching transaction statistics.")
-    );
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 

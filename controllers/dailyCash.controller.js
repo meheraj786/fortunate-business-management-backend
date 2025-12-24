@@ -90,7 +90,10 @@ async function openCash(req, res, next) {
       .status(201)
       .json(new ApiResponse(201, newDailyCashSession, `Daily cash for ${today.toDateString()} opened successfully with an opening balance of ${openingBalance}.`));
   } catch (error) {
-    next(new ApiError(500, error.message || "Error opening daily cash."));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -131,7 +134,10 @@ async function closeCash(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, finalMetrics, `Daily cash for ${targetDate.toDateString()} closed successfully with a closing balance of ${finalRunningBalance}.`));
   } catch (error) {
-    next(new ApiError(500, error.message || "Error closing daily cash."));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -173,7 +179,10 @@ async function getDailyCashStatus(req, res, next) {
         );
     }
   } catch (error) {
-    next(new ApiError(500, error.message || "Error fetching daily cash status."));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -263,7 +272,10 @@ async function getDailyCashSummary(req, res, next) {
     const metrics = await _calculateDailyCashMetrics(date);
     return res.status(200).json(new ApiResponse(200, metrics, `Daily cash summary for ${new Date(date).toDateString()} fetched successfully.`));
   } catch (error) {
-    next(new ApiError(500, error.message || "Error fetching daily cash summary."));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -298,11 +310,30 @@ async function addIncome(req, res, next) {
     }
 
     // 2. Validate input
-    if (!amount || amount <= 0) throw new ApiError(400, "Amount is required and must be positive.");
-    if (!category) throw new ApiError(400, "Category is required.");
-    if (!name) throw new ApiError(400, "Income name is required.");
-    if (!paymentMethod) throw new ApiError(400, "Payment method is required.");
-    if (!accountId) throw new ApiError(400, "Account ID is required for payment.");
+    const validationErrors = [];
+    if (!amount || amount <= 0)
+      validationErrors.push({
+        field: "amount",
+        message: "Amount is required and must be positive.",
+      });
+    if (!category)
+      validationErrors.push({ field: "category", message: "Category is required." });
+    if (!name)
+      validationErrors.push({ field: "name", message: "Income name is required." });
+    if (!paymentMethod)
+      validationErrors.push({
+        field: "paymentMethod",
+        message: "Payment method is required.",
+      });
+    if (!accountId)
+      validationErrors.push({
+        field: "accountId",
+        message: "Account ID is required for payment.",
+      });
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
+    }
 
     const account = await Account.findById(accountId).session(session);
     if (!account) throw new ApiError(404, "Account not found.");
@@ -379,10 +410,28 @@ async function addExpense(req, res, next) {
     if (!openSession) throw new ApiError(400, "Daily cash is closed. Cannot add expense.");
 
     // 2. Universal Validation
-    if (!amount || amount <= 0) throw new ApiError(400, "Amount is required and must be positive.");
-    if (!category) throw new ApiError(400, "Category is required.");
-    if (!paymentMethod) throw new ApiError(400, "Payment method is required.");
-    if (!accountId) throw new ApiError(400, "Account ID is required for payment.");
+    const validationErrors = [];
+    if (!amount || amount <= 0)
+      validationErrors.push({
+        field: "amount",
+        message: "Amount is required and must be positive.",
+      });
+    if (!category)
+      validationErrors.push({ field: "category", message: "Category is required." });
+    if (!paymentMethod)
+      validationErrors.push({
+        field: "paymentMethod",
+        message: "Payment method is required.",
+      });
+    if (!accountId)
+      validationErrors.push({
+        field: "accountId",
+        message: "Account ID is required for payment.",
+      });
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
+    }
 
     const account = await Account.findById(accountId).session(session);
     if (!account) throw new ApiError(404, "Account not found.");

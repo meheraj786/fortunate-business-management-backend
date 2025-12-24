@@ -75,33 +75,30 @@ async function createLC(req, res, next) {
             ["Bank", "Mobile Banking", "Cash"].includes(cost.paymentMethod) &&
             !cost.accountId
           ) {
-            throw new ApiError(400, "Validation failed", [
-                {
-                  field: `${section}.costs.accountId`,
-                  message: `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`,
-                },
-              ]);
+            const validationError = {
+              field: `${section}.costs.accountId`,
+              message: `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`,
+            };
+            throw new ApiError(400, validationError.message, [validationError]);
           }
 
           // If accountId is provided, validate it
           if (cost.accountId) {
             const existingAccount = await Account.findById(cost.accountId).session(session);
             if (!existingAccount) {
-              throw new ApiError(400, "Validation failed", [
-                  {
-                    field: `${section}.costs.accountId`,
-                    message: `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
-                  },
-                ]);
+              const validationError = {
+              field: `${section}.costs.accountId`,
+              message: `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
+            };
+            throw new ApiError(400, validationError.message, [validationError]);
             }
             // Validate that the account type matches the payment method
             if (existingAccount.accountType !== cost.paymentMethod) {
-              throw new ApiError(400, "Validation failed", [
-                  {
-                    field: `${section}.costs.accountId`,
-                    message: `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`,
-                  },
-                ]);
+              const validationError = {
+              field: `${section}.costs.accountId`,
+              message: `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`,
+            };
+            throw new ApiError(400, validationError.message, [validationError]);
             }
           }
         }
@@ -118,12 +115,11 @@ async function createLC(req, res, next) {
           }
           const existingUnit = await Unit.findById(product.quantityUnit).session(session); // Ensure session is used
           if (!existingUnit) {
-            throw new ApiError(400, "Validation failed", [
-                {
-                  field: "quantityUnit",
-                  message: `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
-                },
-              ]);
+          const validationError = {
+            field: "quantityUnit",
+            message: `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
+          };
+          throw new ApiError(400, validationError.message, [validationError]);
           }
         }
       }
@@ -239,18 +235,42 @@ async function createLC(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
+
+    if (error instanceof ApiError) {
+      // Cleanup uploaded files if an ApiError is thrown after they are created
+      if (req.files) {
+        for (const file of req.files) {
+          try {
+            await fs.unlink(file.path);
+          } catch (unlinkError) {
+            console.error(
+              `Failed to delete temporary file on ApiError: ${file.path}`,
+              unlinkError
+            );
+          }
+        }
+      }
+      return next(error);
+    }
+
     // Handle Mongoose validation errors specifically
     if (error.name === "ValidationError") {
       const validationErrors = Object.values(error.errors).map((err) => ({
         field: err.path,
         message: err.message,
       }));
-      
-      // De-duplicate errors to handle Mongoose sub-document validation quirks
-      const uniqueErrorStrings = new Set(validationErrors.map(e => JSON.stringify(e)));
-      const uniqueErrors = Array.from(uniqueErrorStrings).map(e => JSON.parse(e));
 
-      return next(new ApiError(400, "LC validation failed", uniqueErrors));
+      // De-duplicate errors to handle Mongoose sub-document validation quirks
+      const uniqueErrorStrings = new Set(
+        validationErrors.map((e) => JSON.stringify(e))
+      );
+      const uniqueErrors = Array.from(uniqueErrorStrings).map((e) =>
+        JSON.parse(e)
+      );
+
+      return next(
+        new ApiError(400, uniqueErrors[0].message, uniqueErrors)
+      );
     }
 
     // Cleanup uploaded files on any other error
@@ -267,7 +287,7 @@ async function createLC(req, res, next) {
       }
     }
     // Pass other errors to the generic error handler
-    next(new ApiError(500, error.message));
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -341,7 +361,10 @@ async function getAllLCs(_, res, next) {
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -360,7 +383,10 @@ async function getLCById(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, lc, "LC fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -382,7 +408,10 @@ async function updateLC(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, updated, "LC updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -459,7 +488,10 @@ async function deleteLC(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -472,7 +504,10 @@ async function getAllCompletedLCs(_, res, next) {
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -509,7 +544,10 @@ async function getLCCountsByStatus(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -528,7 +566,10 @@ async function getTotalLCCount(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -571,10 +612,13 @@ async function downloadDocument(req, res, next) {
     });
 
   } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
     if (error.code === 'ENOENT') {
       return next(new ApiError(404, "File not found"));
     }
-    next(new ApiError(500, error.message));
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -590,7 +634,10 @@ async function exportLCAsPDF(req, res, next) {
     generateLCPDF(lc, res);
 
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 async function getActiveLcs(req,res,next){
@@ -602,7 +649,10 @@ async function getActiveLcs(req,res,next){
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -675,7 +725,10 @@ async function getLCSummary(req, res, next) {
         new ApiResponse(200, responseData, "LCs summary fetched successfully")
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -754,6 +807,11 @@ async function addExpenseToLC(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
+    
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+
     if (error.name === "ValidationError") {
       const validationErrors = Object.values(error.errors).map((err) => ({
         field: err.path,
@@ -761,14 +819,18 @@ async function addExpenseToLC(req, res, next) {
       }));
 
       // De-duplicate errors to handle Mongoose sub-document validation quirks
-      const uniqueErrorStrings = new Set(validationErrors.map(e => JSON.stringify(e)));
-      const uniqueErrors = Array.from(uniqueErrorStrings).map(e => JSON.parse(e));
+      const uniqueErrorStrings = new Set(
+        validationErrors.map((e) => JSON.stringify(e))
+      );
+      const uniqueErrors = Array.from(uniqueErrorStrings).map((e) =>
+        JSON.parse(e)
+      );
 
       return next(
-        new ApiError(400, "Expense validation failed", uniqueErrors)
+        new ApiError(400, uniqueErrors[0].message, uniqueErrors)
       );
     }
-    next(new ApiError(500, error.message));
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -854,7 +916,10 @@ async function searchLCSummary(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
