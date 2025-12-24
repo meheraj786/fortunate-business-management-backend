@@ -6,30 +6,6 @@ exports.createUnit = async (req, res, next) => {
   try {
     const { name, type, conversionFactor } = req.body;
 
-    const validationErrors = [];
-    if (!name)
-      validationErrors.push({ field: "name", message: "Name is required" });
-    if (!type)
-      validationErrors.push({ field: "type", message: "Type is required" });
-    if (!conversionFactor)
-      validationErrors.push({
-        field: "conversionFactor",
-        message: "Conversion factor is required",
-      });
-
-    if (validationErrors.length > 0) {
-      return next(new ApiError(400, "Validation failed", validationErrors));
-    }
-
-    const existing = await Unit.findOne({ name: name.trim() });
-    if (existing) {
-      return next(
-        new ApiError(400, "Validation failed", [
-          { field: "name", message: "Unit already exists" },
-        ])
-      );
-    }
-
     const unit = await Unit.create({
       name: name.trim(),
       type: type.trim(),
@@ -39,7 +15,26 @@ exports.createUnit = async (req, res, next) => {
       .status(201)
       .json(new ApiResponse(201, unit, "Unit created successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A unit with the ${field} '${value}' already exists.`)); // Specific message for unit
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -50,7 +45,26 @@ exports.getUnits = async (_, res, next) => {
       .status(200)
       .json(new ApiResponse(200, units, "Units fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A unit with the same ${field} '${value}' already exists.`)); // Specific message for unit
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -64,7 +78,26 @@ exports.getUnitById = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, unit, "Unit fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A unit with the same ${field} '${value}' already exists.`)); // Specific message for unit
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -85,7 +118,26 @@ exports.updateUnit = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, unit, "Unit updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A unit with the same ${field} '${value}' already exists.`)); // Specific message for unit
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -99,6 +151,25 @@ exports.deleteUnit = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, unit, "Unit deleted successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A unit with the same ${field} '${value}' already exists.`)); // Specific message for unit
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };

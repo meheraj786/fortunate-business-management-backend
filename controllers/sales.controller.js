@@ -48,8 +48,7 @@ async function createSale(req, res, next) {
       quantity,
       unit,
       pricePerUnit,
-      deliveryCharge = 0,
-      otherCharges = [],
+      costs = [], // Replaces deliveryCharge and otherCharges
       discount = 0,
       invoiceStatus,
       paymentStatus,
@@ -114,7 +113,7 @@ async function createSale(req, res, next) {
       });
 
     if (validationErrors.length > 0) {
-      throw new ApiError(400, "Validation failed", validationErrors);
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
 
     const sellingProduct = await Product.findById(productId).session(session).populate('unit');
@@ -179,8 +178,7 @@ async function createSale(req, res, next) {
       quantity,
       unit,
       pricePerUnit,
-      deliveryCharge,
-      otherCharges,
+      costs, // Use the new costs field
       discount,
       invoiceStatus,
       paymentStatus,
@@ -264,6 +262,54 @@ async function createSale(req, res, next) {
 
     await sale.save({ session });
 
+    // Create expense transactions for each cost associated with the sale
+    for (const cost of sale.costs) {
+      if (cost.accountId) {
+        const costAccount = await Account.findById(cost.accountId).session(session);
+        if (!costAccount) {
+          throw new ApiError(404, `Account for cost '${cost.name}' not found.`);
+        }
+
+        // DailyCash check for the cost transaction date
+        const saleDateNormalized = new Date(sale.saleDate);
+        saleDateNormalized.setHours(0, 0, 0, 0);
+        const dailyCash = await DailyCash.findOne({ date: saleDateNormalized }).session(session);
+
+        if (!dailyCash || dailyCash.status === "Closed") {
+          throw new ApiError(
+            400,
+            `Daily cash is closed for ${saleDateNormalized.toDateString()}. Cannot record cost transaction.`
+          );
+        }
+
+        costAccount.balance -= cost.amount;
+        await costAccount.save({ session });
+
+        await Transaction.create(
+          [
+            {
+              accountId: cost.accountId,
+              date: sale.saleDate,
+              description: `Cost for sale ${sale.saleId}: ${cost.name}`,
+              transactionType: "Expense",
+              amount: cost.amount,
+              name: `Sale Cost - ${cost.name}`,
+              source: "Auto",
+              category: "Sales Expense",
+              reference: sale._id,
+              referenceModel: "Sale",
+              miscReference: {
+                saleId: sale.saleId,
+                costName: cost.name,
+                costAmount: cost.amount,
+              },
+            },
+          ],
+          { session }
+        );
+      }
+    }
+
     await Product.findByIdAndUpdate(
       productId,
       { $inc: { quantity: -quantityToDeductFromProduct } },
@@ -288,9 +334,24 @@ async function createSale(req, res, next) {
     session.endSession();
     
     // If the error is already one of our custom ApiErrors, just pass it along.
-    // Otherwise, create a new generic one. This preserves the detailed validation errors.
     if (error instanceof ApiError) {
       return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Specific message for sales
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "An internal server error occurred during sale creation."));
   }
@@ -319,7 +380,26 @@ async function getAllSales(_, res, next) {
       .status(200)
       .json(new ApiResponse(200, sales, "Sales fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -349,7 +429,26 @@ async function getSaleById(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, sale, "Sale fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -434,7 +533,26 @@ async function updateSale(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, updatedSale, "Sale updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -489,15 +607,16 @@ async function deleteSale(req, res, next) {
         throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse sales payments.`);
     }
 
+    // Reverse financial transactions for payments
     for (const payment of deletedSale.payments) {
       if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
-        const account = await Account.findById(payment.account).session(session);
+        const account = await Account.findById(payment.accountId).session(session);
         if (account) {
           account.balance -= payment.amount;
           await account.save({ session });
 
           await Transaction.create([{
-            accountId: payment.account,
+            accountId: payment.accountId,
             date: new Date(), // Reversal transaction date is today
             description: `Reversal of payment for Sale ID: ${deletedSale.saleId} (Customer: ${deletedSale.customer.name}) via ${payment.method}.`,
             transactionType: "Expense", // To reverse the Income
@@ -506,13 +625,46 @@ async function deleteSale(req, res, next) {
             category: "Sales Reversal",
             reference: deletedSale._id,
             referenceModel: "Sale",
-            miscReference: {
+miscReference: {
               saleId: deletedSale.saleId,
               customerName: deletedSale.customer.name,
               originalPaymentAmount: payment.amount,
               originalPaymentMethod: payment.method,
             },
           }], { session });
+        }
+      }
+    }
+    
+    // Reverse expense transactions for costs
+    for (const cost of deletedSale.costs) {
+      if (cost.accountId) {
+        const account = await Account.findById(cost.accountId).session(session);
+        if (account) {
+          account.balance += cost.amount;
+          await account.save({ session });
+
+          await Transaction.create(
+            [
+              {
+                accountId: cost.accountId,
+                date: new Date(),
+                description: `Reversal of cost for deleted Sale ID: ${deletedSale.saleId} - ${cost.name}`,
+                transactionType: "Income", // To reverse the Expense
+                amount: cost.amount,
+                source: "Auto",
+                category: "Sales Expense Reversal",
+                reference: deletedSale._id,
+                referenceModel: "Sale",
+                miscReference: {
+                  saleId: deletedSale.saleId,
+                  costName: cost.name,
+                  costAmount: cost.amount,
+                },
+              },
+            ],
+            { session }
+          );
         }
       }
     }
@@ -537,7 +689,26 @@ async function deleteSale(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Generic message for sales
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -567,7 +738,26 @@ async function getSalesSummary(_, res, next) {
       )
     );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -625,7 +815,26 @@ async function getAll_invoices_status_count(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -653,7 +862,7 @@ async function addPartialPayment(req, res, next) {
     }
 
     if (validationErrors.length > 0) {
-      throw new ApiError(400, "Validation failed", validationErrors);
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
 
     const sale = await Sales.findById(id).session(session);
@@ -661,7 +870,7 @@ async function addPartialPayment(req, res, next) {
       throw new ApiError(404, "Sale not found");
     }
 
-    const payment = { amount, date, method, account: accountId };
+    const payment = { amount, date, method, accountId: accountId };
 
     // For any account-based payment, we need an account ID
     if (["Bank", "Mobile Banking", "Cash"].includes(method)) {
@@ -737,6 +946,22 @@ async function addPartialPayment(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Generic message for sales
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "An internal server error occurred while adding partial payment."));
   }
 }
@@ -800,7 +1025,26 @@ async function getSalesByCustomerId(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -839,13 +1083,13 @@ async function cancelSale(req, res, next) {
     // Reverse financial transactions by creating counter-transactions
     for (const payment of saleToCancel.payments) {
       if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
-        const account = await Account.findById(payment.account).session(session);
+        const account = await Account.findById(payment.accountId).session(session);
         if (account) {
           account.balance -= payment.amount;
           await account.save({ session });
 
           await Transaction.create([{
-            accountId: payment.account,
+            accountId: payment.accountId,
             date: new Date(), // Reversal transaction date is today
             description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}.`,
             transactionType: "Expense", // To reverse the Income
@@ -861,6 +1105,39 @@ async function cancelSale(req, res, next) {
               originalPaymentMethod: payment.method,
             },
           }], { session });
+        }
+      }
+    }
+
+    // Reverse expense transactions for costs
+    for (const cost of saleToCancel.costs) {
+      if (cost.accountId) {
+        const account = await Account.findById(cost.accountId).session(session);
+        if (account) {
+          account.balance += cost.amount;
+          await account.save({ session });
+
+          await Transaction.create(
+            [
+              {
+                accountId: cost.accountId,
+                date: new Date(),
+                description: `Reversal of cost for cancelled Sale ID: ${saleToCancel.saleId} - ${cost.name}`,
+                transactionType: "Income", // To reverse the Expense
+                amount: cost.amount,
+                source: "Auto",
+                category: "Sales Expense Reversal",
+                reference: saleToCancel._id,
+                referenceModel: "Sale",
+                miscReference: {
+                  saleId: saleToCancel.saleId,
+                  costName: cost.name,
+                  costAmount: cost.amount,
+                },
+              },
+            ],
+            { session }
+          );
         }
       }
     }
@@ -904,11 +1181,29 @@ async function cancelSale(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, saleToCancel, "Sale cancelled successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Generic message for sales
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -1088,6 +1383,25 @@ async function getPaginatedSalesSummary(req, res, next) {
         )
       );
   } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
     next(new ApiError(500, error.message || "An internal server error occurred while fetching sales summary."));
   }
 }

@@ -75,33 +75,30 @@ async function createLC(req, res, next) {
             ["Bank", "Mobile Banking", "Cash"].includes(cost.paymentMethod) &&
             !cost.accountId
           ) {
-            throw new ApiError(400, "Validation failed", [
-                {
-                  field: `${section}.costs.accountId`,
-                  message: `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`,
-                },
-              ]);
+            const validationError = {
+              field: `${section}.costs.accountId`,
+              message: `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`,
+            };
+            throw new ApiError(400, validationError.message, [validationError]);
           }
 
           // If accountId is provided, validate it
           if (cost.accountId) {
             const existingAccount = await Account.findById(cost.accountId).session(session);
             if (!existingAccount) {
-              throw new ApiError(400, "Validation failed", [
-                  {
-                    field: `${section}.costs.accountId`,
-                    message: `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
-                  },
-                ]);
+              const validationError = {
+              field: `${section}.costs.accountId`,
+              message: `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
+            };
+            throw new ApiError(400, validationError.message, [validationError]);
             }
             // Validate that the account type matches the payment method
             if (existingAccount.accountType !== cost.paymentMethod) {
-              throw new ApiError(400, "Validation failed", [
-                  {
-                    field: `${section}.costs.accountId`,
-                    message: `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`,
-                  },
-                ]);
+              const validationError = {
+              field: `${section}.costs.accountId`,
+              message: `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`,
+            };
+            throw new ApiError(400, validationError.message, [validationError]);
             }
           }
         }
@@ -118,12 +115,11 @@ async function createLC(req, res, next) {
           }
           const existingUnit = await Unit.findById(product.quantityUnit).session(session); // Ensure session is used
           if (!existingUnit) {
-            throw new ApiError(400, "Validation failed", [
-                {
-                  field: "quantityUnit",
-                  message: `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
-                },
-              ]);
+          const validationError = {
+            field: "quantityUnit",
+            message: `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
+          };
+          throw new ApiError(400, validationError.message, [validationError]);
           }
         }
       }
@@ -239,18 +235,40 @@ async function createLC(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    // Handle Mongoose validation errors specifically
-    if (error.name === "ValidationError") {
-      const validationErrors = Object.values(error.errors).map((err) => ({
-        field: err.path,
-        message: err.message,
-      }));
-      
-      // De-duplicate errors to handle Mongoose sub-document validation quirks
-      const uniqueErrorStrings = new Set(validationErrors.map(e => JSON.stringify(e)));
-      const uniqueErrors = Array.from(uniqueErrorStrings).map(e => JSON.parse(e));
 
-      return next(new ApiError(400, "LC validation failed", uniqueErrors));
+    if (error instanceof ApiError) {
+      // Cleanup uploaded files if an ApiError is thrown after they are created
+      if (req.files) {
+        for (const file of req.files) {
+          try {
+            await fs.unlink(file.path);
+          } catch (unlinkError) {
+            console.error(
+              `Failed to delete temporary file on ApiError: ${file.path}`,
+              unlinkError
+            );
+          }
+        }
+      }
+      return next(error);
+    }
+
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `An LC with the same ${field} '${value}' already exists.`)); // Specific message for LC
+    }
+
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
 
     // Cleanup uploaded files on any other error
@@ -267,9 +285,66 @@ async function createLC(req, res, next) {
       }
     }
     // Pass other errors to the generic error handler
-    next(new ApiError(500, error.message));
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
+
+/**
+ * @param {object} cost The cost object from the LC
+ * @param {mongoose.Model} lc The LC document
+ * @param {mongoose.ClientSession} session The mongoose session for the transaction
+ */
+async function _handleLCCostTransaction(cost, lc, session) {
+    // Only process costs that have an account and a valid amount
+    if (!cost.accountId || !cost.amount || cost.amount <= 0) {
+        return;
+    }
+
+    // 1. DailyCash Gatekeeper Check
+    const costDate = cost.date || new Date();
+    const costDateNormalized = new Date(costDate);
+    costDateNormalized.setHours(0, 0, 0, 0);
+
+    const openSession = await DailyCash.findOne({ date: costDateNormalized, status: "Open" }).session(session);
+    if (!openSession) {
+        throw new ApiError(400, `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost.`);
+    }
+
+    // 2. Find account and update balance
+    const account = await Account.findById(cost.accountId).session(session);
+    if (!account) {
+        throw new ApiError(404, `Account with ID ${cost.accountId} not found for cost '${cost.name}'.`);
+    }
+    if (account.balance < cost.amount) {
+        throw new ApiError(400, `Insufficient balance in account '${account.accountName}' for cost '${cost.name}'.`);
+    }
+
+    account.balance -= cost.amount;
+    await account.save({ session });
+
+    // 3. Create Transaction for the LC cost
+    await Transaction.create([{
+        accountId: cost.accountId,
+        date: costDate,
+        description: `LC Cost: ${cost.name} for LC Number: ${lc.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
+        transactionType: "Expense",
+        amount: cost.amount,
+        name: `LC Cost: ${cost.name}`,
+        source: "Auto",
+        category: "LC",
+        paymentMethod: cost.paymentMethod,
+        reference: lc._id,
+        referenceModel: "LC",
+        miscReference: {
+            lcNumber: lc.basicInfo.lcNumber,
+            costName: cost.name,
+            costAmount: cost.amount,
+            paymentMethod: cost.paymentMethod,
+            accountId: cost.accountId,
+        },
+    }], { session });
+}
+
 
 async function getAllLCs(_, res, next) {
   try {
@@ -284,7 +359,26 @@ async function getAllLCs(_, res, next) {
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -303,7 +397,26 @@ async function getLCById(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, lc, "LC fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -325,7 +438,26 @@ async function updateLC(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, updated, "LC updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -343,9 +475,9 @@ async function deleteLC(req, res, next) {
     // DailyCash Gatekeeper Check for reversal transactions
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const dailyCash = await DailyCash.findOne({ date: today }).session(session);
+    const dailyCash = await DailyCash.findOne({ date: today, status: "Open" }).session(session);
 
-    if (!dailyCash || dailyCash.status === "Closed") {
+    if (!dailyCash) {
         throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse LC costs.`);
     }
 
@@ -402,7 +534,26 @@ async function deleteLC(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -415,7 +566,26 @@ async function getAllCompletedLCs(_, res, next) {
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -452,7 +622,26 @@ async function getLCCountsByStatus(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -471,7 +660,26 @@ async function getTotalLCCount(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -514,10 +722,29 @@ async function downloadDocument(req, res, next) {
     });
 
   } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
     if (error.code === 'ENOENT') {
       return next(new ApiError(404, "File not found"));
     }
-    next(new ApiError(500, error.message));
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -533,7 +760,26 @@ async function exportLCAsPDF(req, res, next) {
     generateLCPDF(lc, res);
 
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 async function getActiveLcs(req,res,next){
@@ -545,7 +791,26 @@ async function getActiveLcs(req,res,next){
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -618,7 +883,26 @@ async function getLCSummary(req, res, next) {
         new ApiResponse(200, responseData, "LCs summary fetched successfully")
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -661,94 +945,24 @@ async function addExpenseToLC(req, res, next) {
     } else if (!lc[category].costs) {
       lc[category].costs = [];
     }
-
-    // Explicitly validate accountId based on payment method before saving
-    if (["Bank", "Mobile Banking", "Cash"].includes(expense.paymentMethod) && !expense.accountId) {
-      throw new ApiError(400, "Validation failed", [{
-        field: "expense.accountId",
-        message: "Account ID is required for Bank, Mobile Banking and Cash payment methods."
-      }]);
-    }
-
+    
     // Clean up empty accountId in the new expense to prevent CastError
     if (expense && (!expense.accountId || expense.accountId === '')) {
       expense.accountId = null; // Set to null if empty string
     }
 
-    // Validate accountId if provided and not null
-    if (expense.accountId) {
-      const existingAccount = await Account.findById(expense.accountId).session(session);
-      if (!existingAccount) {
-        throw new ApiError(400, "Validation failed", [{
-          field: "expense.accountId",
-          message: `Account not found.`
-        }]);
-      }
-
-      // Validate that the account type matches the payment method
-      if (existingAccount.accountType !== expense.paymentMethod) {
-        throw new ApiError(400, "Validation failed", [{
-            field: "expense.accountId",
-            message: `Payment method '${expense.paymentMethod}' requires a '${expense.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided.`
-        }]);
-      }
-    }
-
     lc[category].costs.push(expense);
 
-    // 4. DailyCash Gatekeeper Check for this new expense
-    const costDateNormalized = new Date(expense.date);
-    costDateNormalized.setHours(0, 0, 0, 0);
-    const dailyCash = await DailyCash.findOne({ date: costDateNormalized }).session(session);
+    // 4. Handle the financial transaction for the new expense
+    await _handleLCCostTransaction(expense, lc, session);
 
-    if (!dailyCash || dailyCash.status === "Closed") {
-      throw new ApiError(
-        400,
-        `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost transaction.`
-      );
-    }
-
-    const account = await Account.findById(expense.accountId).session(session);
-    if (!account) { // Re-check if account exists for consistency after DailyCash check
-        throw new ApiError(404, `Account with ID ${expense.accountId} not found for cost ${expense.name}.`);
-    }
-    if (account.balance < expense.amount) {
-        throw new ApiError(400, `Insufficient balance in ${account.accountName} (${account.accountType}) account for cost ${expense.name}.`);
-    }
-
-    // Decrease account balance
-    account.balance -= expense.amount;
-    await account.save({ session });
-
-    // 5. Create Auto Transaction for LC cost
-    await Transaction.create([{
-        accountId: expense.accountId,
-        date: expense.date,
-        description: `LC Cost: ${expense.name} for LC Number: ${lc.basicInfo.lcNumber} via ${expense.paymentMethod} account.`,
-        transactionType: "Expense",
-        amount: expense.amount,
-        name: `LC Cost: ${expense.name}`,
-        source: "Auto",
-        category: "LC",
-        paymentMethod: expense.paymentMethod,
-        reference: lcId,
-        referenceModel: "LC",
-        miscReference: {
-            lcNumber: lc.basicInfo.lcNumber,
-            costName: expense.name,
-            costAmount: expense.amount,
-            paymentMethod: expense.paymentMethod,
-            accountId: expense.accountId,
-        },
-    }], { session });
-
-    // 6. Save the updated LC
+    // 5. Save the updated LC
     await lc.save({ session });
 
     await session.commitTransaction();
     session.endSession();
 
-    // 7. Repopulate all fields to be consistent with GET responses
+    // 6. Repopulate all fields to be consistent with GET responses
     await lc.populate([
       {
         path: "productInfo.quantityUnit",
@@ -767,21 +981,29 @@ async function addExpenseToLC(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    if (error.name === "ValidationError") {
-      const validationErrors = Object.values(error.errors).map((err) => ({
-        field: err.path,
-        message: err.message,
-      }));
-
-      // De-duplicate errors to handle Mongoose sub-document validation quirks
-      const uniqueErrorStrings = new Set(validationErrors.map(e => JSON.stringify(e)));
-      const uniqueErrors = Array.from(uniqueErrorStrings).map(e => JSON.parse(e));
-
-      return next(
-        new ApiError(400, "Expense validation failed", uniqueErrors)
-      );
+    
+    if (error instanceof ApiError) {
+      return next(error);
     }
-    next(new ApiError(500, error.message));
+
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `An LC expense with the same ${field} '${value}' already exists.`)); // Specific message for LC expense
+    }
+
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -867,7 +1089,26 @@ async function searchLCSummary(req, res, next) {
         )
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 

@@ -2,12 +2,17 @@ const mongoose = require("mongoose");
 const mongoosePaginate = require("mongoose-paginate-v2");
 
 /*
- * Other Charges Sub-schema
- * Represents additional charges associated with a sale, such as loading charges.
+ * Cost Sub-schema
+ * Represents additional costs associated with a sale, such as loading or delivery charges.
  */
-const otherChargeSchema = new mongoose.Schema({
+const costSchema = new mongoose.Schema({
   name: { type: String, required: true },
   amount: { type: Number, required: true },
+  accountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Account",
+    required: true,
+  },
 });
 
 /*
@@ -72,8 +77,7 @@ const salesSchema = new mongoose.Schema(
     unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
     pricePerUnit: { type: Number, required: true, min: 0 },
     totalAmount: { type: Number, required: true },
-    deliveryCharge: { type: Number, default: 0 },
-    otherCharges: [otherChargeSchema],
+    costs: [costSchema], // Replaces deliveryCharge and otherCharges
     discount: { type: Number, default: 0 },
     totalAmountToBePaid: { type: Number, required: true },
     invoiceStatus: {
@@ -99,16 +103,16 @@ salesSchema.plugin(mongoosePaginate);
  * Pre-save hook for amount calculations.
  *
  * 1. `totalAmount` is calculated as `quantity * pricePerUnit`.
- * 2. `totalAmountToBePaid` is calculated based on totalAmount, deliveryCharge, otherCharges, and discount.
+ * 2. `totalAmountToBePaid` is calculated based on totalAmount, costs, and discount.
  */
 salesSchema.pre("validate", function (next) {
   this.totalAmount = this.quantity * this.pricePerUnit;
-  const otherChargesTotal = this.otherCharges.reduce(
-    (acc, charge) => acc + charge.amount,
+  const costsTotal = this.costs.reduce(
+    (acc, cost) => acc + cost.amount,
     0
   );
   this.totalAmountToBePaid =
-    this.totalAmount + this.deliveryCharge + otherChargesTotal - this.discount;
+    this.totalAmount + costsTotal - this.discount;
 
   next();
 });
@@ -116,7 +120,7 @@ salesSchema.pre("validate", function (next) {
 /*
  * Pre-save hook for payment status calculation.
  *
- * 1. If `invoiceStatus` is "Invoiced" and `paymentStatus` is not "Paid payment":
+ * 1. If `invoiceStatus` is "Invoiced":
  *    a. Calculate the total paid amount from the `payments` array.
  *    b. If `totalPaid` is greater than or equal to `totalAmountToBePaid`, set `paymentStatus` to "Paid payment".
  *    c. Otherwise, set `paymentStatus` to "Due payment".

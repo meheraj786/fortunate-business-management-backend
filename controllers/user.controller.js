@@ -5,35 +5,6 @@ const jwt = require("jsonwebtoken");
 
 const registerUser = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
-
-    const validationErrors = [];
-    if (!name)
-      validationErrors.push({ field: "name", message: "Name is required" });
-    if (!email)
-      validationErrors.push({ field: "email", message: "Email is required" });
-    if (!password)
-      validationErrors.push({
-        field: "password",
-        message: "Password is required",
-      });
-
-    if (validationErrors.length > 0) {
-      return next(new ApiError(400, "Validation failed", validationErrors));
-    }
-
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return next(
-        new ApiError(409, "User already exists", [
-          {
-            field: "email",
-            message: "User already exists with this email",
-          },
-        ])
-      );
-    }
-
     const user = new User(req.body);
     await user.save();
 
@@ -41,7 +12,26 @@ const registerUser = async (req, res, next) => {
       .status(201)
       .json(new ApiResponse(201, user, "User registered successfully"));
   } catch (error) {
-    next(new ApiError(500, "Registration failed", [error.message]));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -60,7 +50,7 @@ const loginUser = async (req, res, next) => {
       });
 
     if (validationErrors.length > 0) {
-      return next(new ApiError(400, "Validation failed", validationErrors));
+      return next(new ApiError(400, validationErrors[0].message, validationErrors));
     }
 
     const user = await User.findOne({ email }).select("+password");
@@ -85,9 +75,27 @@ const loginUser = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, { user, token }, "Logged in successfully"));
   } catch (error) {
-    console.log(error);
+    console.log(error); // Keep original console.log for debugging purposes
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
 
-    next(new ApiError(500, "Login failed", [error.message]));
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 const logoutUser = async (_, res, next) => {
@@ -100,7 +108,26 @@ const logoutUser = async (_, res, next) => {
 
     return res.status(200).json(new ApiResponse(200, {}, "Logged out successfully"));
   } catch (error) {
-    next(new ApiError(500, "Logout failed", [error.message]));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -117,7 +144,26 @@ const getUser = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, fetchedUser, "Profile fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, "Failed to fetch profile", [error.message]));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 const getProfile = async (req, res, next) => {
@@ -131,7 +177,26 @@ const getProfile = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, fetchedUser, "Profile fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, "Failed to fetch profile", [error.message]));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 const getAllUser = async (req, res, next) => {
@@ -144,7 +209,26 @@ const getAllUser = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, fetchedUser, "Profile fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, "Failed to fetch profile", [error.message]));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -193,8 +277,26 @@ const updateUser = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, updatedUser, "User updated successfully"));
   } catch (error) {
-    console.error("Update user error:", error);
-    next(new ApiError(500, "Failed to update user", [error.message]));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 

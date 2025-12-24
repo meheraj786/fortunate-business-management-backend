@@ -5,29 +5,32 @@ const { ApiResponse } = require("../utils/ApiResponse");
 exports.createCategory = async (req, res, next) => {
   try {
     const { name, description } = req.body;
-    if (!name) {
-      return next(
-        new ApiError(400, "Validation failed", [
-          { field: "name", message: "Category name is required" },
-        ])
-      );
-    }
-
-    const existing = await Category.findOne({ name: name.trim() });
-    if (existing) {
-      return next(
-        new ApiError(400, "Validation failed", [
-          { field: "name", message: "Category already exists" },
-        ])
-      );
-    }
 
     const category = await Category.create({ name: name.trim(), description });
     res
       .status(201)
       .json(new ApiResponse(201, category, "Category created successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A category with the ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -38,7 +41,10 @@ exports.getCategories = async (_, res, next) => {
       .status(200)
       .json(new ApiResponse(200, categories, "Categories fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -52,7 +58,10 @@ exports.getCategoryById = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, category, "Category fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -73,7 +82,26 @@ exports.updateCategory = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, category, "Category updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A category with the ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
@@ -87,6 +115,9 @@ exports.deleteCategory = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, category, "Category deleted successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
