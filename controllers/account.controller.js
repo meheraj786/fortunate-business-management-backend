@@ -282,6 +282,25 @@ async function updateAccount(req, res, next) {
       }
     }
 
+    // Check for actual changes before updating
+    let hasChanges = false;
+    for (const key in updateData) {
+      if (Object.prototype.hasOwnProperty.call(updateData, key)) {
+        // Compare values, ensuring proper handling of different types if necessary.
+        // Mongoose document properties can be accessed directly.
+        if (existingAccount[key] !== updateData[key]) {
+          hasChanges = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasChanges) {
+      return res
+        .status(200)
+        .json(new ApiResponse(200, existingAccount, "No changes made"));
+    }
+
     const updatedAccount = await Account.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,

@@ -10,7 +10,7 @@ async function getTransactionDetails(req, res, next) {
     }
 
     const transaction = await Transaction.findById(id)
-      .populate("accountId", "accountName accountType") // Populate account details
+      .populate("accountId", "accountName accountType bankName accountHolderName serviceName") // Populate account details
       .populate("reference", "saleId basicInfo.lcNumber"); // Populate Sale/LC details based on referenceModel
 
     if (!transaction) {
@@ -80,7 +80,7 @@ async function getAllTransactions(req, res, next) {
       limit: parseInt(limit, 10),
       sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 },
       populate: [
-        { path: "accountId", select: "accountName accountType" },
+        { path: "accountId", select: "accountName accountType bankName accountHolderName serviceName" },
         { path: "reference", select: "saleId basicInfo.lcNumber" },
       ],
       lean: true, // Return plain JavaScript objects
@@ -307,7 +307,7 @@ async function getTransactionsByAccount(req, res, next) {
       limit: parseInt(limit, 10),
       sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 },
       populate: [
-        { path: "accountId", select: "accountName accountType" },
+        { path: "accountId", select: "accountName accountType bankName accountHolderName serviceName" },
         { path: "reference", select: "saleId basicInfo.lcNumber" },
       ],
       lean: true,
