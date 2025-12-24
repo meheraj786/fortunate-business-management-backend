@@ -16,13 +16,13 @@ const dailyCashRouter = express.Router();
 dailyCashRouter.use(authenticate);
 
 // Routes for managing daily cash status
-dailyCashRouter.post("/open", authorize("DAILY_CASH", "CREATE"), openCash);
-dailyCashRouter.post("/close", authorize("DAILY_CASH", "UPDATE"), closeCash);
-dailyCashRouter.get("/status", authorize("DAILY_CASH", "GET"), getDailyCashStatus);
-dailyCashRouter.get("/summary", authorize("DAILY_CASH", "GET"), getDailyCashSummary);
+dailyCashRouter.post("/open", authorize("CASH", "CREATE"), openCash);
+dailyCashRouter.post("/close", authorize("CASH", "UPDATE"), closeCash);
+dailyCashRouter.get("/status", authorize("CASH", "GET"), getDailyCashStatus);
+dailyCashRouter.get("/summary", authorize("CASH", "GET"), getDailyCashSummary);
 
 // Routes for adding manual transactions
-dailyCashRouter.post("/income", authorize("TRANSACTION", "CREATE"), addIncome);
-dailyCashRouter.post("/expense", authorize("TRANSACTION", "CREATE"), addExpense);
+dailyCashRouter.post("/income", authorize("CASH", "CREATE"), addIncome);
+dailyCashRouter.post("/expense", authorize("CASH", "CREATE"), addExpense);
 
 module.exports = dailyCashRouter;
