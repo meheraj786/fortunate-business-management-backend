@@ -392,62 +392,136 @@ async function deleteAccount(req, res, next) {
 async function getAccountDetails(req, res, next) {
   try {
     const { id } = req.params;
-    const account = await Account.findById(id);
+    const mongoose = require("mongoose");
 
-    if (!account) {
+    const results = await Account.aggregate([
+      {
+        $match: {
+          _id: new mongoose.Types.ObjectId(id),
+        },
+      },
+      {
+        $lookup: {
+          from: "transactions",
+          localField: "_id",
+          foreignField: "accountId",
+          as: "transactions",
+        },
+      },
+      {
+        $unwind: {
+          path: "$transactions",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $group: {
+          _id: "$_id",
+          // Bring account fields back
+          doc: { $first: "$$ROOT" },
+          // Calculate stats
+          totalIncome: {
+            $sum: {
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Income"] },
+                "$transactions.amount",
+                0,
+              ],
+            },
+          },
+          totalExpense: {
+            $sum: {
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Expense"] },
+                "$transactions.amount",
+                0,
+              ],
+            },
+          },
+          largestIncome: {
+            $max: {
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Income"] },
+                "$transactions.amount",
+                0,
+              ],
+            },
+          },
+          largestExpense: {
+            $max: {
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Expense"] },
+                "$transactions.amount",
+                0,
+              ],
+            },
+          },
+          totalTransactionsCount: {
+            $sum: { $cond: [{ $ifNull: ["$transactions._id", false] }, 1, 0] },
+          },
+          totalIncomingTransactionsCount: {
+            $sum: {
+              $cond: [{ $eq: ["$transactions.transactionType", "Income"] }, 1, 0],
+            },
+          },
+          totalOutgoingTransactionsCount: {
+            $sum: {
+              $cond: [{ $eq: ["$transactions.transactionType", "Expense"] }, 1, 0],
+            },
+          },
+          totalTransactionAmount: { $sum: { $ifNull: ["$transactions.amount", 0] } },
+        },
+      },
+      {
+        $project: {
+          account: {
+            _id: "$doc._id",
+            accountType: "$doc.accountType",
+            accountName: "$doc.accountName",
+            balance: "$doc.balance",
+            accountHolderName: "$doc.accountHolderName",
+            bankName: "$doc.bankName",
+            branchName: "$doc.branchName",
+            accountNumber: "$doc.accountNumber",
+            swiftCode: "$doc.swiftCode",
+            serviceName: "$doc.serviceName",
+            mobileNumber: "$doc.mobileNumber",
+            routingNumber: "$doc.routingNumber",
+            status: "$doc.status",
+            createdAt: "$doc.createdAt",
+            updatedAt: "$doc.updatedAt",
+          },
+          stats: {
+            currentBalance: "$doc.balance",
+            totalIncome: "$totalIncome",
+            totalExpense: "$totalExpense",
+            largestIncome: "$largestIncome",
+            largestExpense: "$largestExpense",
+            averageTransactionAmount: {
+              $cond: [
+                { $eq: ["$totalTransactionsCount", 0] },
+                0,
+                { $divide: ["$totalTransactionAmount", "$totalTransactionsCount"] },
+              ],
+            },
+            totalTransactionsCount: "$totalTransactionsCount",
+            totalIncomingTransactionsCount:
+              "$totalIncomingTransactionsCount",
+            totalOutgoingTransactionsCount:
+              "$totalOutgoingTransactionsCount",
+          },
+          _id: 0,
+        },
+      },
+    ]);
+
+    if (!results.length) {
       return next(new ApiError(404, "Account not found"));
     }
 
-    const transactions = await Transaction.find({ accountId: id }).sort({
-      date: -1,
-    });
-
-    let totalIncome = 0;
-    let totalExpense = 0;
-    let largestIncome = 0;
-    let largestExpense = 0;
-    let totalTransactionAmount = 0;
-    let totalIncomingTransactionsCount = 0;
-    let totalOutgoingTransactionsCount = 0;
-
-    transactions.forEach((transaction) => {
-      totalTransactionAmount += transaction.amount;
-      if (transaction.transactionType === "Income") {
-        totalIncome += transaction.amount;
-        totalIncomingTransactionsCount++;
-        if (transaction.amount > largestIncome) {
-          largestIncome = transaction.amount;
-        }
-      } else if (transaction.transactionType === "Expense") {
-        totalExpense += transaction.amount;
-        totalOutgoingTransactionsCount++;
-        if (transaction.amount > largestExpense) {
-          largestExpense = transaction.amount;
-        }
-      }
-    });
-
-    const averageTransactionAmount =
-      transactions.length > 0
-        ? totalTransactionAmount / transactions.length
-        : 0;
-
-    const stats = {
-      currentBalance: account.balance,
-      totalIncome,
-      totalExpense,
-      largestIncome,
-      largestExpense,
-      averageTransactionAmount,
-      totalTransactionsCount: transactions.length,
-      totalIncomingTransactionsCount,
-      totalOutgoingTransactionsCount,
-    };
-
-    const accountDetails = {
-      account,
-      stats,
-    };
+    // If there were no transactions, the aggregation will still return the account
+    // with empty stats, which is the desired behavior.
+    const accountDetails = results[0];
 
     return res
       .status(200)

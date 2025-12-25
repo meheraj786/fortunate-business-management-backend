@@ -196,30 +196,87 @@ const getAllWarehouses = async (_, res, next) => {
 const getWarehouseById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const warehouse = await Warehouse.findById(id).populate("manager");
+    const mongoose = require("mongoose");
 
-    if (!warehouse) {
+    const results = await Warehouse.aggregate([
+      {
+        $match: {
+          _id: new mongoose.Types.ObjectId(id),
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "manager",
+          foreignField: "_id",
+          as: "manager",
+        },
+      },
+      {
+        $lookup: {
+          from: "products",
+          localField: "_id",
+          foreignField: "warehouse",
+          as: "products",
+        },
+      },
+      {
+        $addFields: {
+          manager: { $arrayElemAt: ["$manager", 0] },
+          stats: {
+            totalProducts: { $size: "$products" },
+            totalInStock: {
+              $size: {
+                $filter: {
+                  input: "$products",
+                  as: "product",
+                  cond: { $gt: ["$$product.quantity", 0] },
+                },
+              },
+            },
+            totalLowStock: {
+              $size: {
+                $filter: {
+                  input: "$products",
+                  as: "product",
+                  cond: {
+                    $and: [
+                      { $gt: ["$$product.quantity", 0] },
+                      { $lt: ["$$product.quantity", 20] },
+                    ],
+                  },
+                },
+              },
+            },
+            totalStockOut: {
+              $size: {
+                $filter: {
+                  input: "$products",
+                  as: "product",
+                  cond: { $eq: ["$$product.quantity", 0] },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          products: 0,
+          "manager.password": 0, // Ensure sensitive fields are not returned
+        },
+      },
+    ]);
+
+    if (!results.length) {
       return next(new ApiError(404, "Warehouse not found"));
     }
 
-    const stats = await Product.getInventoryStats(id);
-
-    const response = {
-      _id: warehouse._id,
-      name: warehouse.name,
-      location: warehouse.location,
-      manager: warehouse.manager,
-      stats: {
-        totalProducts: stats.totalProductsCount,
-        totalInStock: stats.inStockProductsCount,
-        totalLowStock: stats.lowStockProductsCount,
-        totalStockOut: stats.outOfStockProductsCount,
-      },
-    };
+    const warehouse = results[0];
 
     return res
       .status(200)
-      .json(new ApiResponse(200, response, "Warehouse fetched successfully"));
+      .json(new ApiResponse(200, warehouse, "Warehouse fetched successfully"));
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -228,10 +285,15 @@ const getWarehouseById = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A warehouse with the same ${field} '${value}' already exists.`)); // Specific message for warehouse
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 

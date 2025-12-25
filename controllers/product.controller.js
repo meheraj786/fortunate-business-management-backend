@@ -310,77 +310,129 @@ async function getProductsByWarehouse(req, res, next) {
 async function getProductInWarehouse(req, res, next) {
   try {
     const { warehouseId, productId } = req.params;
-    const product = await Product.findOne({
-      _id: productId,
-      warehouse: warehouseId,
-    })
-      .populate(
-        "LC",
-        { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1, "financialInfo.lcAmountBdt": 1 }
-      )
-      .populate("warehouse", "name location")
-      .populate("category", "name description")
-      .populate("unit", "name type conversionFactor")
-      .lean(); // Add .lean() here
+    const mongoose = require("mongoose");
 
-    if (!product) {
-      return next(
-        new ApiError(404, "Product not found in this warehouse")
-      );
-    }
-
-    // Calculate stockStatus
-    const totalInGrams = product.quantity * (product.unit?.conversionFactor || 0);
-    let stockStatus;
-
-    // Thresholds in grams (same as getProductsByWarehouse)
-    const LOW_STOCK_THRESHOLD = 10000; // 10 KG
-    const MEDIUM_STOCK_THRESHOLD = 1000000; // 1 TON
-
-    if (totalInGrams === 0) {
-      stockStatus = "No Stock";
-    } else if (totalInGrams <= LOW_STOCK_THRESHOLD) {
-      stockStatus = "Low";
-    } else if (totalInGrams <= MEDIUM_STOCK_THRESHOLD) {
-      stockStatus = "Medium";
-    } else {
-      stockStatus = "OK";
-    }
-
-    // The rest of the stats logic can remain the same
-    const salesStats = await Sales.aggregate([
-      { $match: { product: product._id } },
+    const pipeline = [
       {
-        $group: {
-          _id: "$product",
-          totalUnitsSold: { $sum: "$quantity" },
-          totalRevenue: { $sum: "$totalAmount" },
+        $match: {
+          _id: new mongoose.Types.ObjectId(productId),
+          warehouse: new mongoose.Types.ObjectId(warehouseId),
         },
       },
-    ]);
-    const totalDueInvoices = await Sales.countDocuments({
-      product: productId,
-      invoiceStatus: "Invoiced",
-      paymentStatus: "Due payment",
-    });
-    const totalNotInvoiced = await Sales.countDocuments({
-      product: productId,
-      invoiceStatus: "Not-invoiced",
-    });
+      // --- Populate Product Fields ---
+      {
+        $lookup: {
+          from: "lcs",
+          localField: "LC",
+          foreignField: "_id",
+          as: "LC",
+        },
+      },
+      {
+        $lookup: {
+          from: "warehouses",
+          localField: "warehouse",
+          foreignField: "_id",
+          as: "warehouse",
+        },
+      },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+        },
+      },
+      {
+        $lookup: {
+          from: "units",
+          localField: "unit",
+          foreignField: "_id",
+          as: "unit",
+        },
+      },
+      // Unwind the populated arrays
+      { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
 
-    // Remove conversionFactor from the populated unit object before sending the response
-    if (product.unit) {
-      delete product.unit.conversionFactor;
+      // --- Calculate Sales Stats ---
+      {
+        $lookup: {
+          from: "sales",
+          localField: "_id",
+          foreignField: "product",
+          as: "sales",
+        },
+      },
+      // --- Calculate stockStatus and Final Projection ---
+      {
+        $addFields: {
+          // Calculate stockStatus
+          totalInGrams: {
+            $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0],
+          },
+          // Calculate sales stats
+          totalUnitsSold: { $sum: "$sales.quantity" },
+          totalRevenue: { $sum: "$sales.totalAmount" },
+          totalDueInvoices: {
+            $size: {
+              $filter: {
+                input: "$sales",
+                as: "sale",
+                cond: {
+                  $and: [
+                    { $eq: ["$$sale.invoiceStatus", "Invoiced"] },
+                    { $eq: ["$$sale.paymentStatus", "Due payment"] },
+                  ],
+                },
+              },
+            },
+          },
+          totalNotInvoiced: {
+            $size: {
+              $filter: {
+                input: "$sales",
+                as: "sale",
+                cond: { $eq: ["$$sale.invoiceStatus", "Not-invoiced"] },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          stockStatus: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$totalInGrams", 0] }, then: "No Stock" },
+                { case: { $lte: ["$totalInGrams", 10000] }, then: "Low" }, // 10 KG
+                { case: { $lte: ["$totalInGrams", 1000000] }, then: "Medium" }, // 1 TON
+              ],
+              default: "OK",
+            },
+          },
+        },
+      },
+      // Final cleanup
+      {
+        $project: {
+          sales: 0, // remove the sales array
+          totalInGrams: 0,
+          "unit.conversionFactor": 0, // remove conversion factor from the final output
+        },
+      },
+    ];
+
+    const results = await Product.aggregate(pipeline);
+
+    if (results.length === 0) {
+      return next(new ApiError(404, "Product not found in this warehouse"));
     }
 
-    const productWithStats = {
-      ...product, // product is already a lean object
-      stockStatus, // Add stockStatus here
-      totalUnitsSold: salesStats[0]?.totalUnitsSold || 0,
-      totalRevenue: salesStats[0]?.totalRevenue || 0,
-      totalDueInvoices,
-      totalNotInvoiced,
-    };
+    const productWithStats = results[0];
 
     return res
       .status(200)
@@ -537,10 +589,36 @@ async function deleteProductInWarehouse(req, res, next) {
 // (The old global functions can be kept for admin overview purposes if needed, but won't be wired to the new routes)
 async function getAllProducts(req, res, next) {
   try {
-    const products = await Product.find()
-      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1, "financialInfo.lcAmountBdt": 1 })
-      .populate("warehouse", "name location")
-      .populate("category", "name description");
+    const products = await Product.aggregate([
+      {
+        $lookup: {
+          from: "lcs",
+          localField: "LC",
+          foreignField: "_id",
+          as: "LC",
+        },
+      },
+      {
+        $lookup: {
+          from: "warehouses",
+          localField: "warehouse",
+          foreignField: "_id",
+          as: "warehouse",
+        },
+      },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+        },
+      },
+      // Unwind the populated arrays
+      { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+    ]);
 
     return res
       .status(200)
@@ -571,13 +649,56 @@ async function getAllProducts(req, res, next) {
 
 async function getStockStatus(_, res, next) {
   try {
-    const lowStock = await Product.find({ quantity: { $gt: 0, $lt: 20 } })
-      .populate("warehouse", "name location")
-      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1 });
+    const results = await Product.aggregate([
+      {
+        $facet: {
+          lowStock: [
+            { $match: { quantity: { $gt: 0, $lt: 20 } } },
+            {
+              $lookup: {
+                from: "warehouses",
+                localField: "warehouse",
+                foreignField: "_id",
+                as: "warehouse",
+              },
+            },
+            {
+              $lookup: {
+                from: "lcs",
+                localField: "LC",
+                foreignField: "_id",
+                as: "LC",
+              },
+            },
+            { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+            { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+          ],
+          outOfStock: [
+            { $match: { quantity: 0 } },
+            {
+              $lookup: {
+                from: "warehouses",
+                localField: "warehouse",
+                foreignField: "_id",
+                as: "warehouse",
+              },
+            },
+            {
+              $lookup: {
+                from: "lcs",
+                localField: "LC",
+                foreignField: "_id",
+                as: "LC",
+              },
+            },
+            { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+            { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+          ],
+        },
+      },
+    ]);
 
-    const outOfStock = await Product.find({ quantity: 0 })
-      .populate("warehouse", "name location")
-      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1 });
+    const { lowStock, outOfStock } = results[0];
 
     return res
       .status(200)

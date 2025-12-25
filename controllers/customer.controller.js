@@ -92,64 +92,67 @@ async function getCustomerById(req, res, next) {
       return next(new ApiError(400, "Invalid customer ID"));
     }
 
-    const customer = await Customer.findById(id);
-
-    if (!customer) {
-      return next(new ApiError(404, "Customer not found"));
-    }
-
-    const statsPipeline = [
+    const pipeline = [
+      { $match: { _id: new mongoose.Types.ObjectId(id) } },
       {
-        $match: { "customer.customerId": new mongoose.Types.ObjectId(id) },
+        $lookup: {
+          from: "sales",
+          localField: "_id",
+          foreignField: "customer.customerId",
+          as: "sales",
+        },
       },
       {
-        $group: {
-          _id: "$customer.customerId",
-          totalPurchases: { $sum: 1 },
-          totalSpent: { $sum: "$totalAmountToBePaid" },
-          notInvoiced: {
-            $sum: {
-              $cond: [{ $eq: ["$invoiceStatus", "Not-invoiced"] }, 1, 0],
-            },
-          },
-          dueSales: {
-            $push: {
-              $cond: [
-                { $eq: ["$paymentStatus", "Due payment"] },
-                {
-                  totalAmountToBePaid: "$totalAmountToBePaid",
-                  payments: "$payments",
+        $addFields: {
+          stats: {
+            totalPurchases: { $size: "$sales" },
+            totalSpent: { $sum: "$sales.totalAmountToBePaid" },
+            notInvoiced: {
+              $size: {
+                $filter: {
+                  input: "$sales",
+                  as: "s",
+                  cond: { $eq: ["$$s.invoiceStatus", "Not-invoiced"] },
                 },
-                "$$REMOVE",
-              ],
+              },
+            },
+            outstandingDues: {
+              $sum: {
+                $map: {
+                  input: {
+                    $filter: {
+                      input: "$sales",
+                      as: "s",
+                      cond: { $eq: ["$$s.paymentStatus", "Due payment"] },
+                    },
+                  },
+                  as: "dueSale",
+                  in: {
+                    $subtract: [
+                      "$$dueSale.totalAmountToBePaid",
+                      { $sum: "$$dueSale.payments.amount" },
+                    ],
+                  },
+                },
+              },
             },
           },
         },
       },
+      {
+        $project: {
+          sales: 0, // Exclude the sales array from the final customer object
+        },
+      },
     ];
 
-    const stats = await Sales.aggregate(statsPipeline);
+    const results = await Customer.aggregate(pipeline);
 
-    let outstandingDues = 0;
-    if (stats.length > 0 && stats[0].dueSales.length > 0) {
-      outstandingDues = stats[0].dueSales.reduce((totalDue, sale) => {
-        const totalPaid = sale.payments.reduce(
-          (acc, p) => acc + p.amount,
-          0
-        );
-        return totalDue + (sale.totalAmountToBePaid - totalPaid);
-      }, 0);
+    if (results.length === 0) {
+      return next(new ApiError(404, "Customer not found"));
     }
 
-    const customerData = {
-      ...customer.toObject(),
-      stats: {
-        totalPurchases: stats.length > 0 ? stats[0].totalPurchases : 0,
-        totalSpent: stats.length > 0 ? stats[0].totalSpent : 0,
-        notInvoiced: stats.length > 0 ? stats[0].notInvoiced : 0,
-        outstandingDues,
-      },
-    };
+    const customerData = results[0];
 
     return res
       .status(200)
@@ -335,7 +338,7 @@ async function getCustomersSummary(req, res, next) {
     if (Object.keys(matchConditions).length > 0) {
       pipeline.push({ $match: matchConditions });
     }
-    
+
     // Stage 2: Lookup to join with Sales
     pipeline.push({
       $lookup: {
@@ -386,12 +389,6 @@ async function getCustomersSummary(req, res, next) {
       },
     });
 
-    // --- Create a parallel pipeline for total count ---
-    const countPipeline = [...pipeline];
-    countPipeline.push({ $count: "totalCustomers" });
-    const totalResult = await Customer.aggregate(countPipeline);
-    const totalCustomers = totalResult.length > 0 ? totalResult[0].totalCustomers : 0;
-    
     // Stage 4: Sorting
     const sortStage = {};
     const validSortBy = [
@@ -403,19 +400,29 @@ async function getCustomersSummary(req, res, next) {
     } else {
       sortStage.joinDate = -1; // Default sort
     }
-    pipeline.push({ $sort: sortStage });
-    
-    // Stage 5: Pagination
-    pipeline.push({ $skip: skip }, { $limit: limitNum });
 
-    // Stage 6: Final Projection
+    // Stage 5: Facet for pagination and total count
     pipeline.push({
-      $project: {
-        sales: 0, // Exclude the full sales array from the final output
+      $facet: {
+        customers: [
+          { $sort: sortStage },
+          { $skip: skip },
+          { $limit: limitNum },
+          {
+            $project: {
+              sales: 0, // Exclude the full sales array
+            },
+          },
+        ],
+        metadata: [{ $count: "totalItems" }],
       },
     });
 
-    const customersSummary = await Customer.aggregate(pipeline);
+    const result = await Customer.aggregate(pipeline);
+
+    const customersSummary = result[0].customers;
+    const totalCustomers =
+      result[0].metadata.length > 0 ? result[0].metadata[0].totalItems : 0;
 
     return res.status(200).json(
       new ApiResponse(

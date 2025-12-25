@@ -199,7 +199,23 @@ const getProfile = async (req, res, next) => {
 };
 const getAllUser = async (req, res, next) => {
   try {
-    const fetchedUser = await User.find({}).populate("warehouse");
+    const fetchedUser = await User.aggregate([
+      {
+        $lookup: {
+          from: "warehouses",
+          localField: "warehouse",
+          foreignField: "_id",
+          as: "warehouse",
+        },
+      },
+      {
+        $unwind: {
+          path: "$warehouse",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+    ]);
+
     if (!fetchedUser) {
       return next(new ApiError(404, "User not found"));
     }
