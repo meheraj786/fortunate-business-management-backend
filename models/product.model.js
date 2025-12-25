@@ -25,6 +25,11 @@ const productSchema = new mongoose.Schema(
       ref: "Warehouse",
       required: true,
     },
+      isDeleted: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
   },
   { timestamps: true }
 );

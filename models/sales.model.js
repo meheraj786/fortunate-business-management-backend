@@ -93,6 +93,11 @@ const salesSchema = new mongoose.Schema(
     payments: [paymentSchema],
     notes: { type: String, trim: true },
     saleDate: { type: Date, default: Date.now },
+      isDeleted: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
   },
   { timestamps: true }
 );

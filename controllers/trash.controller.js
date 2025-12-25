@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 const Trash = require("../models/trash.model");
+const { ApiResponse } = require("../utils/ApiResponse");
+const { ApiError } = require("../utils/ApiError");
 
 
 const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
@@ -20,31 +22,44 @@ const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
 };
 
 
-const restoreFromTrash = async (req, res) => {
+
+const restoreFromTrash = async (req, res, next) => {
   try {
     const trash = await Trash.findById(req.params.id);
 
     if (!trash) {
-      return res.status(404).json({
-        success: false,
-        message: "Trash item not found",
-      });
+      return next(new ApiError(404, "Trash item not found"));
+    }
+
+    const Model = mongoose.model(trash.model);
+
+    const restoredDoc = await Model.findByIdAndUpdate(
+      trash.docId,
+      { isDeleted: false },
+      { new: true }
+    );
+
+    if (!restoredDoc) {
+      await trash.deleteOne();
+      return next(new ApiError(404, "Original document not found, trash record removed"));
     }
 
     await trash.deleteOne();
 
-    res.json({
-      success: true,
-      message: "Item restored successfully",
-    });
+    res.status(200).json(
+      new ApiResponse(
+        200, 
+        restoredDoc, 
+        `${trash.model} restored successfully`
+      )
+    );
   } catch (err) {
     console.error("Restore error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to restore item",
-    });
+    next(new ApiError(500, "Failed to restore item"));
   }
 };
+
+module.exports = { restoreFromTrash };
 
 
 const getAllTrash = async (req, res) => {

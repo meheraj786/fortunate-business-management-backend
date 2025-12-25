@@ -1,20 +1,20 @@
 const Product = require("../models/product.model");
 const Warehouse = require("../models/warehouse.model");
 const Sales = require("../models/sales.model");
-const Unit = require("../models/unit.model"); // Import Unit model
+const Unit = require("../models/unit.model");
+const Trash = require("../models/trash.model"); // Import Trash model
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const mongoose = require("mongoose");
 
-// New function to create a product within a specific warehouse
+/* ================= CREATE PRODUCT ================= */
 async function createProductInWarehouse(req, res, next) {
   try {
     const { warehouseId } = req.params;
     const {
       name,
-      productDescription,
       category,
       LC,
-      supplierName,
       thickness,
       width,
       length,
@@ -25,41 +25,11 @@ async function createProductInWarehouse(req, res, next) {
       unitPrice,
     } = req.body;
 
-    const validationErrors = [];
-    if (!name)
-      validationErrors.push({ field: "name", message: "Name is required" });
-    if (!category)
-      validationErrors.push({
-        field: "category",
-        message: "Category is required",
-      });
-    if (!LC) validationErrors.push({ field: "LC", message: "LC is required" });
-    if (!quantity)
-      validationErrors.push({
-        field: "quantity",
-        message: "Quantity is required",
-      });
-    if (!unit)
-      validationErrors.push({ field: "unit", message: "Unit is required" });
-    if (!unitPrice)
-      validationErrors.push({
-        field: "unitPrice",
-        message: "Unit price is required",
-      });
-
-    if (validationErrors.length > 0) {
-      return next(new ApiError(400, validationErrors[0].message, validationErrors));
-    }
-
     const existingUnit = await Unit.findById(unit);
-    if (!existingUnit) {
-      return next(new ApiError(404, "Unit not found"));
-    }
+    if (!existingUnit) return next(new ApiError(404, "Unit not found"));
 
     const productWarehouse = await Warehouse.findById(warehouseId);
-    if (!productWarehouse) {
-      return next(new ApiError(404, "Warehouse not found"));
-    }
+    if (!productWarehouse) return next(new ApiError(404, "Warehouse not found"));
 
     const product = await Product.create({
       name,
@@ -73,97 +43,50 @@ async function createProductInWarehouse(req, res, next) {
       quantity,
       unit,
       unitPrice,
-      warehouse: warehouseId, // Assign warehouse from URL params
+      warehouse: warehouseId,
     });
 
-    // Add product reference to the warehouse
+    // Add reference to warehouse
     productWarehouse.product.push(product._id);
     await productWarehouse.save();
 
-    return res
-      .status(201)
-      .json(new ApiResponse(201, product, "Product created successfully"));
+    res.status(201).json(new ApiResponse(201, product, "Product created successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
-// New function to get all products for a specific warehouse
+/* ================= GET BY WAREHOUSE (Filtered) ================= */
 async function getProductsByWarehouse(req, res, next) {
   try {
     const { warehouseId } = req.params;
-    const {
-      search,
-      sortBy,
-      sortOrder = "asc",
-      stockStatus: stockStatusFilter,
-      page = 1,
-      limit = 10,
-    } = req.query;
+    const { search, sortBy, sortOrder = "asc", stockStatus: stockStatusFilter, page = 1, limit = 10 } = req.query;
 
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
     const skip = (pageNum - 1) * limitNum;
 
-    const pipeline = [];
-
-    // Initial match for the warehouse
-    const mongoose = require("mongoose");
-    pipeline.push({
-      $match: { warehouse: new mongoose.Types.ObjectId(warehouseId) },
-    });
-
-    // Lookups for related data
-    pipeline.push(
+    const pipeline = [
       {
-        $lookup: {
-          from: "lcs",
-          localField: "LC",
-          foreignField: "_id",
-          as: "LC",
-        },
+        $match: { 
+          warehouse: new mongoose.Types.ObjectId(warehouseId),
+          isDeleted: { $ne: true } // Filter out deleted
+        }
+      },
+      {
+        $lookup: { from: "lcs", localField: "LC", foreignField: "_id", as: "LC" }
       },
       { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
       {
-        $lookup: {
-          from: "categories",
-          localField: "category",
-          foreignField: "_id",
-          as: "category",
-        },
+        $lookup: { from: "categories", localField: "category", foreignField: "_id", as: "category" }
       },
       { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
       {
-        $lookup: {
-          from: "units",
-          localField: "unit",
-          foreignField: "_id",
-          as: "unit",
-        },
+        $lookup: { from: "units", localField: "unit", foreignField: "_id", as: "unit" }
       },
       { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } }
-    );
+    ];
 
-    // Search logic for product name and LC number
     if (search) {
       pipeline.push({
         $match: {
@@ -175,15 +98,10 @@ async function getProductsByWarehouse(req, res, next) {
       });
     }
 
-    // Add stock status calculation fields
-    const LOW_STOCK_THRESHOLD = 10000; // 10 KG
-    const MEDIUM_STOCK_THRESHOLD = 1000000; // 1 TON
-
+    // Stock Status Calculation
     pipeline.push({
       $addFields: {
-        totalInGrams: {
-          $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0],
-        },
+        totalInGrams: { $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0] },
       },
     });
 
@@ -193,14 +111,8 @@ async function getProductsByWarehouse(req, res, next) {
           $switch: {
             branches: [
               { case: { $eq: ["$totalInGrams", 0] }, then: "No Stock" },
-              {
-                case: { $lte: ["$totalInGrams", LOW_STOCK_THRESHOLD] },
-                then: "Low",
-              },
-              {
-                case: { $lte: ["$totalInGrams", MEDIUM_STOCK_THRESHOLD] },
-                then: "Medium",
-              },
+              { case: { $lte: ["$totalInGrams", 10000] }, then: "Low" },
+              { case: { $lte: ["$totalInGrams", 1000000] }, then: "Medium" },
             ],
             default: "OK",
           },
@@ -208,20 +120,14 @@ async function getProductsByWarehouse(req, res, next) {
       },
     });
 
-    // Filter by stock status
     if (stockStatusFilter) {
       pipeline.push({ $match: { stockStatus: stockStatusFilter } });
     }
 
-    // Sorting
     const sort = {};
-    if (sortBy) {
-      sort[sortBy] = sortOrder === "desc" ? -1 : 1;
-    } else {
-      sort.createdAt = -1; // Default sort
-    }
+    if (sortBy) sort[sortBy] = sortOrder === "desc" ? -1 : 1;
+    else sort.createdAt = -1;
 
-    // Facet for pagination
     pipeline.push({
       $facet: {
         metadata: [{ $count: "totalDocs" }],
@@ -231,22 +137,9 @@ async function getProductsByWarehouse(req, res, next) {
           { $limit: limitNum },
           {
             $project: {
-              name: 1,
-              thickness: 1,
-              width: 1,
-              length: 1,
-              color: 1,
-              grade: 1,
-              quantity: 1,
-              unitPrice: 1,
-              createdAt: 1,
-              updatedAt: 1,
-              stockStatus: 1,
+              name: 1, thickness: 1, width: 1, length: 1, color: 1, grade: 1, quantity: 1, unitPrice: 1, stockStatus: 1,
               category: { _id: "$category._id", name: "$category.name" },
-              LC: {
-                _id: "$LC._id",
-                basicInfo: { lcNumber: "$LC.basicInfo.lcNumber" },
-              },
+              LC: { _id: "$LC._id", basicInfo: { lcNumber: "$LC.basicInfo.lcNumber" } },
               unit: { _id: "$unit._id", name: "$unit.name", type: "$unit.type" },
             },
           },
@@ -255,151 +148,46 @@ async function getProductsByWarehouse(req, res, next) {
     });
 
     const result = await Product.aggregate(pipeline);
-
     const docs = result[0].docs;
-    const totalDocs = result[0].metadata[0]
-      ? result[0].metadata[0].totalDocs
-      : 0;
-    const totalPages = Math.ceil(totalDocs / limitNum);
+    const totalDocs = result[0].metadata[0]?.totalDocs || 0;
 
-    const response = {
-      docs,
-      totalDocs,
-      limit: limitNum,
-      page: pageNum,
-      totalPages,
-      hasNextPage: pageNum < totalPages,
-      hasPrevPage: pageNum > 1,
-      nextPage: pageNum < totalPages ? pageNum + 1 : null,
-      prevPage: pageNum > 1 ? pageNum - 1 : null,
-    };
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, response, "Products fetched successfully"));
+    res.status(200).json(new ApiResponse(200, {
+      docs, totalDocs, limit: limitNum, page: pageNum, totalPages: Math.ceil(totalDocs / limitNum)
+    }, "Products fetched successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `A document with the same ${field} '${value}' already exists.`
-        )
-      ); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
-// New function to get a single product, ensuring it's in the correct warehouse
+/* ================= GET PRODUCT IN WAREHOUSE (Filtered) ================= */
 async function getProductInWarehouse(req, res, next) {
   try {
     const { warehouseId, productId } = req.params;
-    const mongoose = require("mongoose");
 
     const pipeline = [
       {
         $match: {
           _id: new mongoose.Types.ObjectId(productId),
           warehouse: new mongoose.Types.ObjectId(warehouseId),
-        },
-      },
-      // --- Populate Product Fields ---
-      {
-        $lookup: {
-          from: "lcs",
-          localField: "LC",
-          foreignField: "_id",
-          as: "LC",
+          isDeleted: { $ne: true } // Filter out deleted
         },
       },
       {
-        $lookup: {
-          from: "warehouses",
-          localField: "warehouse",
-          foreignField: "_id",
-          as: "warehouse",
-        },
+        $lookup: { from: "lcs", localField: "LC", foreignField: "_id", as: "LC" },
       },
-      {
-        $lookup: {
-          from: "categories",
-          localField: "category",
-          foreignField: "_id",
-          as: "category",
-        },
-      },
-      {
-        $lookup: {
-          from: "units",
-          localField: "unit",
-          foreignField: "_id",
-          as: "unit",
-        },
-      },
-      // Unwind the populated arrays
       { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
-      { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
-      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
-      { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
-
-      // --- Calculate Sales Stats ---
       {
-        $lookup: {
-          from: "sales",
-          localField: "_id",
-          foreignField: "product",
-          as: "sales",
-        },
+        $lookup: { from: "units", localField: "unit", foreignField: "_id", as: "unit" },
       },
-      // --- Calculate stockStatus and Final Projection ---
+      { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: { from: "sales", localField: "_id", foreignField: "product", as: "sales" },
+      },
       {
         $addFields: {
-          // Calculate stockStatus
-          totalInGrams: {
-            $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0],
-          },
-          // Calculate sales stats
           totalUnitsSold: { $sum: "$sales.quantity" },
           totalRevenue: { $sum: "$sales.totalAmount" },
-          totalDueInvoices: {
-            $size: {
-              $filter: {
-                input: "$sales",
-                as: "sale",
-                cond: {
-                  $and: [
-                    { $eq: ["$$sale.invoiceStatus", "Invoiced"] },
-                    { $eq: ["$$sale.paymentStatus", "Due payment"] },
-                  ],
-                },
-              },
-            },
-          },
-          totalNotInvoiced: {
-            $size: {
-              $filter: {
-                input: "$sales",
-                as: "sale",
-                cond: { $eq: ["$$sale.invoiceStatus", "Not-invoiced"] },
-              },
-            },
-          },
+          totalInGrams: { $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0] },
         },
       },
       {
@@ -408,382 +196,161 @@ async function getProductInWarehouse(req, res, next) {
             $switch: {
               branches: [
                 { case: { $eq: ["$totalInGrams", 0] }, then: "No Stock" },
-                { case: { $lte: ["$totalInGrams", 10000] }, then: "Low" }, // 10 KG
-                { case: { $lte: ["$totalInGrams", 1000000] }, then: "Medium" }, // 1 TON
+                { case: { $lte: ["$totalInGrams", 10000] }, then: "Low" },
               ],
               default: "OK",
             },
           },
         },
       },
-      // Final cleanup
-      {
-        $project: {
-          sales: 0, // remove the sales array
-          totalInGrams: 0,
-          "unit.conversionFactor": 0, // remove conversion factor from the final output
-        },
-      },
+      { $project: { sales: 0, totalInGrams: 0 } },
     ];
 
     const results = await Product.aggregate(pipeline);
+    if (!results.length) return next(new ApiError(404, "Product not found"));
 
-    if (results.length === 0) {
-      return next(new ApiError(404, "Product not found in this warehouse"));
-    }
-
-    const productWithStats = results[0];
-
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          productWithStats,
-          "Product fetched successfully"
-        )
-      );
+    res.status(200).json(new ApiResponse(200, results[0], "Product fetched successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
-// New function to update a product within its warehouse
+/* ================= UPDATE PRODUCT (Filtered) ================= */
 async function updateProductInWarehouse(req, res, next) {
   try {
     const { warehouseId, productId } = req.params;
 
-    // Prevent changing the warehouse via this endpoint
-    if (req.body.warehouse && req.body.warehouse !== warehouseId) {
-      return next(
-        new ApiError(
-          400,
-          "Cannot change a product's warehouse from this endpoint. Please use a dedicated 'move' endpoint."
-        )
-      );
-    }
-
-    if (req.body.unit) {
-      const existingUnit = await Unit.findById(req.body.unit);
-      if (!existingUnit) {
-        const validationError = {
-          field: "unit",
-          message: "The provided unit ID was not found",
-        };
-        return next(new ApiError(404, validationError.message, [validationError]));
-      }
-    }
-
     const updated = await Product.findOneAndUpdate(
-      { _id: productId, warehouse: warehouseId },
+      { _id: productId, warehouse: warehouseId, isDeleted: { $ne: true } },
       req.body,
-      {
-        new: true,
-        runValidators: true,
-      }
+      { new: true, runValidators: true }
     );
 
-    if (!updated) {
-      return next(
-        new ApiError(404, "Product not found in this warehouse")
-      );
-    }
+    if (!updated) return next(new ApiError(404, "Product not found"));
 
-    return res
-      .status(200)
-      .json(new ApiResponse(200, updated, "Product updated successfully"));
+    res.status(200).json(new ApiResponse(200, updated, "Product updated successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
-// New function to delete a product, ensuring data consistency
+/* ================= SOFT DELETE & TRASH ================= */
 async function deleteProductInWarehouse(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { warehouseId, productId } = req.params;
+    const deletedBy = req.cookies?.userId || req.user?._id || null;
 
-    // First, ensure the product exists and is in the specified warehouse
-    const product = await Product.findOne({
-      _id: productId,
-      warehouse: warehouseId,
-    });
+    // 1. Soft delete the product
+    const product = await Product.findOneAndUpdate(
+      { _id: productId, warehouse: warehouseId, isDeleted: { $ne: true } },
+      { isDeleted: true },
+      { new: true, session }
+    );
+
     if (!product) {
-      return next(
-        new ApiError(404, "Product not found in this warehouse")
-      );
+      throw new ApiError(404, "Product not found in this warehouse");
     }
 
-    // Remove the product reference from the warehouse's product array
+    // 2. Remove from warehouse array
     await Warehouse.findByIdAndUpdate(warehouseId, {
       $pull: { product: productId },
-    });
+    }, { session });
 
-    // Then, delete the product
-    const deleted = await Product.findByIdAndDelete(productId);
+    // 3. Create Trash entry
+    await Trash.create([{
+      docId: product._id,
+      model: "Product",
+      deletedBy,
+    }], { session });
 
-    return res
-      .status(200)
-      .json(new ApiResponse(200, deleted, "Product deleted successfully"));
-        } catch (error) {
-          if (error instanceof ApiError) {
-            return next(error);
-          }
-          // Handle MongoServerError for duplicate key (unique: true)
-          if (error.code === 11000 && error.keyPattern && error.keyValue) {
-            const field = Object.keys(error.keyPattern)[0];
-            const value = error.keyValue[field];
-            return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-          }
-          // Handle Mongoose validation errors
-          if (error.name === 'ValidationError') {
-            const firstErrorField = Object.keys(error.errors)[0];
-            let userFriendlyMessage = "Validation failed.";
-  
-            if (firstErrorField) {
-              userFriendlyMessage = `The field ${firstErrorField} is required.`;
-            }
-            return next(new ApiError(400, userFriendlyMessage, error.errors));
-          }
-          next(new ApiError(500, error.message || "Something went wrong"));
-        }
-      }
+    await session.commitTransaction();
+    session.endSession();
 
-// (The old global functions can be kept for admin overview purposes if needed, but won't be wired to the new routes)
+    res.status(200).json(new ApiResponse(200, product, "Product moved to trash successfully"));
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    next(error);
+  }
+}
+
+/* ================= ALL PRODUCTS (Admin View - Filtered) ================= */
 async function getAllProducts(req, res, next) {
   try {
     const products = await Product.aggregate([
+      { $match: { isDeleted: { $ne: true } } }, // Filter out deleted
       {
-        $lookup: {
-          from: "lcs",
-          localField: "LC",
-          foreignField: "_id",
-          as: "LC",
-        },
+        $lookup: { from: "lcs", localField: "LC", foreignField: "_id", as: "LC" },
       },
       {
-        $lookup: {
-          from: "warehouses",
-          localField: "warehouse",
-          foreignField: "_id",
-          as: "warehouse",
-        },
+        $lookup: { from: "warehouses", localField: "warehouse", foreignField: "_id", as: "warehouse" },
       },
-      {
-        $lookup: {
-          from: "categories",
-          localField: "category",
-          foreignField: "_id",
-          as: "category",
-        },
-      },
-      // Unwind the populated arrays
       { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
       { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
-      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
     ]);
 
-    return res
-      .status(200)
-      .json(new ApiResponse(200, products, "Products fetched successfully"));
+    res.status(200).json(new ApiResponse(200, products, "Products fetched successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
+/* ================= STOCK STATUS (Filtered) ================= */
 async function getStockStatus(_, res, next) {
   try {
     const results = await Product.aggregate([
       {
         $facet: {
           lowStock: [
-            { $match: { quantity: { $gt: 0, $lt: 20 } } },
-            {
-              $lookup: {
-                from: "warehouses",
-                localField: "warehouse",
-                foreignField: "_id",
-                as: "warehouse",
-              },
-            },
-            {
-              $lookup: {
-                from: "lcs",
-                localField: "LC",
-                foreignField: "_id",
-                as: "LC",
-              },
-            },
-            { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
-            { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+            { $match: { isDeleted: { $ne: true }, quantity: { $gt: 0, $lt: 20 } } },
+            { $lookup: { from: "warehouses", localField: "warehouse", foreignField: "_id", as: "warehouse" } },
+            { $unwind: "$warehouse" }
           ],
           outOfStock: [
-            { $match: { quantity: 0 } },
-            {
-              $lookup: {
-                from: "warehouses",
-                localField: "warehouse",
-                foreignField: "_id",
-                as: "warehouse",
-              },
-            },
-            {
-              $lookup: {
-                from: "lcs",
-                localField: "LC",
-                foreignField: "_id",
-                as: "LC",
-              },
-            },
-            { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
-            { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+            { $match: { isDeleted: { $ne: true }, quantity: 0 } },
+            { $lookup: { from: "warehouses", localField: "warehouse", foreignField: "_id", as: "warehouse" } },
+            { $unwind: "$warehouse" }
           ],
         },
       },
     ]);
 
-    const { lowStock, outOfStock } = results[0];
-
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          { lowStock, outOfStock },
-          "Low stock and out of stock products fetched successfully"
-        )
-      );
+    res.status(200).json(new ApiResponse(200, results[0], "Stock status fetched"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
+/* ================= SALES HISTORY ================= */
 async function getProductSalesHistory(req, res, next) {
   try {
     const { productId } = req.params;
-    const { page = 1, limit = 10 } = req.query; // Get page and limit from query
+    
+    // Check if product exists and not deleted
+    const product = await Product.findOne({ _id: productId, isDeleted: { $ne: true } });
+    if (!product) return next(new ApiError(404, "Product not found"));
 
+    const { page = 1, limit = 10 } = req.query;
     const options = {
       page: parseInt(page, 10),
       limit: parseInt(limit, 10),
       sort: { saleDate: -1 },
-      select:
-        "customer product quantity pricePerUnit invoiceStatus paymentStatus saleDate totalAmount totalAmountToBePaid createdAt updatedAt",
     };
 
     const salesHistory = await Sales.paginate({ product: productId }, options);
 
-    return res.status(200).json(
-      new ApiResponse(
-        200,
-        {
-          sales: salesHistory.docs,
-          totalPages: salesHistory.totalPages,
-          currentPage: salesHistory.page,
-          totalItems: salesHistory.totalDocs,
-        },
-        "Product sales history fetched successfully"
-      )
-    );
+    res.status(200).json(new ApiResponse(200, {
+      sales: salesHistory.docs,
+      totalPages: salesHistory.totalPages,
+      currentPage: salesHistory.page,
+      totalItems: salesHistory.totalDocs,
+    }, "Sales history fetched"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
-
 
 module.exports = {
   createProductInWarehouse,

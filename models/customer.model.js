@@ -35,7 +35,13 @@ const customerSchema = new Schema(
     },
     joinDate: { type: Date, default: Date.now },
     documents: [documentSchema],
+      isDeleted: {
+    type: Boolean,
+    default: false,
+    index: true,
   },
+  },
+  
   { timestamps: true }
 );
 

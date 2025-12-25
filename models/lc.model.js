@@ -84,6 +84,11 @@ const lcSchema = new mongoose.Schema(
       costs: [costSchema],
     },
     totalCost: { type: Number, default: 0 },
+      isDeleted: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
   },
   { timestamps: true }
 );

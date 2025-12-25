@@ -6,12 +6,13 @@ const { generateLCPDF } = require("../utils/LC_pdfGenerator");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const LC = require("../models/lc.model");
-const Unit = require("../models/unit.model"); // Import Unit model
-const Account = require("../models/account.model"); // Import Account model explicitly
-const DailyCash = require("../models/dailyCash.model"); // Added
+const Unit = require("../models/unit.model");
+const Account = require("../models/account.model");
+const DailyCash = require("../models/dailyCash.model");
 const Transaction = require("../models/transaction.model");
-require("../models/account.model"); // Ensure Account model is registered for population
-const mongoose = require("mongoose"); // Added
+const Trash = require("../models/trash.model"); // Added Trash Model
+require("../models/account.model");
+const mongoose = require("mongoose");
 
 // Ensure the uploads directory exists
 const uploadDir = path.join(__dirname, "../uploads");
@@ -41,16 +42,15 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+/* ================= CREATE LC ================= */
 async function createLC(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
     let lcData;
-    // Handle data sent as a stringified field in multipart/form-data
     if (req.body.lcData) {
       lcData = JSON.parse(req.body.lcData);
     } else if (req.body.lc_data) {
-      // Also check for snake_case
       lcData = JSON.parse(req.body.lc_data);
     } else {
       lcData = req.body;
@@ -65,61 +65,39 @@ async function createLC(req, res, next) {
     for (const section of sectionsWithCosts) {
       if (lcData[section] && lcData[section].costs) {
         for (const cost of lcData[section].costs) {
-          // Clean up empty accountId in costs to prevent CastError
           if (!cost.accountId) {
             cost.accountId = null;
           }
 
-          // Validate that accountId is present for account-based payments
           if (
             ["Bank", "Mobile Banking", "Cash"].includes(cost.paymentMethod) &&
             !cost.accountId
           ) {
-            const validationError = {
-              field: `${section}.costs.accountId`,
-              message: `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`,
-            };
-            throw new ApiError(400, validationError.message, [validationError]);
+            throw new ApiError(400, `Account ID is required for ${cost.paymentMethod} in "${cost.name}".`);
           }
 
-          // If accountId is provided, validate it
           if (cost.accountId) {
             const existingAccount = await Account.findById(cost.accountId).session(session);
             if (!existingAccount) {
-              const validationError = {
-              field: `${section}.costs.accountId`,
-              message: `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
-            };
-            throw new ApiError(400, validationError.message, [validationError]);
+              throw new ApiError(400, `Account not found for cost "${cost.name}".`);
             }
-            // Validate that the account type matches the payment method
             if (existingAccount.accountType !== cost.paymentMethod) {
-              const validationError = {
-              field: `${section}.costs.accountId`,
-              message: `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`,
-            };
-            throw new ApiError(400, validationError.message, [validationError]);
+              throw new ApiError(400, `Payment method mismatch for cost "${cost.name}".`);
             }
           }
         }
       }
     }
 
-    // Add validation for productInfo.quantityUnit
-    if (lcData.productInfo && Array.isArray(lcData.productInfo)) { // Fixed Array.isArray typo
+    if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
       for (const product of lcData.productInfo) {
         if (product.quantityUnit) {
-          // If product.quantityUnit is an object, extract the ID
           if (typeof product.quantityUnit === "object" && product.quantityUnit.id) {
             product.quantityUnit = product.quantityUnit.id;
           }
-          const existingUnit = await Unit.findById(product.quantityUnit).session(session); // Ensure session is used
+          const existingUnit = await Unit.findById(product.quantityUnit).session(session);
           if (!existingUnit) {
-          const validationError = {
-            field: "quantityUnit",
-            message: `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
-          };
-          throw new ApiError(400, validationError.message, [validationError]);
+            throw new ApiError(400, `Unit not found for product ${product.itemName}`);
           }
         }
       }
@@ -131,95 +109,62 @@ async function createLC(req, res, next) {
       const uploadedDocuments = [];
       for (const file of req.files) {
         const fileBuffer = await fs.readFile(file.path);
-        const hash = crypto
-          .createHash("sha256")
-          .update(fileBuffer)
-          .digest("hex");
+        const hash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+        const storedName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
 
-        const sanitizedOriginalName = file.originalname.replace(
-          /[^a-zA-Z0-9.-]/g,
-          "_"
-        );
-        const storedName = `${Date.now()}-${sanitizedOriginalName}`;
-
-        const documentData = {
+        uploadedDocuments.push({
           originalName: file.originalname,
           storedName: storedName,
           mimeType: file.mimetype,
           sizeBytes: file.size,
           hashSha256: hash,
-        };
-        uploadedDocuments.push(documentData);
+        });
       }
-
-      if (!lc.documentsNotes) {
-        lc.documentsNotes = {};
-      }
-      lc.documentsNotes.uploadedDocuments = uploadedDocuments;
+      lc.documentsNotes = { uploadedDocuments };
     }
 
-    await lc.save({ session }); // Save LC within the session
+    await lc.save({ session });
 
     if (req.files && req.files.length > 0) {
       const newLcDir = path.join(uploadDir, lc._id.toString());
       await ensureDir(newLcDir);
-
       for (const file of req.files) {
-        const oldPath = file.path;
-        const newPath = path.join(newLcDir, file.filename);
-        await fs.rename(oldPath, newPath);
+        await fs.rename(file.path, path.join(newLcDir, file.filename));
       }
     }
 
-    // After LC is saved, create transactions for costs
     for (const section of sectionsWithCosts) {
       if (lcData[section] && lcData[section].costs) {
         for (const cost of lcData[section].costs) {
-          if (cost.accountId && cost.amount > 0) { // Only create transaction if accountId is present and amount > 0
-            // DailyCash Gatekeeper Check
+          if (cost.accountId && cost.amount > 0) {
             const costDateNormalized = new Date(cost.date);
             costDateNormalized.setHours(0, 0, 0, 0);
             const dailyCash = await DailyCash.findOne({ date: costDateNormalized }).session(session);
 
             if (!dailyCash || dailyCash.status === "Closed") {
-              throw new ApiError(
-                400,
-                `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost transaction.`
-              );
+              throw new ApiError(400, `Daily cash is closed for ${costDateNormalized.toDateString()}.`);
             }
 
             const account = await Account.findById(cost.accountId).session(session);
-            if (!account) {
-                throw new ApiError(404, `Account with ID ${cost.accountId} not found for cost ${cost.name}.`);
-            }
-            if (account.balance < cost.amount) {
-                throw new ApiError(400, `Insufficient balance in ${account.accountName} (${account.accountType}) account for cost ${cost.name}.`);
+            if (!account || account.balance < cost.amount) {
+              throw new ApiError(400, `Insufficient balance or account not found for ${cost.name}.`);
             }
 
-            // Decrease account balance
             account.balance -= cost.amount;
             await account.save({ session });
 
-            // Create Transaction for LC cost
             await Transaction.create([{
-                accountId: cost.accountId,
-                date: cost.date,
-                description: `LC Cost: ${cost.name} for LC Number: ${lc.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
-                transactionType: "Expense",
-                amount: cost.amount,
-                name: `LC Cost: ${cost.name}`,
-                source: "Auto",
-                category: "LC",
-                paymentMethod: cost.paymentMethod,
-                reference: lc._id,
-                referenceModel: "LC",
-                miscReference: {
-                    lcNumber: lc.basicInfo.lcNumber,
-                    costName: cost.name,
-                    costAmount: cost.amount,
-                    paymentMethod: cost.paymentMethod,
-                    accountId: cost.accountId,
-                },
+              accountId: cost.accountId,
+              date: cost.date,
+              description: `LC Cost: ${cost.name} for LC: ${lc.basicInfo.lcNumber}`,
+              transactionType: "Expense",
+              amount: cost.amount,
+              name: `LC Cost: ${cost.name}`,
+              source: "Auto",
+              category: "LC",
+              paymentMethod: cost.paymentMethod,
+              reference: lc._id,
+              referenceModel: "LC",
             }], { session });
           }
         }
@@ -228,260 +173,136 @@ async function createLC(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
-
-    return res
-      .status(201)
-      .json(new ApiResponse(201, lc, "LC created successfully"));
+    res.status(201).json(new ApiResponse(201, lc, "LC created successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-
-    if (error instanceof ApiError) {
-      // Cleanup uploaded files if an ApiError is thrown after they are created
-      if (req.files) {
-        for (const file of req.files) {
-          try {
-            await fs.unlink(file.path);
-          } catch (unlinkError) {
-            console.error(
-              `Failed to delete temporary file on ApiError: ${file.path}`,
-              unlinkError
-            );
-          }
-        }
-      }
-      return next(error);
-    }
-
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `An LC with the same ${field} '${value}' already exists.`)); // Specific message for LC
-    }
-
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-
-    // Cleanup uploaded files on any other error
     if (req.files) {
-      for (const file of req.files) {
-        try {
-          await fs.unlink(file.path);
-        } catch (unlinkError) {
-          console.error(
-            `Failed to delete temporary file: ${file.path}`,
-            unlinkError
-          );
-        }
-      }
+      for (const file of req.files) try { await fs.unlink(file.path); } catch (e) {}
     }
-    // Pass other errors to the generic error handler
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
-/**
- * @param {object} cost The cost object from the LC
- * @param {mongoose.Model} lc The LC document
- * @param {mongoose.ClientSession} session The mongoose session for the transaction
- */
+/* ================= HELPER TRANSACTION HANDLER ================= */
 async function _handleLCCostTransaction(cost, lc, session) {
-    // Only process costs that have an account and a valid amount
-    if (!cost.accountId || !cost.amount || cost.amount <= 0) {
-        return;
-    }
+  if (!cost.accountId || !cost.amount || cost.amount <= 0) return;
 
-    // 1. DailyCash Gatekeeper Check
-    const costDate = cost.date || new Date();
-    const costDateNormalized = new Date(costDate);
-    costDateNormalized.setHours(0, 0, 0, 0);
+  const costDateNormalized = new Date(cost.date || new Date());
+  costDateNormalized.setHours(0, 0, 0, 0);
 
-    const openSession = await DailyCash.findOne({ date: costDateNormalized, status: "Open" }).session(session);
-    if (!openSession) {
-        throw new ApiError(400, `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost.`);
-    }
+  const openSession = await DailyCash.findOne({ date: costDateNormalized, status: "Open" }).session(session);
+  if (!openSession) {
+    throw new ApiError(400, `Daily cash is closed for ${costDateNormalized.toDateString()}.`);
+  }
 
-    // 2. Find account and update balance
-    const account = await Account.findById(cost.accountId).session(session);
-    if (!account) {
-        throw new ApiError(404, `Account with ID ${cost.accountId} not found for cost '${cost.name}'.`);
-    }
-    if (account.balance < cost.amount) {
-        throw new ApiError(400, `Insufficient balance in account '${account.accountName}' for cost '${cost.name}'.`);
-    }
+  const account = await Account.findById(cost.accountId).session(session);
+  if (!account || account.balance < cost.amount) {
+    throw new ApiError(400, `Insufficient balance for cost '${cost.name}'.`);
+  }
 
-    account.balance -= cost.amount;
-    await account.save({ session });
+  account.balance -= cost.amount;
+  await account.save({ session });
 
-    // 3. Create Transaction for the LC cost
-    await Transaction.create([{
-        accountId: cost.accountId,
-        date: costDate,
-        description: `LC Cost: ${cost.name} for LC Number: ${lc.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
-        transactionType: "Expense",
-        amount: cost.amount,
-        name: `LC Cost: ${cost.name}`,
-        source: "Auto",
-        category: "LC",
-        paymentMethod: cost.paymentMethod,
-        reference: lc._id,
-        referenceModel: "LC",
-        miscReference: {
-            lcNumber: lc.basicInfo.lcNumber,
-            costName: cost.name,
-            costAmount: cost.amount,
-            paymentMethod: cost.paymentMethod,
-            accountId: cost.accountId,
-        },
-    }], { session });
+  await Transaction.create([{
+    accountId: cost.accountId,
+    date: cost.date || new Date(),
+    description: `LC Cost: ${cost.name} for LC: ${lc.basicInfo.lcNumber}`,
+    transactionType: "Expense",
+    amount: cost.amount,
+    name: `LC Cost: ${cost.name}`,
+    source: "Auto",
+    category: "LC",
+    paymentMethod: cost.paymentMethod,
+    reference: lc._id,
+    referenceModel: "LC",
+  }], { session });
 }
 
-
+/* ================= GET ALL (Filtered) ================= */
 async function getAllLCs(_, res, next) {
   try {
-    const lcs = await LC.find()
+    const lcs = await LC.find({ isDeleted: { $ne: true } })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .populate("basicInfo.accountId")
       .populate("financialInfo.costs.accountId")
       .populate("shippingCustomsInfo.costs.accountId")
       .populate("agentTransportInfo.costs.accountId")
       .populate("otherExpenses.costs.accountId");
-    return res
-      .status(200)
-      .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
+    res.status(200).json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message));
   }
 }
 
+/* ================= GET BY ID (Filtered) ================= */
 async function getLCById(req, res, next) {
   try {
     const { id } = req.params;
-    const lc = await LC.findById(id)
+    const lc = await LC.findOne({ _id: id, isDeleted: { $ne: true } })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .populate("basicInfo.accountId")
       .populate("financialInfo.costs.accountId")
       .populate("shippingCustomsInfo.costs.accountId")
       .populate("agentTransportInfo.costs.accountId")
       .populate("otherExpenses.costs.accountId");
-    if (!lc) return next(new ApiError(404, "LC not found"));
-    return res
-      .status(200)
-      .json(new ApiResponse(200, lc, "LC fetched successfully"));
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
 
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    if (!lc) return next(new ApiError(404, "LC not found"));
+    res.status(200).json(new ApiResponse(200, lc, "LC fetched successfully"));
+  } catch (error) {
+    next(new ApiError(500, error.message));
   }
 }
 
+/* ================= UPDATE (Filtered) ================= */
 async function updateLC(req, res, next) {
   try {
     const { id } = req.params;
-    const lc = await LC.findById(id);
+    const lc = await LC.findOne({ _id: id, isDeleted: { $ne: true } });
 
-    if (!lc) {
-      return next(new ApiError(404, "LC not found"));
-    }
+    if (!lc) return next(new ApiError(404, "LC not found"));
 
-    // Update fields from req.body
     Object.assign(lc, req.body);
-
-    const updated = await lc.save(); // This will trigger the pre-save hook
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, updated, "LC updated successfully"));
+    const updated = await lc.save();
+    res.status(200).json(new ApiResponse(200, updated, "LC updated successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message));
   }
 }
 
+/* ================= SOFT DELETE & TRASH ================= */
 async function deleteLC(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
     const { id } = req.params;
-    const deletedLC = await LC.findByIdAndDelete(id, { session }); // Use session here
+    const deletedBy = req.cookies?.userId || req.user?._id || null;
 
-    if (!deletedLC) {
-      throw new ApiError(404, "LC not found");
-    }
+    // Soft delete the LC
+    const deletedLC = await LC.findOneAndUpdate(
+      { _id: id, isDeleted: { $ne: true } },
+      { isDeleted: true },
+      { new: true, session }
+    );
 
-    // DailyCash Gatekeeper Check for reversal transactions
+    if (!deletedLC) throw new ApiError(404, "LC not found");
+
+    // Move to Trash
+    await Trash.create([{
+      docId: deletedLC._id,
+      model: "LC",
+      deletedBy,
+    }], { session });
+
+    // Financial Reversal Logic
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const dailyCash = await DailyCash.findOne({ date: today, status: "Open" }).session(session);
 
     if (!dailyCash) {
-        throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse LC costs.`);
+      throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse costs.`);
     }
 
-    // Iterate through all cost sections of the deleted LC to create reversal transactions
     const sectionsWithCosts = [
       deletedLC.financialInfo,
       deletedLC.shippingCustomsInfo,
@@ -490,20 +311,19 @@ async function deleteLC(req, res, next) {
     ];
 
     for (const section of sectionsWithCosts) {
-      if (section && section.costs) {
+      if (section?.costs) {
         for (const cost of section.costs) {
-          if (cost.accountId && cost.amount > 0) { // Only reverse costs that had an account and amount
+          if (cost.accountId && cost.amount > 0) {
             const account = await Account.findById(cost.accountId).session(session);
             if (account) {
-              account.balance += cost.amount; // Increase account balance (reversing the expense)
+              account.balance += cost.amount;
               await account.save({ session });
 
-              // Create Reversal Transaction (Income type to offset original Expense)
               await Transaction.create([{
                 accountId: cost.accountId,
-                date: new Date(), // Reversal transaction date is today
-                description: `Reversal of LC Cost: ${cost.name} for LC Number: ${deletedLC.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
-                transactionType: "Income", // Reverses the Expense
+                date: new Date(),
+                description: `Reversal: LC Cost ${cost.name} for LC ${deletedLC.basicInfo.lcNumber}`,
+                transactionType: "Income",
                 amount: cost.amount,
                 name: `LC Cost Reversal: ${cost.name}`,
                 source: "Auto",
@@ -511,13 +331,6 @@ async function deleteLC(req, res, next) {
                 paymentMethod: cost.paymentMethod,
                 reference: deletedLC._id,
                 referenceModel: "LC",
-                miscReference: {
-                    lcNumber: deletedLC.basicInfo.lcNumber,
-                    costName: cost.name,
-                    costAmount: cost.amount,
-                    paymentMethod: cost.paymentMethod,
-                    accountId: cost.accountId,
-                },
               }], { session });
             }
           }
@@ -527,235 +340,74 @@ async function deleteLC(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, deletedLC, "LC deleted successfully"));
+    res.status(200).json(new ApiResponse(200, deletedLC, "LC moved to trash successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
+/* ================= COMPLETED LCS ================= */
 async function getAllCompletedLCs(_, res, next) {
   try {
-    const lcs = await LC.find({ "basicInfo.status": /^Completed$/i })
+    const lcs = await LC.find({ 
+      "basicInfo.status": /^Completed$/i, 
+      isDeleted: { $ne: true } 
+    })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .select("_id basicInfo.lcNumber basicInfo.status productInfo");
-    return res
-      .status(200)
-      .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
+    res.status(200).json(new ApiResponse(200, lcs, "Completed LCs fetched successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message));
   }
 }
 
+/* ================= COUNTS BY STATUS ================= */
 async function getLCCountsByStatus(req, res, next) {
   try {
     const counts = await LC.aggregate([
-      {
-        $group: {
-          _id: "$basicInfo.status",
-          count: { $sum: 1 },
-        },
-      },
+      { $match: { isDeleted: { $ne: true } } },
+      { $group: { _id: "$basicInfo.status", count: { $sum: 1 } } },
     ]);
 
-    // Transform the result into a more usable format
-    const statusCounts = {
-      Active: 0,
-      Completed: 0,
-      Draft: 0,
-      Cancelled: 0,
-    };
+    const statusCounts = { Active: 0, Completed: 0, Draft: 0, Cancelled: 0 };
+    counts.forEach((item) => { statusCounts[item._id] = item.count; });
 
-    counts.forEach((item) => {
-      statusCounts[item._id] = item.count;
-    });
-
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          statusCounts,
-          "LC counts by status fetched successfully"
-        )
-      );
+    res.status(200).json(new ApiResponse(200, statusCounts, "LC counts fetched"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message));
   }
 }
 
-
+/* ================= TOTAL COUNT ================= */
 async function getTotalLCCount(req, res, next) {
   try {
-    const totalCount = await LC.countDocuments();
-
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          { total: totalCount },
-          "Total LC count fetched successfully"
-        )
-      );
+    const totalCount = await LC.countDocuments({ isDeleted: { $ne: true } });
+    res.status(200).json(new ApiResponse(200, { total: totalCount }, "Total LC count fetched"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message));
   }
 }
 
+/* ================= DOWNLOAD DOC ================= */
 async function downloadDocument(req, res, next) {
   try {
     const { lcId, filename } = req.params;
-
-    // TODO: Add user authorization check here
-    // For example, check if the logged-in user has access to this LC
-    // const lc = await LC.findById(lcId);
-    // if (!lc || !userHasAccess(req.user, lc)) {
-    //   return next(new ApiError(403, "Unauthorized access to document"));
-    // }
-
     const filePath = path.join(uploadDir, lcId, filename);
 
     await fs.access(filePath, fs.constants.F_OK);
-
-    const mimeType = path.extname(filename).toLowerCase();
-    let contentType = 'application/octet-stream'; // Default for unknown types
-
-    // Basic MIME type detection (can be expanded)
-    if (mimeType === '.pdf') contentType = 'application/pdf';
-    else if (mimeType === '.jpg' || mimeType === '.jpeg') contentType = 'image/jpeg';
-    else if (mimeType === '.png') contentType = 'image/png';
-    else if (mimeType === '.gif') contentType = 'image/gif';
-    // else if (mimeType === '.html') contentType = 'text/html';
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-
-    res.sendFile(filePath, (err) => {
-      if (err) {
-        if (err.code === 'ENOENT') {
-          return next(new ApiError(404, "File not found"));
-        } else {
-          return next(new ApiError(500, "Could not download file"));
-        }
-      }
-    });
-
+    res.download(filePath);
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    if (error.code === 'ENOENT') {
-      return next(new ApiError(404, "File not found"));
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(404, "File not found"));
   }
 }
 
+/* ================= EXPORT PDF ================= */
 async function exportLCAsPDF(req, res, next) {
   try {
     const { id } = req.params;
-
-    console.log('=== EXPORT LC DEBUG ===');
-    console.log('LC ID:', id);
-
-    const lc = await LC.findById(id)
+    const lc = await LC.findOne({ _id: id, isDeleted: { $ne: true } })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .populate("basicInfo.accountId")
       .populate("financialInfo.costs.accountId")
@@ -763,164 +415,52 @@ async function exportLCAsPDF(req, res, next) {
       .populate("agentTransportInfo.costs.accountId")
       .populate("otherExpenses.costs.accountId");
 
-    console.log('LC Found:', !!lc);
-    
-    if (!lc) {
-      console.log('LC not found in database');
-      return res.status(404).json({ 
-        error: "LC not found",
-        message: "No LC found with the provided ID" 
-      });
-    }
-
-    console.log('LC Basic Info:', JSON.stringify(lc.basicInfo, null, 2));
-    console.log('LC Products:', lc.productInfo?.length || 0);
-    console.log('LC Financial Info:', !!lc.financialInfo);
-
-    // Validate LC has minimum required data BEFORE calling generateLCPDF
-    if (!lc.basicInfo) {
-      console.log('ERROR: Missing basicInfo');
-      return res.status(400).json({ 
-        error: "Invalid LC data",
-        message: "LC is missing basic information" 
-      });
-    }
-
-    if (!lc.basicInfo.lcNumber) {
-      console.log('ERROR: Missing lcNumber');
-      return res.status(400).json({ 
-        error: "Invalid LC data",
-        message: "LC is missing LC Number" 
-      });
-    }
-
-    if (!lc.productInfo || lc.productInfo.length === 0) {
-      console.log('WARNING: No products in LC');
-      return res.status(400).json({ 
-        error: "Invalid LC data",
-        message: "LC must have at least one product" 
-      });
-    }
-
-    // Additional validation - check if financial info exists
-    if (!lc.financialInfo || !lc.financialInfo.lcAmountUsd) {
-      console.log('ERROR: Missing financial information');
-      return res.status(400).json({ 
-        error: "Invalid LC data",
-        message: "LC is missing financial information" 
-      });
-    }
-
-    console.log('All validations passed. Calling generateLCPDF...');
-    
-    // Call the PDF generator - it should handle the response directly
-    // DO NOT await if generateLCPDF uses streaming
-    const result = generateLCPDF(lc, res);
-    
-    // If generateLCPDF returns a promise, await it
-    if (result && typeof result.then === 'function') {
-      await result;
-    }
-    
-    console.log('PDF generation completed');
-    
-    // DO NOT send any response here - generateLCPDF handles it
-
+    if (!lc) return next(new ApiError(404, "LC not found"));
+    generateLCPDF(lc, res);
   } catch (error) {
-    console.error('=== EXPORT LC ERROR ===');
-    console.error('Error:', error);
-    console.error('Stack:', error.stack);
-    
-    // Check if response was already sent
-    if (res.headersSent) {
-      console.error('Headers already sent, cannot send error response');
-      return;
-    }
-    
-    if (error instanceof ApiError) {
-      return res.status(error.statusCode).json({
-        error: error.message,
-        message: error.message
-      });
-    }
-    
-    // Return JSON error
-    return res.status(500).json({
-      error: "PDF generation failed",
-      message: error.message || "Something went wrong during PDF export"
-    });
+    next(new ApiError(500, error.message));
   }
 }
-async function getActiveLcs(req,res,next){
+
+/* ================= ACTIVE LCS ================= */
+async function getActiveLcs(req, res, next) {
   try {
-    const lcs = await LC.find({ "basicInfo.status": /^Active$/i })
+    const lcs = await LC.find({ 
+      "basicInfo.status": /^Active$/i, 
+      isDeleted: { $ne: true } 
+    })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .select("_id basicInfo.lcNumber basicInfo.status productInfo");
-    return res
-      .status(200)
-      .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
+    res.status(200).json(new ApiResponse(200, lcs, "Active LCs fetched"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message));
   }
 }
 
+/* ================= SUMMARY ================= */
 async function getLCSummary(req, res, next) {
   try {
-    // 1. Get parameters
     const { status, sortBy, sortOrder } = req.query;
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const skip = (page - 1) * limit;
 
-    // 2. Build filter and sort objects
-    const filter = {};
-    if (status) {
-      filter["basicInfo.status"] = status;
-    }
+    const filter = { isDeleted: { $ne: true } };
+    if (status) filter["basicInfo.status"] = status;
 
     const sort = {};
-    const sortOrderValue = sortOrder === "desc" ? -1 : 1;
-    if (sortBy === "openingDate") {
-      sort["basicInfo.lcOpeningDate"] = sortOrderValue;
-    } else if (sortBy === "dueDate") {
-      sort["shippingCustomsInfo.expectedArrivalDate"] = sortOrderValue;
-    } else if (sortBy === "totalCost") {
-      sort["totalCost"] = sortOrderValue;
-    } else {
-      sort["createdAt"] = -1;
-    }
+    const order = sortOrder === "desc" ? -1 : 1;
+    if (sortBy === "openingDate") sort["basicInfo.lcOpeningDate"] = order;
+    else if (sortBy === "dueDate") sort["shippingCustomsInfo.expectedArrivalDate"] = order;
+    else if (sortBy === "totalCost") sort["totalCost"] = order;
+    else sort["createdAt"] = -1;
 
-    // 3. Perform queries
     const [totalDocuments, lcs] = await Promise.all([
       LC.countDocuments(filter),
-      LC.find(filter)
-        .populate("productInfo.quantityUnit", "name")
-        .sort(sort)
-        .skip(skip)
-        .limit(limit),
+      LC.find(filter).populate("productInfo.quantityUnit", "name").sort(sort).skip(skip).limit(limit),
     ]);
 
-    // 4. Map to summary format
-    const summary = lcs.map((lc) => ({
+    const data = lcs.map((lc) => ({
       _id: lc._id,
       lcNumber: lc.basicInfo.lcNumber,
       lcOpeningDate: lc.basicInfo.lcOpeningDate,
@@ -932,111 +472,42 @@ async function getLCSummary(req, res, next) {
         quantity: p.quantity,
         unit: p.quantityUnit?.name || "N/A",
       })),
-      totalCost: lc.totalCost, // Use the stored value
+      totalCost: lc.totalCost,
     }));
 
-    // 5. Construct response
-    const responseData = {
-      data: summary,
-      pagination: {
-        totalDocuments,
-        totalPages: Math.ceil(totalDocuments / limit),
-        currentPage: page,
-        limit,
-      },
-    };
-
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(200, responseData, "LCs summary fetched successfully")
-      );
+    res.status(200).json(new ApiResponse(200, {
+      data,
+      pagination: { totalDocuments, totalPages: Math.ceil(totalDocuments / limit), currentPage: page, limit }
+    }, "Summary fetched"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message));
   }
 }
 
+/* ================= ADD EXPENSE ================= */
 async function addExpenseToLC(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
     const { lcId, category, expense } = req.body;
+    const lc = await LC.findOne({ _id: lcId, isDeleted: { $ne: true } }).session(session);
+    if (!lc) throw new ApiError(404, "LC not found");
 
-    // 1. Validate input
-    if (!lcId) {
-      throw new ApiError(400, "LC ID is required in the request body.");
-    }
-    if (!category || !expense) {
-      throw new ApiError(400, "Category and expense data are required.");
-    }
-
-    const validCategories = [
-      "financialInfo",
-      "shippingCustomsInfo",
-      "agentTransportInfo",
-      "otherExpenses",
-    ];
-    if (!validCategories.includes(category)) {
-      throw new ApiError(
-        400,
-        `Invalid category. Must be one of: ${validCategories.join(", ")}`
-      );
-    }
-
-    // 2. Find the LC
-    const lc = await LC.findById(lcId).session(session);
-    if (!lc) {
-      throw new ApiError(404, "LC not found");
-    }
-
-    // 3. Add the expense to the correct category
-    if (!lc[category]) {
-      lc[category] = { costs: [] };
-    } else if (!lc[category].costs) {
-      lc[category].costs = [];
-    }
-    
-    // Clean up empty accountId in the new expense to prevent CastError
     if (expense && (!expense.accountId || expense.accountId === '')) {
-      expense.accountId = null; // Set to null if empty string
+      expense.accountId = null;
     }
 
+    if (!lc[category]) lc[category] = { costs: [] };
     lc[category].costs.push(expense);
 
-    // 4. Handle the financial transaction for the new expense
     await _handleLCCostTransaction(expense, lc, session);
-
-    // 5. Save the updated LC
     await lc.save({ session });
 
     await session.commitTransaction();
     session.endSession();
 
-    // 6. Repopulate all fields to be consistent with GET responses
     await lc.populate([
-      {
-        path: "productInfo.quantityUnit",
-        select: "name type conversionFactor",
-      },
+      { path: "productInfo.quantityUnit" },
       { path: "basicInfo.accountId" },
       { path: "financialInfo.costs.accountId" },
       { path: "shippingCustomsInfo.costs.accountId" },
@@ -1044,52 +515,24 @@ async function addExpenseToLC(req, res, next) {
       { path: "otherExpenses.costs.accountId" },
     ]);
 
-    return res
-      .status(200)
-      .json(new ApiResponse(200, lc, "Expense added successfully"));
+    res.status(200).json(new ApiResponse(200, lc, "Expense added successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `An LC expense with the same ${field} '${value}' already exists.`)); // Specific message for LC expense
-    }
-
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
-
+/* ================= SEARCH SUMMARY ================= */
 async function searchLCSummary(req, res, next) {
   try {
-    // 1. Get parameters
     const { searchQuery, status, sortBy, sortOrder } = req.query;
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const skip = (page - 1) * limit;
 
-    // 2. Build filter and sort objects
-    const filter = {};
-    if (status) {
-      filter["basicInfo.status"] = status;
-    }
+    const filter = { isDeleted: { $ne: true } };
+    if (status) filter["basicInfo.status"] = status;
     if (searchQuery) {
       const regex = new RegExp(searchQuery, "i");
       filter["$or"] = [
@@ -1100,84 +543,30 @@ async function searchLCSummary(req, res, next) {
     }
 
     const sort = {};
-    const sortOrderValue = sortOrder === "desc" ? -1 : 1;
-    if (sortBy === "openingDate") {
-      sort["basicInfo.lcOpeningDate"] = sortOrderValue;
-    } else if (sortBy === "dueDate") {
-      sort["shippingCustomsInfo.expectedArrivalDate"] = sortOrderValue;
-    } else if (sortBy === "totalCost") {
-      sort["totalCost"] = sortOrderValue;
-    } else {
-      sort["createdAt"] = -1;
-    }
+    const order = sortOrder === "desc" ? -1 : 1;
+    if (sortBy === "openingDate") sort["basicInfo.lcOpeningDate"] = order;
+    else sort["createdAt"] = -1;
 
-    // 3. Perform queries
     const [totalDocuments, lcs] = await Promise.all([
       LC.countDocuments(filter),
-      LC.find(filter)
-        .populate("productInfo.quantityUnit", "name")
-        .sort(sort)
-        .skip(skip)
-        .limit(limit),
+      LC.find(filter).populate("productInfo.quantityUnit", "name").sort(sort).skip(skip).limit(limit),
     ]);
 
-    // 4. Map to summary format
-    const summary = lcs.map((lc) => ({
+    const data = lcs.map((lc) => ({
       _id: lc._id,
       lcNumber: lc.basicInfo.lcNumber,
       lcOpeningDate: lc.basicInfo.lcOpeningDate,
       status: lc.basicInfo.status,
       supplierName: lc.basicInfo.supplierName,
-      dueDate: lc.shippingCustomsInfo?.expectedArrivalDate,
-      products: lc.productInfo.map((p) => ({
-        itemName: p.itemName,
-        quantity: p.quantity,
-        unit: p.quantityUnit?.name || "N/A",
-      })),
-      totalCost: lc.totalCost, // Use the stored value
+      totalCost: lc.totalCost,
     }));
 
-    // 5. Construct response
-    const responseData = {
-      data: summary,
-      pagination: {
-        totalDocuments,
-        totalPages: Math.ceil(totalDocuments / limit),
-        currentPage: page,
-        limit,
-      },
-    };
-
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          responseData,
-          "LCs summary search completed successfully"
-        )
-      );
+    res.status(200).json(new ApiResponse(200, {
+      data,
+      pagination: { totalDocuments, totalPages: Math.ceil(totalDocuments / limit), currentPage: page }
+    }, "Search results fetched"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message));
   }
 }
 

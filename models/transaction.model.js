@@ -56,6 +56,11 @@ const transactionSchema = new mongoose.Schema(
     miscReference: {
       type: mongoose.Schema.Types.Mixed,
     },
+      isDeleted: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
   },
   { timestamps: true }
 );

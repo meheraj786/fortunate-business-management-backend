@@ -11,6 +11,11 @@ const warehouseSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+    isDeleted: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
   manager: [
     {
       type: mongoose.Schema.Types.ObjectId,
