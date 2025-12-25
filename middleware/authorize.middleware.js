@@ -20,9 +20,7 @@ const authorize = (moduleName, permission) => (req, res, next) => {
       });
     }
 
-    const moduleAccess = user.access.find(
-      (item) => item.module === moduleName
-    );
+    const moduleAccess = user.access.find((item) => item.module === moduleName);
 
     if (!moduleAccess) {
       return res.status(403).json({
@@ -31,7 +29,7 @@ const authorize = (moduleName, permission) => (req, res, next) => {
       });
     }
 
-    const hasPermission = moduleAccess.permissions.includes(permission);
+    const hasPermission = moduleAccess.permissions.flat().includes(permission);
 
     if (!hasPermission) {
       return res.status(403).json({
