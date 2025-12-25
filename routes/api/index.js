@@ -11,6 +11,7 @@ const dailyCashRouter = require("./dailyCash.api")
 const invoiceRouter = require("./invoice.api")
 const accountRoutes = require("./account.api")
 const transactionRoutes = require("./transaction.api")
+const trashRouter = require("./trash.api")
 const apiRoutes=express.Router()
 
 apiRoutes.use("/auth", userRoutes)
@@ -25,5 +26,7 @@ apiRoutes.use("/cash", dailyCashRouter)
 apiRoutes.use("/invoice", invoiceRouter)
 apiRoutes.use("/account", accountRoutes)
 apiRoutes.use("/transactions", transactionRoutes)
+apiRoutes.use("/trash", trashRouter)
+
 
 module.exports=apiRoutes
