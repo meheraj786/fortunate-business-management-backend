@@ -280,17 +280,67 @@ async function _calculateDailyCashMetrics(dateString) {
     }
   }
 
-  // Transactions are for the whole day, regardless of sessions
-  const transactions = await Transaction.find({
-    date: { $gte: targetDate, $lt: nextDay },
-  }).populate("accountId", "accountName accountType");
+  // --- Optimized Transaction Aggregation ---
+  const transactionStatsPipeline = [
+    {
+      $match: {
+        date: { $gte: targetDate, $lt: nextDay },
+      },
+    },
+    {
+      $lookup: {
+        from: "accounts",
+        localField: "accountId",
+        foreignField: "_id",
+        as: "accountInfo",
+      },
+    },
+    {
+      $addFields: {
+        accountId: {
+          $let: {
+            vars: { acc: { $arrayElemAt: ["$accountInfo", 0] } },
+            in: {
+              _id: "$$acc._id",
+              accountName: "$$acc.accountName",
+              accountType: "$$acc.accountType",
+            },
+          },
+        },
+      },
+    },
+    { $project: { accountInfo: 0 } },
+    { $sort: { date: -1 } }, // Sort transactions descending by date
+    {
+      $group: {
+        _id: null,
+        totalIncome: {
+          $sum: {
+            $cond: [{ $eq: ["$transactionType", "Income"] }, "$amount", 0],
+          },
+        },
+        totalExpenses: {
+          $sum: {
+            $cond: [{ $eq: ["$transactionType", "Expense"] }, "$amount", 0],
+          },
+        },
+        transactions: { $push: "$$ROOT" },
+      },
+    },
+  ];
 
-  const totalIncome = transactions
-    .filter((t) => t.transactionType === "Income")
-    .reduce((sum, t) => sum + t.amount, 0);
-  const totalExpenses = transactions
-    .filter((t) => t.transactionType === "Expense")
-    .reduce((sum, t) => sum + t.amount, 0);
+  const transactionResults = await Transaction.aggregate(transactionStatsPipeline);
+
+  let totalIncome = 0;
+  let totalExpenses = 0;
+  let transactions = [];
+
+  if (transactionResults.length > 0) {
+    totalIncome = transactionResults[0].totalIncome;
+    totalExpenses = transactionResults[0].totalExpenses;
+    transactions = transactionResults[0].transactions;
+  }
+  // --- End of Optimization ---
 
   // Running balance is based on the day's starting opening balance
   const runningBalance = openingBalance + totalIncome - totalExpenses;

@@ -150,5 +150,5 @@ salesSchema.index({ "customer.name": 1 });
 salesSchema.index({ saleDate: -1 });
 salesSchema.index({ totalAmountToBePaid: 1 });
 
-const Sales = mongoose.model("Sales", salesSchema);
-module.exports = Sales;
+const Sale = mongoose.model("Sale", salesSchema);
+module.exports = Sale;

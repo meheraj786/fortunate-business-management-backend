@@ -8,14 +8,55 @@ async function getTransactionDetails(req, res, next) {
     if (!id) {
       return next(new ApiError(400, "Transaction ID is required."));
     }
+    const mongoose = require("mongoose");
 
-    const transaction = await Transaction.findById(id)
-      .populate("accountId", "accountName accountType bankName accountHolderName serviceName") // Populate account details
-      .populate("reference", "saleId basicInfo.lcNumber"); // Populate Sale/LC details based on referenceModel
+    const results = await Transaction.aggregate([
+      { $match: { _id: new mongoose.Types.ObjectId(id) } },
+      {
+        $lookup: {
+          from: "accounts",
+          localField: "accountId",
+          foreignField: "_id",
+          as: "accountId",
+        },
+      },
+      {
+        $lookup: {
+          from: "sales",
+          localField: "reference",
+          foreignField: "_id",
+          as: "saleRef",
+        },
+      },
+      {
+        $lookup: {
+          from: "lcs",
+          localField: "reference",
+          foreignField: "_id",
+          as: "lcRef",
+        },
+      },
+      { $unwind: { path: "$accountId", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$saleRef", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$lcRef", preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          reference: {
+            $cond: {
+              if: { $eq: ["$referenceModel", "Sale"] },
+              then: "$saleRef",
+              else: "$lcRef",
+            },
+          },
+        },
+      },
+      { $project: { saleRef: 0, lcRef: 0 } }, // Clean up
+    ]);
 
-    if (!transaction) {
+    if (results.length === 0) {
       return next(new ApiError(404, "Transaction not found."));
     }
+    const transaction = results[0];
 
     return res
       .status(200)
@@ -59,43 +100,98 @@ async function getAllTransactions(req, res, next) {
       sortOrder = "desc",
     } = req.query;
 
-    const query = {};
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
 
-    if (transactionType) {
-      query.transactionType = transactionType;
+    const pipeline = [];
+
+    // --- Main Filtering Stage ---
+    const matchQuery = {};
+    if (transactionType) matchQuery.transactionType = transactionType;
+    if (category) matchQuery.category = category;
+    if (paymentMethod) matchQuery.paymentMethod = paymentMethod;
+    if (search) matchQuery.description = { $regex: search, $options: "i" };
+
+    if (Object.keys(matchQuery).length > 0) {
+      pipeline.push({ $match: matchQuery });
     }
-    if (category) {
-      query.category = category;
-    }
-    if (paymentMethod) {
-      query.paymentMethod = paymentMethod;
-    }
 
-    if (search) {
-      query.description = { $regex: search, $options: "i" };
-    }
+    const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
 
-    const options = {
-      page: parseInt(page, 10),
-      limit: parseInt(limit, 10),
-      sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 },
-      populate: [
-        { path: "accountId", select: "accountName accountType bankName accountHolderName serviceName" },
-        { path: "reference", select: "saleId basicInfo.lcNumber" },
-      ],
-      lean: true, // Return plain JavaScript objects
-    };
+    // --- Facet Stage for Parallel Execution ---
+    pipeline.push({
+      $facet: {
+        // Facet 1: Main data with pagination and lookups
+        data: [
+          { $sort: sort },
+          { $skip: skip },
+          { $limit: limitNum },
+          {
+            $lookup: {
+              from: "accounts",
+              localField: "accountId",
+              foreignField: "_id",
+              as: "accountId",
+            },
+          },
+          {
+            $lookup: {
+              from: "sales",
+              localField: "reference",
+              foreignField: "_id",
+              as: "saleRef",
+            },
+          },
+          {
+            $lookup: {
+              from: "lcs",
+              localField: "reference",
+              foreignField: "_id",
+              as: "lcRef",
+            },
+          },
+          { $unwind: { path: "$accountId", preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: "$saleRef", preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: "$lcRef", preserveNullAndEmptyArrays: true } },
+          {
+            $addFields: {
+              reference: {
+                $cond: {
+                  if: { $eq: ["$referenceModel", "Sale"] },
+                  then: "$saleRef",
+                  else: "$lcRef",
+                },
+              },
+            },
+          },
+          { $project: { saleRef: 0, lcRef: 0 } }, // Clean up
+        ],
+        // Facet 2: Metadata for total count
+        metadata: [{ $count: "total" }],
+        // Facet 3: Distinct categories
+        categories: [
+          { $group: { _id: "$category" } },
+          { $project: { _id: 0, category: "$_id" } },
+        ],
+      },
+    });
 
-    const categoryQuery = { ...query };
-    delete categoryQuery.category;
+    const result = await Transaction.aggregate(pipeline);
 
-    const [transactions, categories] = await Promise.all([
-      Transaction.paginate(query, options),
-      Transaction.distinct("category", categoryQuery),
-    ]);
+    const transactions = result[0].data;
+    const totalCount = result[0].metadata[0] ? result[0].metadata[0].total : 0;
+    const categories = result[0].categories.map(c => c.category);
 
     const response = {
-      transactions,
+      transactions: {
+        docs: transactions,
+        totalDocs: totalCount,
+        limit: limitNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        page: pageNum,
+        // You can add other pagination fields if needed
+      },
       categories,
     };
 
@@ -284,45 +380,96 @@ async function getTransactionsByAccount(req, res, next) {
       search,
     } = req.query;
 
-    const query = { accountId };
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
+    const mongoose = require("mongoose");
 
-    if (category) {
-      query.category = category;
-    }
+    const pipeline = [];
 
-    if (transactionType) {
-      query.transactionType = transactionType;
-    }
+    // --- Main Filtering Stage ---
+    const matchQuery = { accountId: new mongoose.Types.ObjectId(accountId) };
+    if (category) matchQuery.category = category;
+    if (transactionType) matchQuery.transactionType = transactionType;
+    if (paymentMethod) matchQuery.paymentMethod = paymentMethod;
+    if (search) matchQuery.description = { $regex: search, $options: "i" };
 
-    if (paymentMethod) {
-      query.paymentMethod = paymentMethod;
-    }
+    pipeline.push({ $match: matchQuery });
+    
+    const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
 
-    if (search) {
-      query.description = { $regex: search, $options: "i" };
-    }
+    // --- Facet Stage for Parallel Execution ---
+    pipeline.push({
+      $facet: {
+        // Facet 1: Main data with pagination and lookups
+        data: [
+          { $sort: sort },
+          { $skip: skip },
+          { $limit: limitNum },
+          {
+            $lookup: {
+              from: "accounts",
+              localField: "accountId",
+              foreignField: "_id",
+              as: "accountId",
+            },
+          },
+          {
+            $lookup: {
+              from: "sales",
+              localField: "reference",
+              foreignField: "_id",
+              as: "saleRef",
+            },
+          },
+          {
+            $lookup: {
+              from: "lcs",
+              localField: "reference",
+              foreignField: "_id",
+              as: "lcRef",
+            },
+          },
+          { $unwind: { path: "$accountId", preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: "$saleRef", preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: "$lcRef", preserveNullAndEmptyArrays: true } },
+          {
+            $addFields: {
+              reference: {
+                $cond: {
+                  if: { $eq: ["$referenceModel", "Sale"] },
+                  then: "$saleRef",
+                  else: "$lcRef",
+                },
+              },
+            },
+          },
+          { $project: { saleRef: 0, lcRef: 0 } }, // Clean up
+        ],
+        // Facet 2: Metadata for total count
+        metadata: [{ $count: "total" }],
+        // Facet 3: Distinct categories for this account's transactions
+        categories: [
+          { $group: { _id: "$category" } },
+          { $project: { _id: 0, category: "$_id" } },
+        ],
+      },
+    });
 
-    const options = {
-      page: parseInt(page, 10),
-      limit: parseInt(limit, 10),
-      sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 },
-      populate: [
-        { path: "accountId", select: "accountName accountType bankName accountHolderName serviceName" },
-        { path: "reference", select: "saleId basicInfo.lcNumber" },
-      ],
-      lean: true,
-    };
+    const result = await Transaction.aggregate(pipeline);
 
-    const categoryQuery = { ...query };
-    delete categoryQuery.category;
-
-    const [transactions, categories] = await Promise.all([
-      Transaction.paginate(query, options),
-      Transaction.distinct("category", categoryQuery),
-    ]);
+    const transactions = result[0].data;
+    const totalCount = result[0].metadata[0] ? result[0].metadata[0].total : 0;
+    const categories = result[0].categories.map(c => c.category);
 
     const response = {
-      transactions,
+      transactions: {
+        docs: transactions,
+        totalDocs: totalCount,
+        limit: limitNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        page: pageNum,
+      },
       categories,
     };
 

@@ -119,5 +119,7 @@ accountSchema.pre("save", async function (next) {
   next();
 });
 
+accountSchema.index({ status: 1 });
+
 const Account = mongoose.model("Account", accountSchema);
 module.exports = Account;

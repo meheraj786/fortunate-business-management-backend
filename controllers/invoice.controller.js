@@ -136,7 +136,25 @@ async function generateInvoice(req, res, next) {
 
 async function getAllInvoices(req, res, next) {
   try {
-    const invoices = await Invoice.find().populate("productDetails.unit").sort({ createdAt: -1 });
+    const invoices = await Invoice.aggregate([
+      {
+        $lookup: {
+          from: "units",
+          localField: "productDetails.unit",
+          foreignField: "_id",
+          as: "productDetails.unit",
+        },
+      },
+      {
+        $unwind: {
+          path: "$productDetails.unit",
+          preserveNullAndEmptyArrays: true, // Keep invoices even if unit is not found
+        },
+      },
+      {
+        $sort: { createdAt: -1 },
+      },
+    ]);
     return res
       .status(200)
       .json(new ApiResponse(200, invoices, "Invoices fetched successfully"));

@@ -111,53 +111,172 @@ async function createProductInWarehouse(req, res, next) {
 async function getProductsByWarehouse(req, res, next) {
   try {
     const { warehouseId } = req.params;
-    const products = await Product.find({ warehouse: warehouseId })
-      .select(
-        "name category LC thickness width length color grade quantity unit unitPrice createdAt updatedAt"
-      )
-      .populate("category", "name")
-      .populate("LC", "basicInfo.lcNumber")
-      .populate("unit", "name type conversionFactor") // Temporarily populate conversionFactor
-      .lean(); // Use .lean() to get plain JavaScript objects
+    const {
+      search,
+      sortBy,
+      sortOrder = "asc",
+      stockStatus: stockStatusFilter,
+      page = 1,
+      limit = 10,
+    } = req.query;
 
-    const productsWithStatus = products.map((product) => {
-      const totalInGrams = product.quantity * (product.unit?.conversionFactor || 0);
-      let stockStatus;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
 
-      // Thresholds in grams
-      const LOW_STOCK_THRESHOLD = 10000; // 10 KG
-      const MEDIUM_STOCK_THRESHOLD = 1000000; // 1 TON
+    const pipeline = [];
 
-      if (totalInGrams === 0) {
-        stockStatus = "No Stock";
-      } else if (totalInGrams <= LOW_STOCK_THRESHOLD) {
-        stockStatus = "Low";
-      } else if (totalInGrams <= MEDIUM_STOCK_THRESHOLD) {
-        stockStatus = "Medium";
-      } else {
-        stockStatus = "OK";
-      }
-
-      // Remove conversionFactor from the populated unit object before sending the response
-      if (product.unit) {
-        delete product.unit.conversionFactor;
-      }
-
-      return {
-        ...product,
-        stockStatus,
-      };
+    // Initial match for the warehouse
+    const mongoose = require("mongoose");
+    pipeline.push({
+      $match: { warehouse: new mongoose.Types.ObjectId(warehouseId) },
     });
+
+    // Lookups for related data
+    pipeline.push(
+      {
+        $lookup: {
+          from: "lcs",
+          localField: "LC",
+          foreignField: "_id",
+          as: "LC",
+        },
+      },
+      { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+        },
+      },
+      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "units",
+          localField: "unit",
+          foreignField: "_id",
+          as: "unit",
+        },
+      },
+      { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } }
+    );
+
+    // Search logic for product name and LC number
+    if (search) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { name: { $regex: search, $options: "i" } },
+            { "LC.basicInfo.lcNumber": { $regex: search, $options: "i" } },
+          ],
+        },
+      });
+    }
+
+    // Add stock status calculation fields
+    const LOW_STOCK_THRESHOLD = 10000; // 10 KG
+    const MEDIUM_STOCK_THRESHOLD = 1000000; // 1 TON
+
+    pipeline.push({
+      $addFields: {
+        totalInGrams: {
+          $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0],
+        },
+      },
+    });
+
+    pipeline.push({
+      $addFields: {
+        stockStatus: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$totalInGrams", 0] }, then: "No Stock" },
+              {
+                case: { $lte: ["$totalInGrams", LOW_STOCK_THRESHOLD] },
+                then: "Low",
+              },
+              {
+                case: { $lte: ["$totalInGrams", MEDIUM_STOCK_THRESHOLD] },
+                then: "Medium",
+              },
+            ],
+            default: "OK",
+          },
+        },
+      },
+    });
+
+    // Filter by stock status
+    if (stockStatusFilter) {
+      pipeline.push({ $match: { stockStatus: stockStatusFilter } });
+    }
+
+    // Sorting
+    const sort = {};
+    if (sortBy) {
+      sort[sortBy] = sortOrder === "desc" ? -1 : 1;
+    } else {
+      sort.createdAt = -1; // Default sort
+    }
+
+    // Facet for pagination
+    pipeline.push({
+      $facet: {
+        metadata: [{ $count: "totalDocs" }],
+        docs: [
+          { $sort: sort },
+          { $skip: skip },
+          { $limit: limitNum },
+          {
+            $project: {
+              name: 1,
+              thickness: 1,
+              width: 1,
+              length: 1,
+              color: 1,
+              grade: 1,
+              quantity: 1,
+              unitPrice: 1,
+              createdAt: 1,
+              updatedAt: 1,
+              stockStatus: 1,
+              category: { _id: "$category._id", name: "$category.name" },
+              LC: {
+                _id: "$LC._id",
+                basicInfo: { lcNumber: "$LC.basicInfo.lcNumber" },
+              },
+              unit: { _id: "$unit._id", name: "$unit.name", type: "$unit.type" },
+            },
+          },
+        ],
+      },
+    });
+
+    const result = await Product.aggregate(pipeline);
+
+    const docs = result[0].docs;
+    const totalDocs = result[0].metadata[0]
+      ? result[0].metadata[0].totalDocs
+      : 0;
+    const totalPages = Math.ceil(totalDocs / limitNum);
+
+    const response = {
+      docs,
+      totalDocs,
+      limit: limitNum,
+      page: pageNum,
+      totalPages,
+      hasNextPage: pageNum < totalPages,
+      hasPrevPage: pageNum > 1,
+      nextPage: pageNum < totalPages ? pageNum + 1 : null,
+      prevPage: pageNum > 1 ? pageNum - 1 : null,
+    };
 
     return res
       .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          productsWithStatus,
-          "Products fetched successfully"
-        )
-      );
+      .json(new ApiResponse(200, response, "Products fetched successfully"));
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -166,10 +285,15 @@ async function getProductsByWarehouse(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`
+        )
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -186,77 +310,129 @@ async function getProductsByWarehouse(req, res, next) {
 async function getProductInWarehouse(req, res, next) {
   try {
     const { warehouseId, productId } = req.params;
-    const product = await Product.findOne({
-      _id: productId,
-      warehouse: warehouseId,
-    })
-      .populate(
-        "LC",
-        { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1, "financialInfo.lcAmountBdt": 1 }
-      )
-      .populate("warehouse", "name location")
-      .populate("category", "name description")
-      .populate("unit", "name type conversionFactor")
-      .lean(); // Add .lean() here
+    const mongoose = require("mongoose");
 
-    if (!product) {
-      return next(
-        new ApiError(404, "Product not found in this warehouse")
-      );
-    }
-
-    // Calculate stockStatus
-    const totalInGrams = product.quantity * (product.unit?.conversionFactor || 0);
-    let stockStatus;
-
-    // Thresholds in grams (same as getProductsByWarehouse)
-    const LOW_STOCK_THRESHOLD = 10000; // 10 KG
-    const MEDIUM_STOCK_THRESHOLD = 1000000; // 1 TON
-
-    if (totalInGrams === 0) {
-      stockStatus = "No Stock";
-    } else if (totalInGrams <= LOW_STOCK_THRESHOLD) {
-      stockStatus = "Low";
-    } else if (totalInGrams <= MEDIUM_STOCK_THRESHOLD) {
-      stockStatus = "Medium";
-    } else {
-      stockStatus = "OK";
-    }
-
-    // The rest of the stats logic can remain the same
-    const salesStats = await Sales.aggregate([
-      { $match: { product: product._id } },
+    const pipeline = [
       {
-        $group: {
-          _id: "$product",
-          totalUnitsSold: { $sum: "$quantity" },
-          totalRevenue: { $sum: "$totalAmount" },
+        $match: {
+          _id: new mongoose.Types.ObjectId(productId),
+          warehouse: new mongoose.Types.ObjectId(warehouseId),
         },
       },
-    ]);
-    const totalDueInvoices = await Sales.countDocuments({
-      product: productId,
-      invoiceStatus: "Invoiced",
-      paymentStatus: "Due payment",
-    });
-    const totalNotInvoiced = await Sales.countDocuments({
-      product: productId,
-      invoiceStatus: "Not-invoiced",
-    });
+      // --- Populate Product Fields ---
+      {
+        $lookup: {
+          from: "lcs",
+          localField: "LC",
+          foreignField: "_id",
+          as: "LC",
+        },
+      },
+      {
+        $lookup: {
+          from: "warehouses",
+          localField: "warehouse",
+          foreignField: "_id",
+          as: "warehouse",
+        },
+      },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+        },
+      },
+      {
+        $lookup: {
+          from: "units",
+          localField: "unit",
+          foreignField: "_id",
+          as: "unit",
+        },
+      },
+      // Unwind the populated arrays
+      { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
 
-    // Remove conversionFactor from the populated unit object before sending the response
-    if (product.unit) {
-      delete product.unit.conversionFactor;
+      // --- Calculate Sales Stats ---
+      {
+        $lookup: {
+          from: "sales",
+          localField: "_id",
+          foreignField: "product",
+          as: "sales",
+        },
+      },
+      // --- Calculate stockStatus and Final Projection ---
+      {
+        $addFields: {
+          // Calculate stockStatus
+          totalInGrams: {
+            $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0],
+          },
+          // Calculate sales stats
+          totalUnitsSold: { $sum: "$sales.quantity" },
+          totalRevenue: { $sum: "$sales.totalAmount" },
+          totalDueInvoices: {
+            $size: {
+              $filter: {
+                input: "$sales",
+                as: "sale",
+                cond: {
+                  $and: [
+                    { $eq: ["$$sale.invoiceStatus", "Invoiced"] },
+                    { $eq: ["$$sale.paymentStatus", "Due payment"] },
+                  ],
+                },
+              },
+            },
+          },
+          totalNotInvoiced: {
+            $size: {
+              $filter: {
+                input: "$sales",
+                as: "sale",
+                cond: { $eq: ["$$sale.invoiceStatus", "Not-invoiced"] },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          stockStatus: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$totalInGrams", 0] }, then: "No Stock" },
+                { case: { $lte: ["$totalInGrams", 10000] }, then: "Low" }, // 10 KG
+                { case: { $lte: ["$totalInGrams", 1000000] }, then: "Medium" }, // 1 TON
+              ],
+              default: "OK",
+            },
+          },
+        },
+      },
+      // Final cleanup
+      {
+        $project: {
+          sales: 0, // remove the sales array
+          totalInGrams: 0,
+          "unit.conversionFactor": 0, // remove conversion factor from the final output
+        },
+      },
+    ];
+
+    const results = await Product.aggregate(pipeline);
+
+    if (results.length === 0) {
+      return next(new ApiError(404, "Product not found in this warehouse"));
     }
 
-    const productWithStats = {
-      ...product, // product is already a lean object
-      stockStatus, // Add stockStatus here
-      totalUnitsSold: salesStats[0]?.totalUnitsSold || 0,
-      totalRevenue: salesStats[0]?.totalRevenue || 0,
-      totalDueInvoices,
-      totalNotInvoiced,
-    };
+    const productWithStats = results[0];
 
     return res
       .status(200)
@@ -409,56 +585,40 @@ async function deleteProductInWarehouse(req, res, next) {
           next(new ApiError(500, error.message || "Something went wrong"));
         }
       }
-// New function for warehouse-specific inventory stats
-async function getWarehouseInventoryStats(req, res, next) {
-  try {
-    const { warehouseId } = req.params;
-    const stats = await Product.getInventoryStats(warehouseId);
-
-    const formattedStats = {
-      totalinstockproductcount: stats.inStockProductsCount,
-      totalstockcount: stats.totalQuantity,
-      totallowstockproductscount: stats.lowStockProductsCount,
-      totalstockoutproductscount: stats.outOfStockProductsCount,
-      totalproductdocuments: stats.totalProductsCount, // Including this for completeness, as it was the original 'totalProducts'
-    };
-
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(200, formattedStats, "Inventory statistics fetched successfully")
-      );
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
-  }
-}
 
 // (The old global functions can be kept for admin overview purposes if needed, but won't be wired to the new routes)
 async function getAllProducts(req, res, next) {
   try {
-    const products = await Product.find()
-      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1, "financialInfo.lcAmountBdt": 1 })
-      .populate("warehouse", "name location")
-      .populate("category", "name description");
+    const products = await Product.aggregate([
+      {
+        $lookup: {
+          from: "lcs",
+          localField: "LC",
+          foreignField: "_id",
+          as: "LC",
+        },
+      },
+      {
+        $lookup: {
+          from: "warehouses",
+          localField: "warehouse",
+          foreignField: "_id",
+          as: "warehouse",
+        },
+      },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+        },
+      },
+      // Unwind the populated arrays
+      { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+    ]);
 
     return res
       .status(200)
@@ -489,13 +649,56 @@ async function getAllProducts(req, res, next) {
 
 async function getStockStatus(_, res, next) {
   try {
-    const lowStock = await Product.find({ quantity: { $gt: 0, $lt: 20 } })
-      .populate("warehouse", "name location")
-      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1 });
+    const results = await Product.aggregate([
+      {
+        $facet: {
+          lowStock: [
+            { $match: { quantity: { $gt: 0, $lt: 20 } } },
+            {
+              $lookup: {
+                from: "warehouses",
+                localField: "warehouse",
+                foreignField: "_id",
+                as: "warehouse",
+              },
+            },
+            {
+              $lookup: {
+                from: "lcs",
+                localField: "LC",
+                foreignField: "_id",
+                as: "LC",
+              },
+            },
+            { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+            { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+          ],
+          outOfStock: [
+            { $match: { quantity: 0 } },
+            {
+              $lookup: {
+                from: "warehouses",
+                localField: "warehouse",
+                foreignField: "_id",
+                as: "warehouse",
+              },
+            },
+            {
+              $lookup: {
+                from: "lcs",
+                localField: "LC",
+                foreignField: "_id",
+                as: "LC",
+              },
+            },
+            { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+            { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+          ],
+        },
+      },
+    ]);
 
-    const outOfStock = await Product.find({ quantity: 0 })
-      .populate("warehouse", "name location")
-      .populate("LC", { "basicInfo.lcNumber": 1, "basicInfo.supplierName": 1 });
+    const { lowStock, outOfStock } = results[0];
 
     return res
       .status(200)
@@ -588,9 +791,7 @@ module.exports = {
   getProductInWarehouse,
   updateProductInWarehouse,
   deleteProductInWarehouse,
-  getWarehouseInventoryStats,
   getProductSalesHistory,
-  // Exporting old functions in case they are needed elsewhere
   getAllProducts,
   getStockStatus,
 };
