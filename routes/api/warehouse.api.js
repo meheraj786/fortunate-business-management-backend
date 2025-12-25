@@ -7,7 +7,6 @@ const {
   deleteWarehouse,
 } = require("../../controllers/warehouse.controller");
 const {
-  getWarehouseInventoryStats,
 } = require("../../controllers/product.controller");
 const productRoutes = require("./product.api");
 
@@ -19,9 +18,6 @@ warehouseRoutes.get("/", getAllWarehouses);
 warehouseRoutes.get("/:id", getWarehouseById);
 warehouseRoutes.patch("/:id", updateWarehouse);
 warehouseRoutes.delete("/:id", deleteWarehouse);
-
-// Stats for a specific warehouse
-warehouseRoutes.get("/:warehouseId/stats", getWarehouseInventoryStats);
 
 // Nest the product routes under a specific warehouse
 warehouseRoutes.use("/:warehouseId/products", productRoutes);

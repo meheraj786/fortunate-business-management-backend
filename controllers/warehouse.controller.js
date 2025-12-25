@@ -38,73 +38,131 @@ const createWarehouse = async (req, res, next) => {
 
 const getAllWarehouses = async (_, res, next) => {
   try {
-    const warehouses = await Warehouse.aggregate([
+    const results = await Warehouse.aggregate([
       {
-        $lookup: {
-          from: "products",
-          localField: "_id",
-          foreignField: "warehouse",
-          as: "products",
-        },
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "manager",
-          foreignField: "_id",
-          as: "manager",
-        },
-      },
-      {
-        $addFields: {
-          stats: {
-            totalProducts: { $size: "$products" },
-            totalInStock: {
-              $size: {
-                $filter: {
-                  input: "$products",
-                  as: "product",
-                  cond: { $gt: ["$$product.quantity", 0] },
-                },
+        $facet: {
+          warehouses: [
+            {
+              $lookup: {
+                from: "products",
+                localField: "_id",
+                foreignField: "warehouse",
+                as: "products",
               },
             },
-            totalLowStock: {
-              $size: {
-                $filter: {
-                  input: "$products",
-                  as: "product",
-                  cond: {
-                    $and: [
-                      { $gt: ["$$product.quantity", 0] },
-                      { $lt: ["$$product.quantity", 20] },
-                    ],
+            {
+              $lookup: {
+                from: "users",
+                localField: "manager",
+                foreignField: "_id",
+                as: "manager",
+              },
+            },
+            {
+              $addFields: {
+                stats: {
+                  totalProducts: { $size: "$products" },
+                  totalInStock: {
+                    $size: {
+                      $filter: {
+                        input: "$products",
+                        as: "product",
+                        cond: { $gt: ["$$product.quantity", 0] },
+                      },
+                    },
+                  },
+                  totalLowStock: {
+                    $size: {
+                      $filter: {
+                        input: "$products",
+                        as: "product",
+                        cond: {
+                          $and: [
+                            { $gt: ["$$product.quantity", 0] },
+                            { $lt: ["$$product.quantity", 20] },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  totalStockOut: {
+                    $size: {
+                      $filter: {
+                        input: "$products",
+                        as: "product",
+                        cond: { $eq: ["$$product.quantity", 0] },
+                      },
+                    },
                   },
                 },
               },
             },
-            totalStockOut: {
-              $size: {
-                $filter: {
-                  input: "$products",
-                  as: "product",
-                  cond: { $eq: ["$$product.quantity", 0] },
+            {
+              $project: {
+                products: 0,
+              },
+            },
+          ],
+          globalStats: [
+            {
+              $lookup: {
+                from: "products",
+                localField: "_id",
+                foreignField: "warehouse",
+                as: "products",
+              },
+            },
+            { $unwind: "$products" },
+            {
+              $group: {
+                _id: null,
+                totalproducts: { $sum: 1 },
+                "Total In-stock": {
+                  $sum: {
+                    $cond: [{ $gt: ["$products.quantity", 0] }, 1, 0],
+                  },
+                },
+                "total lowstock": {
+                  $sum: {
+                    $cond: [
+                      {
+                        $and: [
+                          { $gt: ["$products.quantity", 0] },
+                          { $lt: ["$products.quantity", 20] },
+                        ],
+                      },
+                      1,
+                      0,
+                    ],
+                  },
+                },
+                "Total outofstock": {
+                  $sum: {
+                    $cond: [{ $eq: ["$products.quantity", 0] }, 1, 0],
+                  },
                 },
               },
             },
-          },
-        },
-      },
-      {
-        $project: {
-          products: 0,
+            { $project: { _id: 0 } },
+          ],
         },
       },
     ]);
 
+    const response = {
+      warehouses: results[0].warehouses,
+      stats: results[0].globalStats[0] || {
+        totalproducts: 0,
+        "Total In-stock": 0,
+        "total lowstock": 0,
+        "Total outofstock": 0,
+      },
+    };
+
     return res
       .status(200)
       .json(
-        new ApiResponse(200, warehouses, "Warehouses fetched successfully")
+        new ApiResponse(200, response, "Warehouses fetched successfully")
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -114,10 +172,15 @@ const getAllWarehouses = async (_, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A warehouse with the same ${field} '${value}' already exists.`)); // Specific message for warehouse
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
