@@ -751,35 +751,104 @@ async function downloadDocument(req, res, next) {
 async function exportLCAsPDF(req, res, next) {
   try {
     const { id } = req.params;
-    const lc = await LC.findById(id);
 
+    console.log('=== EXPORT LC DEBUG ===');
+    console.log('LC ID:', id);
+
+    const lc = await LC.findById(id)
+      .populate("productInfo.quantityUnit", "name type conversionFactor")
+      .populate("basicInfo.accountId")
+      .populate("financialInfo.costs.accountId")
+      .populate("shippingCustomsInfo.costs.accountId")
+      .populate("agentTransportInfo.costs.accountId")
+      .populate("otherExpenses.costs.accountId");
+
+    console.log('LC Found:', !!lc);
+    
     if (!lc) {
-      return next(new ApiError(404, "LC not found"));
+      console.log('LC not found in database');
+      return res.status(404).json({ 
+        error: "LC not found",
+        message: "No LC found with the provided ID" 
+      });
     }
 
-    generateLCPDF(lc, res);
+    console.log('LC Basic Info:', JSON.stringify(lc.basicInfo, null, 2));
+    console.log('LC Products:', lc.productInfo?.length || 0);
+    console.log('LC Financial Info:', !!lc.financialInfo);
+
+    // Validate LC has minimum required data BEFORE calling generateLCPDF
+    if (!lc.basicInfo) {
+      console.log('ERROR: Missing basicInfo');
+      return res.status(400).json({ 
+        error: "Invalid LC data",
+        message: "LC is missing basic information" 
+      });
+    }
+
+    if (!lc.basicInfo.lcNumber) {
+      console.log('ERROR: Missing lcNumber');
+      return res.status(400).json({ 
+        error: "Invalid LC data",
+        message: "LC is missing LC Number" 
+      });
+    }
+
+    if (!lc.productInfo || lc.productInfo.length === 0) {
+      console.log('WARNING: No products in LC');
+      return res.status(400).json({ 
+        error: "Invalid LC data",
+        message: "LC must have at least one product" 
+      });
+    }
+
+    // Additional validation - check if financial info exists
+    if (!lc.financialInfo || !lc.financialInfo.lcAmountUsd) {
+      console.log('ERROR: Missing financial information');
+      return res.status(400).json({ 
+        error: "Invalid LC data",
+        message: "LC is missing financial information" 
+      });
+    }
+
+    console.log('All validations passed. Calling generateLCPDF...');
+    
+    // Call the PDF generator - it should handle the response directly
+    // DO NOT await if generateLCPDF uses streaming
+    const result = generateLCPDF(lc, res);
+    
+    // If generateLCPDF returns a promise, await it
+    if (result && typeof result.then === 'function') {
+      await result;
+    }
+    
+    console.log('PDF generation completed');
+    
+    // DO NOT send any response here - generateLCPDF handles it
 
   } catch (error) {
+    console.error('=== EXPORT LC ERROR ===');
+    console.error('Error:', error);
+    console.error('Stack:', error.stack);
+    
+    // Check if response was already sent
+    if (res.headersSent) {
+      console.error('Headers already sent, cannot send error response');
+      return;
+    }
+    
     if (error instanceof ApiError) {
-      return next(error);
+      return res.status(error.statusCode).json({
+        error: error.message,
+        message: error.message
+      });
     }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    
+    // Return JSON error
+    return res.status(500).json({
+      error: "PDF generation failed",
+      message: error.message || "Something went wrong during PDF export"
+    });
   }
 }
 async function getActiveLcs(req,res,next){
