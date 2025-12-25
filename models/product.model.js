@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const mongoosePaginate = require("mongoose-paginate-v2");
 
 const productSchema = new mongoose.Schema(
   {
@@ -27,6 +28,8 @@ const productSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+productSchema.index({ name: "text" });
 
 productSchema.statics.getInventoryStats = async function (warehouseId) {
   const matchQuery = warehouseId
@@ -64,6 +67,7 @@ productSchema.statics.getInventoryStats = async function (warehouseId) {
 };
 
 productSchema.index({ quantity: 1 });
+productSchema.plugin(mongoosePaginate);
 
 const Product = mongoose.model("Product", productSchema);
 module.exports = Product;
