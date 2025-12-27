@@ -719,6 +719,10 @@ async function closeMissedDailyCashEntries() {
   }
 }
 
+async function deleteIncomeOrExpense(){
+
+}
+
 module.exports = {
   openCash,
   closeCash,
@@ -728,4 +732,5 @@ module.exports = {
   addExpense,
   autoCloseDailyCashForCron,
   closeMissedDailyCashEntries,
+  deleteIncomeOrExpense
 };
