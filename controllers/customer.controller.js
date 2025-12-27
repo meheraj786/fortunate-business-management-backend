@@ -4,12 +4,15 @@ const Trash = require("../models/trash.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose");
+const path = require("path");
+const fs = require("fs").promises;
 
-/* ================= CREATE ================= */
+const uploadDir = path.resolve(__dirname, "../uploads");
+
+/* ================= CREATE CUSTOMER (With Files) ================= */
 async function createCustomer(req, res, next) {
   try {
     const currentYear = new Date().getFullYear();
-
     const lastCustomer = await Customer.findOne({
       customerId: new RegExp(`^CUST-${currentYear}-`, "i"),
     }).sort({ customerId: -1 });
@@ -24,13 +27,50 @@ async function createCustomer(req, res, next) {
       .toString()
       .padStart(4, "0")}`;
 
+    if (req.files && req.files.length > 0) {
+      req.body.documents = req.files.map((file) => ({
+        name: file.originalname,
+        storedName: file.filename,
+        size: file.size.toString(),
+        type: file.mimetype,
+        uploadDate: new Date(),
+      }));
+    }
+
     const customer = await Customer.create(req.body);
+
+    if (req.files && req.files.length > 0) {
+      const customerFolder = path.join(uploadDir, customer._id.toString());
+      await fs.mkdir(customerFolder, { recursive: true });
+
+      for (const file of req.files) {
+        await fs.rename(file.path, path.join(customerFolder, file.filename));
+      }
+    }
 
     res
       .status(201)
       .json(new ApiResponse(201, customer, "Customer created successfully"));
   } catch (error) {
     next(error);
+  }
+}
+
+async function downloadCustomerDocument(req, res, next) {
+  try {
+    const { id, filename } = req.params;
+    const filePath = path.join(
+      __dirname,
+      "../uploads",
+      "customers",
+      id,
+      filename
+    );
+
+    await fs.access(filePath, fs.constants.F_OK);
+    return res.download(filePath);
+  } catch (error) {
+    return next(new ApiError(404, "File not found"));
   }
 }
 
@@ -167,9 +207,7 @@ async function getCustomerStats(_, res, next) {
       phone: c.phone,
     }));
 
-    res
-      .status(200)
-      .json(new ApiResponse(200, stats, "Customer stats fetched"));
+    res.status(200).json(new ApiResponse(200, stats, "Customer stats fetched"));
   } catch (error) {
     next(new ApiError(500, error.message));
   }
@@ -245,4 +283,5 @@ module.exports = {
   deleteCustomer,
   getCustomerStats,
   getCustomersSummary,
+  downloadCustomerDocument,
 };

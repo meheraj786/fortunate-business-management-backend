@@ -7,6 +7,7 @@ const {
   getCustomerStats,
   deleteCustomer,
   getCustomersSummary,
+  downloadCustomerDocument,
 } = require("../../controllers/customer.controller");
 const authorize = require("../../middleware/authorize.middleware");
 const { authenticate } = require("../../middleware/auth.middleware");
@@ -19,5 +20,7 @@ customerRoutes.patch("/update-customer/:id", authenticate, authorize("CUSTOMER",
 customerRoutes.delete("/delete-customer/:id", authenticate, authorize("CUSTOMER", "DELETE"), deleteCustomer);
 customerRoutes.get("/get-customer-stats", authenticate, authorize("CUSTOMER", "GET"), getCustomerStats);
 customerRoutes.get("/summary", authenticate, authorize("CUSTOMER", "GET"), getCustomersSummary);
+customerRoutes.get("/:id/documents/:filename", downloadCustomerDocument);
+
 
 module.exports = customerRoutes;

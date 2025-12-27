@@ -535,7 +535,7 @@ async function addExpense(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { amount, category, name, paymentMethod, accountId, description, lcId, salesId, lcCostCategory } = req.body;
+    const { amount, category, name, paymentMethod, accountId, description = "No Description", lcId, salesId, lcCostCategory } = req.body;
 
     // 1. Gatekeeper: Check if Daily Cash for today is Open
     const today = new Date();
