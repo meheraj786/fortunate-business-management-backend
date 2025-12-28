@@ -100,36 +100,24 @@ const loginUser = async (req, res, next) => {
 };
 const logoutUser = async (_, res, next) => {
   try {
+    // Cookie clear করার সময় same options ব্যবহার করুন যেটা set করার সময় দিয়েছিলেন
     res.clearCookie("accessToken", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: true, // sameSite: "none" এর জন্য এটা সবসময় true হতে হবে
       sameSite: "none",
+      path: "/", // যদি আপনি cookie set করার সময় path দিয়ে থাকেন
+      // domain: "yourdomain.com", // যদি cross-domain হয়
     });
 
-    return res.status(200).json(new ApiResponse(200, {}, "Logged out successfully"));
+    return res.status(200).json(
+      new ApiResponse(200, {}, "Logged out successfully")
+    );
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    // Logout এ এত error handling এর দরকার নেই
+    next(new ApiError(500, error.message || "Logout failed"));
   }
 };
+
 
 const getUser = async (req, res, next) => {
   try {
