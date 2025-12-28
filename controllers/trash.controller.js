@@ -23,43 +23,44 @@ const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
 
 
 
-const restoreFromTrash = async (req, res, next) => {
+const restoreFromTrash = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
-    const trash = await Trash.findById(req.params.id);
+    const { id } = req.params; 
 
-    if (!trash) {
-      return next(new ApiError(404, "Trash item not found"));
-    }
+    const trashEntry = await Trash.findById(id).session(session);
+    if (!trashEntry) throw new Error("Trash entry not found");
 
-    const Model = mongoose.model(trash.model);
+    const { docId, model: modelName } = trashEntry;
 
-    const restoredDoc = await Model.findByIdAndUpdate(
-      trash.docId,
-      { isDeleted: false },
-      { new: true }
+    const TargetModel = mongoose.model(modelName);
+
+    const restoredDoc = await TargetModel.findOneAndUpdate(
+      { _id: docId, isDeleted: true }, 
+      { $set: { isDeleted: false, status: "Active" } },
+      { session, new: true }
     );
 
     if (!restoredDoc) {
-      await trash.deleteOne();
-      return next(new ApiError(404, "Original document not found, trash record removed"));
+      throw new Error(`Original ${modelName} not found to restore`);
     }
 
-    await trash.deleteOne();
+    await Trash.findByIdAndDelete(id).session(session);
 
-    res.status(200).json(
-      new ApiResponse(
-        200, 
-        restoredDoc, 
-        `${trash.model} restored successfully`
-      )
-    );
-  } catch (err) {
-    console.error("Restore error:", err);
-    next(new ApiError(500, "Failed to restore item"));
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({ success: true, message: `${modelName} restored successfully` });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Restore Error:", error.message);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-module.exports = { restoreFromTrash };
+
 
 
 const getAllTrash = async (req, res) => {
@@ -68,12 +69,20 @@ const getAllTrash = async (req, res) => {
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
+    const { module: moduleFilter } = req.query; 
+
     const filter = {};
-    if (req.query.model) filter.model = req.query.model;
+    if (moduleFilter && moduleFilter !== "undefined" && moduleFilter !== "") {
+      filter.model = moduleFilter; 
+    }
 
     const [trash, total] = await Promise.all([
       Trash.find(filter)
         .populate("deletedBy", "name email")
+        .populate({
+          path: "docId",
+          match: { isDeleted: { $in: [true, false] } } 
+        })
         .sort({ deletedAt: -1 })
         .skip(skip)
         .limit(limit),
@@ -90,11 +99,8 @@ const getAllTrash = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Trash fetch error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to load trash",
-    });
+    console.error("GetAllTrash Error:", err);
+    res.status(500).json({ success: false, message: "Failed to load trash" });
   }
 };
 

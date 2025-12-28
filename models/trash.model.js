@@ -6,6 +6,7 @@ const trashSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       required: true,
       index: true,
+      refPath: "model",
     },
 
     model: {
@@ -18,6 +19,7 @@ const trashSchema = new mongoose.Schema(
         "DailyCash",
         "Invoice",
         "LC",
+        "Account",
         "Sales",
         "Transaction",
         "Unit",
