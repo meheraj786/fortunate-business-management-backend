@@ -10,12 +10,13 @@ const routers = require("./routes");
 const cookieParser = require("cookie-parser");
 const cron = require("node-cron");
 const { autoCloseDailyCashForCron, closeMissedDailyCashEntries } = require("./controllers/dailyCash.controller");
+const logger = require("./utils/logger");
 
 const app = express();
 
 // Schedule a cron job to run at 23:59 every day
 cron.schedule('59 23 * * *', () => {
-  console.log('Running a daily cron job to check and close open cash...');
+  logger.info('Running a daily cron job to check and close open cash...');
   autoCloseDailyCashForCron();
 }, {
   scheduled: true,
@@ -69,7 +70,7 @@ app.use(limiter);
 
       // Log unexpected errors to the console (ApiErrors are typically logged by the caller or not considered "unexpected")
       if (!(err instanceof ApiError)) {
-        console.error(err);
+        logger.error(err.stack);
       }
 
       // Conditionally add the stack trace if in development environment
@@ -83,8 +84,8 @@ app.use(limiter);
     });
 
     const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
+    app.listen(PORT, () => logger.info(`Server is running on port ${PORT}`));
   } catch (error) {
-    console.error("Server failed to start:", error.message);
+    logger.error("Server failed to start:", error.message);
   }
 })();

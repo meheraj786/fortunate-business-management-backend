@@ -4,6 +4,7 @@ const Account = require("../models/account.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose");
+const logger = require("../utils/logger");
 
 // @desc    Open a new cash session for the current day
 // @route   POST /api/cash/open
@@ -55,7 +56,7 @@ async function openCash(req, res, next) {
           lastSessionYesterday.closedAt = endOfPreviousDay;
           lastSessionYesterday.closingBalance = openingBalance;
           await lastSessionYesterday.save();
-          console.log(`Auto-closed daily cash for ${previousDay.toDateString()}.`);
+          logger.info(`Auto-closed daily cash for ${previousDay.toDateString()}.`);
         } else { // Yesterday's last session was closed
           openingBalance = lastSessionYesterday.closingBalance;
         }
@@ -680,9 +681,9 @@ async function autoCloseDailyCashForCron() {
       openSession.closedAt = endOfDay;
       openSession.closingBalance = finalRunningBalance;
       await openSession.save();
-      console.log(`Successfully auto-closed daily cash for ${today.toDateString()} via cron job.`);
+      logger.info(`Successfully auto-closed daily cash for ${today.toDateString()} via cron job.`);
     } catch (error) {
-      console.error(`Error auto-closing daily cash for ${today.toDateString()} via cron job:`, error);
+      logger.error(`Error auto-closing daily cash for ${today.toDateString()} via cron job:`, error);
     }
   }
 }
@@ -696,7 +697,7 @@ async function closeMissedDailyCashEntries() {
     const missedEntries = await DailyCash.find({ date: { $lt: today }, status: "Open" });
 
     if (missedEntries.length > 0) {
-      console.log(`Found ${missedEntries.length} missed daily cash entries to close.`);
+      logger.info(`Found ${missedEntries.length} missed daily cash entries to close.`);
       for (const entry of missedEntries) {
         try {
           const metrics = await _calculateDailyCashMetrics(entry.date.toISOString());
@@ -706,16 +707,16 @@ async function closeMissedDailyCashEntries() {
           entry.closedAt = endOfDay;
           entry.closingBalance = metrics.runningBalance;
           await entry.save();
-          console.log(`Successfully closed missed daily cash for ${entry.date.toDateString()}.`);
+          logger.info(`Successfully closed missed daily cash for ${entry.date.toDateString()}.`);
         } catch (error) {
-          console.error(`Error closing missed daily cash for ${entry.date.toDateString()}:`, error);
+          logger.error(`Error closing missed daily cash for ${entry.date.toDateString()}:`, error);
         }
       }
     } else {
-      console.log("No missed daily cash entries found on startup.");
+      logger.info("No missed daily cash entries found on startup.");
     }
   } catch (error) {
-    console.error("Error finding missed daily cash entries:", error);
+    logger.error("Error finding missed daily cash entries:", error);
   }
 }
 

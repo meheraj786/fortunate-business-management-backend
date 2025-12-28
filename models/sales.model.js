@@ -97,11 +97,6 @@ const salesSchema = new mongoose.Schema(
     type: Boolean,
     default: false,
     index: true,
-  },
-  isDeleted: {
-    type: Boolean,
-    default: false,
-    index: true,
   }
   },
   { timestamps: true }

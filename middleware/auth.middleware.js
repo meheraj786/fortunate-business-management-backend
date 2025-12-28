@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/user.model");
+const logger = require("../utils/logger");
 
 exports.authenticate = async (req, res, next) => {
   try {
@@ -23,7 +24,7 @@ exports.authenticate = async (req, res, next) => {
     req.user = user;
     next();
   } catch (err) {
-    console.error("Auth error:", err);
+    logger.error("Auth error:", err);
     res.status(401).json({ message: "Unauthorized" });
   }
 };

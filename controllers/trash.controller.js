@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Trash = require("../models/trash.model");
 const { ApiResponse } = require("../utils/ApiResponse");
 const { ApiError } = require("../utils/ApiError");
+const logger = require("../utils/logger");
 
 
 const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
@@ -55,7 +56,7 @@ const restoreFromTrash = async (req, res) => {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    console.error("Restore Error:", error.message);
+    logger.error("Restore Error:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -99,7 +100,7 @@ const getAllTrash = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("GetAllTrash Error:", err);
+    logger.error("GetAllTrash Error:", err);
     res.status(500).json({ success: false, message: "Failed to load trash" });
   }
 };
@@ -123,7 +124,7 @@ const deleteTrashPermanently = async (req, res) => {
       message: "Trash entry removed permanently",
     });
   } catch (err) {
-    console.error("Permanent delete error:", err);
+    logger.error("Permanent delete error:", err);
     res.status(500).json({
       success: false,
       message: "Failed to delete trash item",
