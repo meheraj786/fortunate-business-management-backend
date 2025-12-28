@@ -99,7 +99,6 @@ userSchema.methods.generateToken = function () {
   );
 };
 
-userSchema.index({ email: 1 });
 userSchema.index({ access: 1 });
 userSchema.index({ warehouse: 1 });
 
