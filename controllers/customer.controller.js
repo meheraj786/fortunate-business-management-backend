@@ -37,10 +37,15 @@ async function createCustomer(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`
+        )
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -68,10 +73,15 @@ async function getAllCustomers(_, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`
+        )
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -167,10 +177,15 @@ async function getCustomerById(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`
+        )
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -206,10 +221,15 @@ async function updateCustomer(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`
+        )
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -225,15 +245,23 @@ async function updateCustomer(req, res, next) {
 async function deleteCustomer(req, res, next) {
   try {
     const { id } = req.params;
-    const deleted = await Customer.findByIdAndDelete(id);
+    const deleted = await Customer.findByIdAndUpdate(id, { isDeleted: true });
 
     if (!deleted) {
       return next(new ApiError(404, "Customer not found"));
     }
 
+    await Trash.create({
+      docId: deleted._id,
+      model: "Customer",
+      deletedBy: req.cookies?.userId || req.user?._id || null,
+    });
+
     return res
       .status(200)
-      .json(new ApiResponse(200, deleted, "Customer deleted successfully"));
+      .json(
+        new ApiResponse(200, deleted, "Customer moved to trash successfully")
+      );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -242,10 +270,15 @@ async function deleteCustomer(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`
+        )
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -260,7 +293,7 @@ async function deleteCustomer(req, res, next) {
 
 async function getCustomerStats(_, res, next) {
   try {
-    const customers = await Customer.find();
+    const customers = await Customer.find({ isDeleted: false });
 
     const stats = customers.map((customer) => {
       return {
@@ -283,10 +316,15 @@ async function getCustomerStats(_, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`
+        )
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -320,7 +358,7 @@ async function getCustomersSummary(req, res, next) {
     const pipeline = [];
 
     // Stage 1: Initial Filtering & Searching
-    const matchConditions = {};
+    const matchConditions = { isDeleted: false }; // <-- soft delete filter
     if (status) {
       matchConditions.customerStatus = status;
     }
@@ -335,6 +373,22 @@ async function getCustomersSummary(req, res, next) {
         { customerId: searchRegex },
       ];
     }
+
+    // const matchConditions = {};
+    // if (status) {
+    //   matchConditions.customerStatus = status;
+    // }
+    // if (customerType) {
+    //   matchConditions.customerType = customerType;
+    // }
+    // if (search) {
+    //   const searchRegex = { $regex: search, $options: "i" };
+    //   matchConditions.$or = [
+    //     { name: searchRegex },
+    //     { phone: searchRegex },
+    //     { customerId: searchRegex },
+    //   ];
+    // }
     if (Object.keys(matchConditions).length > 0) {
       pipeline.push({ $match: matchConditions });
     }
@@ -343,11 +397,27 @@ async function getCustomersSummary(req, res, next) {
     pipeline.push({
       $lookup: {
         from: "sales",
-        localField: "_id",
-        foreignField: "customer.customerId",
+        let: { customerId: "$customerId" },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ["$customer.customerId", "$$customerId"] },
+              isDeleted: false, // <-- only active sales
+            },
+          },
+        ],
         as: "sales",
       },
     });
+
+    // pipeline.push({
+    //   $lookup: {
+    //     from: "sales",
+    //     localField: "_id",
+    //     foreignField: "customer.customerId",
+    //     as: "sales",
+    //   },
+    // });
 
     // Stage 3: Add fields to calculate summary stats
     pipeline.push({
@@ -361,7 +431,11 @@ async function getCustomersSummary(req, res, next) {
               input: "$sales",
               as: "sale",
               in: {
-                $cond: [{ $eq: ["$$sale.invoiceStatus", "Not-invoiced"] }, 1, 0],
+                $cond: [
+                  { $eq: ["$$sale.invoiceStatus", "Not-invoiced"] },
+                  1,
+                  0,
+                ],
               },
             },
           },
@@ -380,20 +454,55 @@ async function getCustomersSummary(req, res, next) {
               in: {
                 $subtract: [
                   "$$dueSale.totalAmountToBePaid",
-                  { $sum: "$$dueSale.payments.amount" },
+                  {
+                    $sum: {
+                      $filter: {
+                        input: "$$dueSale.payments",
+                        as: "p",
+                        cond: { $eq: ["$$p.isDeleted", false] }, // ignore deleted payments
+                      },
+                      in: "$$p.amount",
+                    },
+                  },
                 ],
               },
             },
           },
         },
+
+        // totalDue: {
+        //   $sum: {
+        //     $map: {
+        //       input: {
+        //         $filter: {
+        //           input: "$sales",
+        //           as: "sale",
+        //           cond: { $eq: ["$$sale.paymentStatus", "Due payment"] },
+        //         },
+        //       },
+        //       as: "dueSale",
+        //       in: {
+        //         $subtract: [
+        //           "$$dueSale.totalAmountToBePaid",
+        //           { $sum: "$$dueSale.payments.amount" },
+        //         ],
+        //       },
+        //     },
+        //   },
+        // },
       },
     });
 
     // Stage 4: Sorting
     const sortStage = {};
     const validSortBy = [
-      "creditLimit", "joinDate", "totalPurchases",
-      "totalSpent", "totalDue", "totalNotInvoiced", "lastPurchaseDate"
+      "creditLimit",
+      "joinDate",
+      "totalPurchases",
+      "totalSpent",
+      "totalDue",
+      "totalNotInvoiced",
+      "lastPurchaseDate",
     ];
     if (validSortBy.includes(sortBy)) {
       sortStage[sortBy] = sortOrderNum;
@@ -444,10 +553,15 @@ async function getCustomersSummary(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`
+        )
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
