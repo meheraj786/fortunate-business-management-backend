@@ -4,6 +4,7 @@ const {
   getTransactionDetails,
   getTransactionStats,
   getAllTransactions,
+  deleteTransaction,
 } = require("../../controllers/transaction.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const authorize = require("../../middleware/authorize.middleware");
@@ -34,5 +35,12 @@ transactionRoutes.get(
   authorize("TRANSACTION", "GET"),
   getAllTransactions
 );
+transactionRoutes.delete(
+  "/delete/:id",
+  authenticate,
+  authorize("TRANSACTION", "DELETE"),
+  deleteTransaction
+);
+
 
 module.exports = transactionRoutes;
