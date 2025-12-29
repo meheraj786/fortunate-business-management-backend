@@ -20,10 +20,15 @@ const createWarehouse = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A warehouse with the same ${field} '${value}' already exists.`)); // Specific message for warehouse
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -39,6 +44,11 @@ const createWarehouse = async (req, res, next) => {
 const getAllWarehouses = async (_, res, next) => {
   try {
     const results = await Warehouse.aggregate([
+      {
+        $match: {
+          isDeleted: false,
+        },
+      },
       {
         $facet: {
           warehouses: [
@@ -161,9 +171,7 @@ const getAllWarehouses = async (_, res, next) => {
 
     return res
       .status(200)
-      .json(
-        new ApiResponse(200, response, "Warehouses fetched successfully")
-      );
+      .json(new ApiResponse(200, response, "Warehouses fetched successfully"));
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -202,6 +210,7 @@ const getWarehouseById = async (req, res, next) => {
       {
         $match: {
           _id: new mongoose.Types.ObjectId(id),
+          isDeleted: false,
         },
       },
       {
@@ -333,10 +342,15 @@ const updateWarehouse = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A warehouse with the same ${field} '${value}' already exists.`)); // Specific message for warehouse
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -367,11 +381,18 @@ const deleteWarehouse = async (req, res, next) => {
       );
     }
 
-    await Warehouse.findByIdAndDelete(id);
+    await Warehouse.findByIdAndUpdate(id, { isDeleted: true });
+
+    // move to trash
+    await Trash.create({
+      docId: id,
+      model: "Warehouse",
+      deletedBy: req.cookies?.userId || req.user?._id || null,
+    });
 
     return res
       .status(200)
-      .json(new ApiResponse(200, {}, "Warehouse deleted successfully"));
+      .json(new ApiResponse(200, {}, "Warehouse moved to trash successfully"));
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -380,10 +401,15 @@ const deleteWarehouse = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A warehouse with the same ${field} '${value}' already exists.`)); // Specific message for warehouse
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
