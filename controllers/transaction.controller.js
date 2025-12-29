@@ -1,5 +1,7 @@
 const Transaction = require("../models/transaction.model");
-const Trash = require("../models/trash.model"); 
+const Trash = require("../models/trash.model");
+const Account = require("../models/account.model"); // Added
+const DailyCash = require("../models/dailyCash.model"); // Added
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose");
@@ -14,7 +16,7 @@ async function getTransactionDetails(req, res, next) {
       { 
         $match: { 
           _id: new mongoose.Types.ObjectId(id),
-          isDeleted: { $ne: true } // শুধুমাত্র ডিলিট না হওয়া ডাটা
+          isDeleted: { $ne: true } 
         } 
       },
       {
@@ -80,8 +82,7 @@ async function getAllTransactions(req, res, next) {
     const limitNum = parseInt(limit, 10);
     const skip = (pageNum - 1) * limitNum;
 
-    // --- Filter Stage ---
-    const matchQuery = { isDeleted: { $ne: true } }; // ডিলিট হওয়া ডাটা বাদ
+    const matchQuery = { isDeleted: { $ne: true } }; 
     if (transactionType) matchQuery.transactionType = transactionType;
     if (category) matchQuery.category = category;
     if (paymentMethod) matchQuery.paymentMethod = paymentMethod;
@@ -136,11 +137,10 @@ async function getAllTransactions(req, res, next) {
   }
 }
 
-/* ================= GET STATS (Excluded Deleted) ================= */
+/* ================= GET STATS ================= */
 async function getTransactionStats(req, res, next) {
   try {
     const { startDate, endDate, transactionType, category, paymentMethod, accountId } = req.query;
-
     const matchQuery = { isDeleted: { $ne: true } };
 
     if (startDate || endDate) {
@@ -222,7 +222,7 @@ async function getTransactionsByAccount(req, res, next) {
   }
 }
 
-/* ================= DELETE TRANSACTION (SOFT) ================= */
+/* ================= DELETE TRANSACTION (SOFT) WITH BALANCE ADJUSTMENT ================= */
 async function deleteTransaction(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -232,16 +232,37 @@ async function deleteTransaction(req, res, next) {
 
     if (!id) throw new ApiError(400, "Transaction ID is required.");
 
-    const transaction = await Transaction.findOneAndUpdate(
-      { _id: id, isDeleted: { $ne: true } },
-      { isDeleted: true },
-      { new: true, session }
-    );
-
+    // 1. Find transaction
+    const transaction = await Transaction.findOne({ _id: id, isDeleted: { $ne: true } }).session(session);
     if (!transaction) {
       throw new ApiError(404, "Transaction not found or already deleted.");
     }
 
+    // 2. Gatekeeper: Check Daily Cash status for the transaction's date
+    const transDate = new Date(transaction.date);
+    transDate.setHours(0, 0, 0, 0);
+    const dailySession = await DailyCash.findOne({ date: transDate, status: "Open" }).session(session);
+
+    if (!dailySession) {
+      throw new ApiError(400, `Cannot delete. Daily cash session for ${transDate.toDateString()} is already closed.`);
+    }
+
+    // 3. Adjust Account Balance
+    const account = await Account.findById(transaction.accountId).session(session);
+    if (account) {
+      if (transaction.transactionType === "Income") {
+        account.balance -= transaction.amount; // Income delete korle account balance kombe
+      } else if (transaction.transactionType === "Expense") {
+        account.balance += transaction.amount; // Expense delete korle account balance barbe
+      }
+      await account.save({ session });
+    }
+
+    // 4. Mark Transaction as deleted
+    transaction.isDeleted = true;
+    await transaction.save({ session });
+
+    // 5. Create Trash entry
     await Trash.create([{
       docId: transaction._id,
       model: "Transaction",
@@ -251,7 +272,7 @@ async function deleteTransaction(req, res, next) {
     await session.commitTransaction();
     session.endSession();
 
-    return res.status(200).json(new ApiResponse(200, null, "Transaction moved to trash successfully."));
+    return res.status(200).json(new ApiResponse(200, null, "Transaction deleted and balance adjusted successfully."));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
