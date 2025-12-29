@@ -1,15 +1,9 @@
 const Customer = require("../models/customer.model");
 const Sales = require("../models/sales.model");
-const Trash = require("../models/trash.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose");
-const path = require("path");
-const fs = require("fs").promises;
 
-const uploadDir = path.resolve(__dirname, "../uploads");
-
-/* ================= CREATE CUSTOMER (With Files) ================= */
 async function createCustomer(req, res, next) {
   try {
     const currentYear = new Date().getFullYear();
@@ -18,92 +12,88 @@ async function createCustomer(req, res, next) {
     }).sort({ customerId: -1 });
 
     let lastCustomerIdNumber = 0;
-    if (lastCustomer?.customerId) {
+    if (lastCustomer && lastCustomer.customerId) {
       const match = lastCustomer.customerId.match(/(\d+)$/);
-      if (match) lastCustomerIdNumber = parseInt(match[1], 10);
-    }
-
-    req.body.customerId = `CUST-${currentYear}-${(lastCustomerIdNumber + 1)
-      .toString()
-      .padStart(4, "0")}`;
-
-    if (req.files && req.files.length > 0) {
-      req.body.documents = req.files.map((file) => ({
-        name: file.originalname,
-        storedName: file.filename,
-        size: file.size.toString(),
-        type: file.mimetype,
-        uploadDate: new Date(),
-      }));
-    }
-
-    const customer = await Customer.create(req.body);
-
-    if (req.files && req.files.length > 0) {
-      const customerFolder = path.join(uploadDir, customer._id.toString());
-      await fs.mkdir(customerFolder, { recursive: true });
-
-      for (const file of req.files) {
-        await fs.rename(file.path, path.join(customerFolder, file.filename));
+      if (match) {
+        lastCustomerIdNumber = parseInt(match[1], 10);
       }
     }
 
-    res
+    const newCustomerId = `CUST-${currentYear}-${(lastCustomerIdNumber + 1)
+      .toString()
+      .padStart(4, "0")}`;
+
+    req.body.customerId = newCustomerId;
+
+    const customer = await Customer.create(req.body);
+    return res
       .status(201)
       .json(new ApiResponse(201, customer, "Customer created successfully"));
   } catch (error) {
-    next(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-async function downloadCustomerDocument(req, res, next) {
-  try {
-    const { id, filename } = req.params;
-    const filePath = path.join(
-      __dirname,
-      "../uploads",
-      "customers",
-      id,
-      filename
-    );
-
-    await fs.access(filePath, fs.constants.F_OK);
-    return res.download(filePath);
-  } catch (error) {
-    return next(new ApiError(404, "File not found"));
-  }
-}
-
-/* ================= GET ALL ================= */
 async function getAllCustomers(_, res, next) {
   try {
-    const customers = await Customer.find({
-      isDeleted: { $ne: true },
-    });
+    const customers = await Customer.find();
 
-    res
+    return res
       .status(200)
       .json(new ApiResponse(200, customers, "Customers fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-/* ================= GET BY ID ================= */
 async function getCustomerById(req, res, next) {
   try {
     const { id } = req.params;
+
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return next(new ApiError(400, "Invalid customer ID"));
     }
 
     const pipeline = [
-      {
-        $match: {
-          _id: new mongoose.Types.ObjectId(id),
-          isDeleted: { $ne: true },
-        },
-      },
+      { $match: { _id: new mongoose.Types.ObjectId(id) } },
       {
         $lookup: {
           from: "sales",
@@ -117,161 +107,356 @@ async function getCustomerById(req, res, next) {
           stats: {
             totalPurchases: { $size: "$sales" },
             totalSpent: { $sum: "$sales.totalAmountToBePaid" },
+            notInvoiced: {
+              $size: {
+                $filter: {
+                  input: "$sales",
+                  as: "s",
+                  cond: { $eq: ["$$s.invoiceStatus", "Not-invoiced"] },
+                },
+              },
+            },
+            outstandingDues: {
+              $sum: {
+                $map: {
+                  input: {
+                    $filter: {
+                      input: "$sales",
+                      as: "s",
+                      cond: { $eq: ["$$s.paymentStatus", "Due payment"] },
+                    },
+                  },
+                  as: "dueSale",
+                  in: {
+                    $subtract: [
+                      "$$dueSale.totalAmountToBePaid",
+                      { $sum: "$$dueSale.payments.amount" },
+                    ],
+                  },
+                },
+              },
+            },
           },
         },
       },
-      { $project: { sales: 0 } },
+      {
+        $project: {
+          sales: 0, // Exclude the sales array from the final customer object
+        },
+      },
     ];
 
-    const result = await Customer.aggregate(pipeline);
+    const results = await Customer.aggregate(pipeline);
 
-    if (!result.length) {
+    if (results.length === 0) {
       return next(new ApiError(404, "Customer not found"));
     }
 
-    res
+    const customerData = results[0];
+
+    return res
       .status(200)
-      .json(new ApiResponse(200, result[0], "Customer fetched successfully"));
+      .json(
+        new ApiResponse(200, customerData, "Customer fetched successfully")
+      );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-/* ================= UPDATE ================= */
 async function updateCustomer(req, res, next) {
   try {
     const { id } = req.params;
-
-    const updated = await Customer.findOneAndUpdate(
-      { _id: id, isDeleted: { $ne: true } },
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const updated = await Customer.findByIdAndUpdate(id, req.body, {
+      new: true,
+      runValidators: true,
+    });
 
     if (!updated) {
       return next(new ApiError(404, "Customer not found"));
     }
 
-    res
+    return res
       .status(200)
       .json(new ApiResponse(200, updated, "Customer updated successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-/* ================= SOFT DELETE ================= */
 async function deleteCustomer(req, res, next) {
   try {
     const { id } = req.params;
+    const deleted = await Customer.findByIdAndDelete(id);
 
-    const deletedBy = req.cookies?.userId || req.user?._id || null;
-
-    const customer = await Customer.findOneAndUpdate(
-      { _id: id, isDeleted: { $ne: true } },
-      { isDeleted: true },
-      { new: true }
-    );
-
-    if (!customer) {
+    if (!deleted) {
       return next(new ApiError(404, "Customer not found"));
     }
 
-    // Move to trash
-    await Trash.create({
-      docId: customer._id,
-      model: "Customer",
-      deletedBy,
-    });
-
-    res
+    return res
       .status(200)
-      .json(
-        new ApiResponse(200, customer, "Customer moved to trash successfully")
-      );
+      .json(new ApiResponse(200, deleted, "Customer deleted successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-/* ================= STATS ================= */
 async function getCustomerStats(_, res, next) {
   try {
-    const customers = await Customer.find({
-      isDeleted: { $ne: true },
+    const customers = await Customer.find();
+
+    const stats = customers.map((customer) => {
+      return {
+        id: customer._id,
+        name: customer.name,
+        phone: customer.phone,
+      };
     });
 
-    const stats = customers.map((c) => ({
-      id: c._id,
-      name: c.name,
-      phone: c.phone,
-    }));
-
-    res.status(200).json(new ApiResponse(200, stats, "Customer stats fetched"));
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, stats, "Customer statistics fetched successfully")
+      );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-/* ================= SUMMARY ================= */
 async function getCustomersSummary(req, res, next) {
   try {
-    const { page = 1, limit = 10, search } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      status,
+      customerType,
+      sortBy,
+      sortOrder = "desc",
+    } = req.query;
 
-    const skip = (page - 1) * limit;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
+    const sortOrderNum = sortOrder === "asc" ? 1 : -1;
 
-    const match = {
-      isDeleted: { $ne: true },
-    };
+    // --- Aggregation Pipeline ---
+    const pipeline = [];
 
+    // Stage 1: Initial Filtering & Searching
+    const matchConditions = {};
+    if (status) {
+      matchConditions.customerStatus = status;
+    }
+    if (customerType) {
+      matchConditions.customerType = customerType;
+    }
     if (search) {
-      match.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { phone: { $regex: search, $options: "i" } },
-        { customerId: { $regex: search, $options: "i" } },
+      const searchRegex = { $regex: search, $options: "i" };
+      matchConditions.$or = [
+        { name: searchRegex },
+        { phone: searchRegex },
+        { customerId: searchRegex },
       ];
     }
+    if (Object.keys(matchConditions).length > 0) {
+      pipeline.push({ $match: matchConditions });
+    }
 
-    const pipeline = [
-      { $match: match },
-      {
-        $lookup: {
-          from: "sales",
-          localField: "_id",
-          foreignField: "customer.customerId",
-          as: "sales",
+    // Stage 2: Lookup to join with Sales
+    pipeline.push({
+      $lookup: {
+        from: "sales",
+        localField: "_id",
+        foreignField: "customer.customerId",
+        as: "sales",
+      },
+    });
+
+    // Stage 3: Add fields to calculate summary stats
+    pipeline.push({
+      $addFields: {
+        totalPurchases: { $size: "$sales" },
+        totalSpent: { $sum: "$sales.totalAmountToBePaid" },
+        lastPurchaseDate: { $max: "$sales.saleDate" },
+        totalNotInvoiced: {
+          $sum: {
+            $map: {
+              input: "$sales",
+              as: "sale",
+              in: {
+                $cond: [{ $eq: ["$$sale.invoiceStatus", "Not-invoiced"] }, 1, 0],
+              },
+            },
+          },
+        },
+        totalDue: {
+          $sum: {
+            $map: {
+              input: {
+                $filter: {
+                  input: "$sales",
+                  as: "sale",
+                  cond: { $eq: ["$$sale.paymentStatus", "Due payment"] },
+                },
+              },
+              as: "dueSale",
+              in: {
+                $subtract: [
+                  "$$dueSale.totalAmountToBePaid",
+                  { $sum: "$$dueSale.payments.amount" },
+                ],
+              },
+            },
+          },
         },
       },
-      {
-        $addFields: {
-          totalPurchases: { $size: "$sales" },
-          totalSpent: { $sum: "$sales.totalAmountToBePaid" },
-        },
-      },
-      {
-        $facet: {
-          customers: [
-            { $sort: { joinDate: -1 } },
-            { $skip: skip },
-            { $limit: Number(limit) },
-            { $project: { sales: 0 } },
-          ],
-          meta: [{ $count: "total" }],
-        },
-      },
+    });
+
+    // Stage 4: Sorting
+    const sortStage = {};
+    const validSortBy = [
+      "creditLimit", "joinDate", "totalPurchases",
+      "totalSpent", "totalDue", "totalNotInvoiced", "lastPurchaseDate"
     ];
+    if (validSortBy.includes(sortBy)) {
+      sortStage[sortBy] = sortOrderNum;
+    } else {
+      sortStage.joinDate = -1; // Default sort
+    }
+
+    // Stage 5: Facet for pagination and total count
+    pipeline.push({
+      $facet: {
+        customers: [
+          { $sort: sortStage },
+          { $skip: skip },
+          { $limit: limitNum },
+          {
+            $project: {
+              sales: 0, // Exclude the full sales array
+            },
+          },
+        ],
+        metadata: [{ $count: "totalItems" }],
+      },
+    });
 
     const result = await Customer.aggregate(pipeline);
 
-    res.status(200).json(
-      new ApiResponse(200, {
-        customers: result[0].customers,
-        totalItems: result[0].meta[0]?.total || 0,
-        currentPage: Number(page),
-      })
+    const customersSummary = result[0].customers;
+    const totalCustomers =
+      result[0].metadata.length > 0 ? result[0].metadata[0].totalItems : 0;
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          customers: customersSummary,
+          totalPages: Math.ceil(totalCustomers / limitNum),
+          currentPage: pageNum,
+          totalItems: totalCustomers,
+        },
+        "Customers summary fetched successfully"
+      )
     );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -283,5 +468,4 @@ module.exports = {
   deleteCustomer,
   getCustomerStats,
   getCustomersSummary,
-  downloadCustomerDocument,
 };
