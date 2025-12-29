@@ -48,7 +48,9 @@ async function createProductInWarehouse(req, res, next) {
       });
 
     if (validationErrors.length > 0) {
-      return next(new ApiError(400, validationErrors[0].message, validationErrors));
+      return next(
+        new ApiError(400, validationErrors[0].message, validationErrors)
+      );
     }
 
     const existingUnit = await Unit.findById(unit);
@@ -91,10 +93,15 @@ async function createProductInWarehouse(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`
+        )
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -129,7 +136,10 @@ async function getProductsByWarehouse(req, res, next) {
     // Initial match for the warehouse
     const mongoose = require("mongoose");
     pipeline.push({
-      $match: { warehouse: new mongoose.Types.ObjectId(warehouseId) },
+      $match: {
+        warehouse: new mongoose.Types.ObjectId(warehouseId),
+        isDeleted: false,
+      },
     });
 
     // Lookups for related data
@@ -140,6 +150,9 @@ async function getProductsByWarehouse(req, res, next) {
           localField: "LC",
           foreignField: "_id",
           as: "LC",
+          pipeline: [
+            { $match: { isDeleted: false } }, // only active LC
+          ],
         },
       },
       { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
@@ -149,6 +162,9 @@ async function getProductsByWarehouse(req, res, next) {
           localField: "category",
           foreignField: "_id",
           as: "category",
+          pipeline: [
+            { $match: { isDeleted: false } }, // only active category
+          ],
         },
       },
       { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
@@ -158,10 +174,42 @@ async function getProductsByWarehouse(req, res, next) {
           localField: "unit",
           foreignField: "_id",
           as: "unit",
+          pipeline: [
+            { $match: { isDeleted: false } }, // only active units
+          ],
         },
       },
       { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } }
     );
+    // pipeline.push(
+    //   {
+    //     $lookup: {
+    //       from: "lcs",
+    //       localField: "LC",
+    //       foreignField: "_id",
+    //       as: "LC",
+    //     },
+    //   },
+    //   { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+    //   {
+    //     $lookup: {
+    //       from: "categories",
+    //       localField: "category",
+    //       foreignField: "_id",
+    //       as: "category",
+    //     },
+    //   },
+    //   { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+    //   {
+    //     $lookup: {
+    //       from: "units",
+    //       localField: "unit",
+    //       foreignField: "_id",
+    //       as: "unit",
+    //     },
+    //   },
+    //   { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } }
+    // );
 
     // Search logic for product name and LC number
     if (search) {
@@ -247,7 +295,11 @@ async function getProductsByWarehouse(req, res, next) {
                 _id: "$LC._id",
                 basicInfo: { lcNumber: "$LC.basicInfo.lcNumber" },
               },
-              unit: { _id: "$unit._id", name: "$unit.name", type: "$unit.type" },
+              unit: {
+                _id: "$unit._id",
+                name: "$unit.name",
+                type: "$unit.type",
+              },
             },
           },
         ],
@@ -317,38 +369,85 @@ async function getProductInWarehouse(req, res, next) {
         $match: {
           _id: new mongoose.Types.ObjectId(productId),
           warehouse: new mongoose.Types.ObjectId(warehouseId),
+          isDeleted: { $ne: true },
         },
       },
       // --- Populate Product Fields ---
       {
         $lookup: {
           from: "lcs",
-          localField: "LC",
-          foreignField: "_id",
+          let: { lcId: "$LC" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$_id", "$$lcId"] },
+                    { $eq: ["$isDeleted", false] },
+                  ],
+                },
+              },
+            },
+          ],
           as: "LC",
         },
       },
+
       {
         $lookup: {
           from: "warehouses",
-          localField: "warehouse",
-          foreignField: "_id",
+          let: { warehouseId: "$warehouse" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$_id", "$$warehouseId"] },
+                    { $eq: ["$isDeleted", false] },
+                  ],
+                },
+              },
+            },
+          ],
           as: "warehouse",
         },
       },
       {
         $lookup: {
           from: "categories",
-          localField: "category",
-          foreignField: "_id",
+          let: { categoryId: "$category" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$_id", "$$categoryId"] },
+                    { $eq: ["$isDeleted", false] },
+                  ],
+                },
+              },
+            },
+          ],
           as: "category",
         },
       },
+
       {
         $lookup: {
           from: "units",
-          localField: "unit",
-          foreignField: "_id",
+          let: { unitId: "$unit" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$_id", "$$unitId"] },
+                    { $eq: ["$isDeleted", false] },
+                  ],
+                },
+              },
+            },
+          ],
           as: "unit",
         },
       },
@@ -362,17 +461,32 @@ async function getProductInWarehouse(req, res, next) {
       {
         $lookup: {
           from: "sales",
-          localField: "_id",
-          foreignField: "product",
+          let: { productId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$product", "$$productId"] },
+                    { $eq: ["$isDeleted", false] },
+                  ],
+                },
+              },
+            },
+          ],
           as: "sales",
         },
       },
+
       // --- Calculate stockStatus and Final Projection ---
       {
         $addFields: {
           // Calculate stockStatus
           totalInGrams: {
-            $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0],
+            $ifNull: [
+              { $multiply: ["$quantity", "$unit.conversionFactor"] },
+              0,
+            ],
           },
           // Calculate sales stats
           totalUnitsSold: { $sum: "$sales.quantity" },
@@ -425,6 +539,123 @@ async function getProductInWarehouse(req, res, next) {
         },
       },
     ];
+    // const pipeline = [
+    //   {
+    //     $match: {
+    //       _id: new mongoose.Types.ObjectId(productId),
+    //       warehouse: new mongoose.Types.ObjectId(warehouseId),
+    //       isDeleted: { $ne: true },
+    //     },
+    //   },
+    //   // --- Populate Product Fields ---
+    //   {
+    //     $lookup: {
+    //       from: "lcs",
+    //       localField: "LC",
+    //       foreignField: "_id",
+    //       as: "LC",
+    //     },
+    //   },
+    //   {
+    //     $lookup: {
+    //       from: "warehouses",
+    //       localField: "warehouse",
+    //       foreignField: "_id",
+    //       as: "warehouse",
+    //     },
+    //   },
+    //   {
+    //     $lookup: {
+    //       from: "categories",
+    //       localField: "category",
+    //       foreignField: "_id",
+    //       as: "category",
+    //     },
+    //   },
+    //   {
+    //     $lookup: {
+    //       from: "units",
+    //       localField: "unit",
+    //       foreignField: "_id",
+    //       as: "unit",
+    //     },
+    //   },
+    //   // Unwind the populated arrays
+    //   { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
+    //   { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+    //   { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+    //   { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
+
+    //   // --- Calculate Sales Stats ---
+    //   {
+    //     $lookup: {
+    //       from: "sales",
+    //       localField: "_id",
+    //       foreignField: "product",
+    //       as: "sales",
+    //     },
+    //   },
+    //   // --- Calculate stockStatus and Final Projection ---
+    //   {
+    //     $addFields: {
+    //       // Calculate stockStatus
+    //       totalInGrams: {
+    //         $ifNull: [
+    //           { $multiply: ["$quantity", "$unit.conversionFactor"] },
+    //           0,
+    //         ],
+    //       },
+    //       // Calculate sales stats
+    //       totalUnitsSold: { $sum: "$sales.quantity" },
+    //       totalRevenue: { $sum: "$sales.totalAmount" },
+    //       totalDueInvoices: {
+    //         $size: {
+    //           $filter: {
+    //             input: "$sales",
+    //             as: "sale",
+    //             cond: {
+    //               $and: [
+    //                 { $eq: ["$$sale.invoiceStatus", "Invoiced"] },
+    //                 { $eq: ["$$sale.paymentStatus", "Due payment"] },
+    //               ],
+    //             },
+    //           },
+    //         },
+    //       },
+    //       totalNotInvoiced: {
+    //         $size: {
+    //           $filter: {
+    //             input: "$sales",
+    //             as: "sale",
+    //             cond: { $eq: ["$$sale.invoiceStatus", "Not-invoiced"] },
+    //           },
+    //         },
+    //       },
+    //     },
+    //   },
+    //   {
+    //     $addFields: {
+    //       stockStatus: {
+    //         $switch: {
+    //           branches: [
+    //             { case: { $eq: ["$totalInGrams", 0] }, then: "No Stock" },
+    //             { case: { $lte: ["$totalInGrams", 10000] }, then: "Low" }, // 10 KG
+    //             { case: { $lte: ["$totalInGrams", 1000000] }, then: "Medium" }, // 1 TON
+    //           ],
+    //           default: "OK",
+    //         },
+    //       },
+    //     },
+    //   },
+    //   // Final cleanup
+    //   {
+    //     $project: {
+    //       sales: 0, // remove the sales array
+    //       totalInGrams: 0,
+    //       "unit.conversionFactor": 0, // remove conversion factor from the final output
+    //     },
+    //   },
+    // ];
 
     const results = await Product.aggregate(pipeline);
 
@@ -437,11 +668,7 @@ async function getProductInWarehouse(req, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(
-          200,
-          productWithStats,
-          "Product fetched successfully"
-        )
+        new ApiResponse(200, productWithStats, "Product fetched successfully")
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -451,10 +678,15 @@ async function getProductInWarehouse(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`
+        )
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -489,7 +721,9 @@ async function updateProductInWarehouse(req, res, next) {
           field: "unit",
           message: "The provided unit ID was not found",
         };
-        return next(new ApiError(404, validationError.message, [validationError]));
+        return next(
+          new ApiError(404, validationError.message, [validationError])
+        );
       }
     }
 
@@ -503,9 +737,7 @@ async function updateProductInWarehouse(req, res, next) {
     );
 
     if (!updated) {
-      return next(
-        new ApiError(404, "Product not found in this warehouse")
-      );
+      return next(new ApiError(404, "Product not found in this warehouse"));
     }
 
     return res
@@ -519,10 +751,15 @@ async function updateProductInWarehouse(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`
+        )
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -546,51 +783,71 @@ async function deleteProductInWarehouse(req, res, next) {
       warehouse: warehouseId,
     });
     if (!product) {
-      return next(
-        new ApiError(404, "Product not found in this warehouse")
-      );
+      return next(new ApiError(404, "Product not found in this warehouse"));
     }
 
     // Remove the product reference from the warehouse's product array
-    await Warehouse.findByIdAndUpdate(warehouseId, {
-      $pull: { product: productId },
-    });
+    // await Warehouse.findByIdAndUpdate(warehouseId, {
+    //   $pull: { product: productId },
+    // });
 
     // Then, delete the product
-    const deleted = await Product.findByIdAndDelete(productId);
+    // const deleted = await Product.findByIdAndDelete(productId);
+    const deleted = await Product.findByIdAndUpdate(productId, {
+      isDeleted: true,
+    });
+
+    if (!deleted) {
+      return next(new ApiError(404, "Product not found"));
+    }
+
+    // move to trash
+    await Trash.create({
+      docId: productId,
+      model: "Product",
+      deletedBy: req.cookies?.userId || req.user?._id || null,
+    });
 
     return res
       .status(200)
-      .json(new ApiResponse(200, deleted, "Product deleted successfully"));
-        } catch (error) {
-          if (error instanceof ApiError) {
-            return next(error);
-          }
-          // Handle MongoServerError for duplicate key (unique: true)
-          if (error.code === 11000 && error.keyPattern && error.keyValue) {
-            const field = Object.keys(error.keyPattern)[0];
-            const value = error.keyValue[field];
-            return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-          }
-          // Handle Mongoose validation errors
-          if (error.name === 'ValidationError') {
-            const firstErrorField = Object.keys(error.errors)[0];
-            let userFriendlyMessage = "Validation failed.";
-  
-            if (firstErrorField) {
-              userFriendlyMessage = `The field ${firstErrorField} is required.`;
-            }
-            return next(new ApiError(400, userFriendlyMessage, error.errors));
-          }
-          next(new ApiError(500, error.message || "Something went wrong"));
-        }
+      .json(
+        new ApiResponse(200, deleted, "Product moved to trash successfully")
+      );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`
+        )
+      ); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
       }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
+  }
+}
 
 // (The old global functions can be kept for admin overview purposes if needed, but won't be wired to the new routes)
 async function getAllProducts(req, res, next) {
   try {
     const products = await Product.aggregate([
       {
+        $match: { isDeleted: false },
         $lookup: {
           from: "lcs",
           localField: "LC",
@@ -631,10 +888,15 @@ async function getAllProducts(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`
+        )
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -653,7 +915,7 @@ async function getStockStatus(_, res, next) {
       {
         $facet: {
           lowStock: [
-            { $match: { quantity: { $gt: 0, $lt: 20 } } },
+            { $match: { quantity: { $gt: 0, $lt: 20 }, isDeleted: false } },
             {
               $lookup: {
                 from: "warehouses",
@@ -670,11 +932,13 @@ async function getStockStatus(_, res, next) {
                 as: "LC",
               },
             },
-            { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+            {
+              $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true },
+            },
             { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
           ],
           outOfStock: [
-            { $match: { quantity: 0 } },
+            { $match: { quantity: 0 , isDeleted: false } },
             {
               $lookup: {
                 from: "warehouses",
@@ -691,7 +955,9 @@ async function getStockStatus(_, res, next) {
                 as: "LC",
               },
             },
-            { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
+            {
+              $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true },
+            },
             { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
           ],
         },
@@ -717,10 +983,15 @@ async function getStockStatus(_, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`
+        )
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -768,10 +1039,15 @@ async function getProductSalesHistory(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`
+        )
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -783,7 +1059,6 @@ async function getProductSalesHistory(req, res, next) {
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
-
 
 module.exports = {
   createProductInWarehouse,

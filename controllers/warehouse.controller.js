@@ -55,11 +55,30 @@ const getAllWarehouses = async (_, res, next) => {
             {
               $lookup: {
                 from: "products",
-                localField: "_id",
-                foreignField: "warehouse",
+                let: { warehouseId: "$_id" },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [
+                          { $eq: ["$warehouse", "$$warehouseId"] },
+                          { $eq: ["$isDeleted", false] },
+                        ],
+                      },
+                    },
+                  },
+                ],
                 as: "products",
               },
             },
+            // {
+            //   $lookup: {
+            //     from: "products",
+            //     localField: "_id",
+            //     foreignField: "warehouse",
+            //     as: "products",
+            //   },
+            // },
             {
               $lookup: {
                 from: "users",
