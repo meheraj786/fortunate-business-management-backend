@@ -11,9 +11,17 @@ async function createAccount(req, res, next) {
   try {
     // Strict validation for payload keys
     const allowedFields = new Set([
-      "accountType", "accountName", "initialBalance", "accountHolderName",
-      "bankName", "branchName", "accountNumber", "swiftCode",
-      "serviceName", "mobileNumber", "routingNumber"
+      "accountType",
+      "accountName",
+      "initialBalance",
+      "accountHolderName",
+      "bankName",
+      "branchName",
+      "accountNumber",
+      "swiftCode",
+      "serviceName",
+      "mobileNumber",
+      "routingNumber",
     ]);
 
     const validationErrors = [];
@@ -21,14 +29,17 @@ async function createAccount(req, res, next) {
 
     for (const key of bodyKeys) {
       if (!allowedFields.has(key)) {
-        validationErrors.push({ field: key, message: `Field '${key}' is not allowed.` });
+        validationErrors.push({
+          field: key,
+          message: `Field '${key}' is not allowed.`,
+        });
       }
     }
 
     if (validationErrors.length > 0) {
       throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
-    
+
     const {
       accountType,
       accountName,
@@ -45,7 +56,12 @@ async function createAccount(req, res, next) {
 
     const validAccountTypes = ["Bank", "Mobile Banking", "Cash"];
     if (!validAccountTypes.includes(accountType)) {
-        throw new ApiError(400, `'${accountType}' is not a valid value for 'accountType'. Allowed values are: ${validAccountTypes.join(', ')}.`);
+      throw new ApiError(
+        400,
+        `'${accountType}' is not a valid value for 'accountType'. Allowed values are: ${validAccountTypes.join(
+          ", "
+        )}.`
+      );
     }
 
     // Business logic validation for initialBalance
@@ -96,28 +112,28 @@ async function createAccount(req, res, next) {
     // Check for existing archived accounts with similar details
     let existingArchivedAccountQuery = { status: "Archived" };
     if (accountType === "Cash") {
-        existingArchivedAccountQuery.accountName = accountName;
-        existingArchivedAccountQuery.accountHolderName = accountHolderName;
+      existingArchivedAccountQuery.accountName = accountName;
+      existingArchivedAccountQuery.accountHolderName = accountHolderName;
     } else if (accountType === "Bank") {
-        existingArchivedAccountQuery.bankName = bankName;
-        existingArchivedAccountQuery.accountNumber = accountNumber;
+      existingArchivedAccountQuery.bankName = bankName;
+      existingArchivedAccountQuery.accountNumber = accountNumber;
     } else if (accountType === "Mobile Banking") {
-        existingArchivedAccountQuery.serviceName = serviceName;
-        existingArchivedAccountQuery.mobileNumber = mobileNumber;
+      existingArchivedAccountQuery.serviceName = serviceName;
+      existingArchivedAccountQuery.mobileNumber = mobileNumber;
     }
 
-    const existingArchivedAccount = await Account.findOne(existingArchivedAccountQuery).session(session);
+    const existingArchivedAccount = await Account.findOne(
+      existingArchivedAccountQuery
+    ).session(session);
 
     if (existingArchivedAccount) {
-      throw new ApiError(400, `An archived account with similar details already exists for ${accountType} type.`);
+      throw new ApiError(
+        400,
+        `An archived account with similar details already exists for ${accountType} type.`
+      );
     }
 
-    const account = await Account.create(
-      [
-        accountData
-      ],
-      { session }
-    );
+    const account = await Account.create([accountData], { session });
 
     const createdAccount = account[0]; // Mongoose create with session returns an array
 
@@ -176,15 +192,22 @@ async function createAccount(req, res, next) {
       return next(error);
     }
     // Handle duplicate account errors from model's pre-save hook
-    if (error.name === 'DuplicateAccountError') {
+    if (error.name === "DuplicateAccountError") {
       return next(new ApiError(409, error.message)); // 409 Conflict
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       // Prioritize accountType enum error
-      if (error.errors.accountType && error.errors.accountType.kind === 'enum') {
+      if (
+        error.errors.accountType &&
+        error.errors.accountType.kind === "enum"
+      ) {
         const errorDetail = error.errors.accountType;
-        const userFriendlyMessage = `'${errorDetail.value}' is not a valid value for 'accountType'. Allowed values are: ${errorDetail.properties.enumValues.join(', ')}.`;
+        const userFriendlyMessage = `'${
+          errorDetail.value
+        }' is not a valid value for 'accountType'. Allowed values are: ${errorDetail.properties.enumValues.join(
+          ", "
+        )}.`;
         return next(new ApiError(400, userFriendlyMessage, error.errors));
       }
 
@@ -194,9 +217,13 @@ async function createAccount(req, res, next) {
 
       if (firstErrorField) {
         const errorDetail = error.errors[firstErrorField];
-        if (errorDetail.kind === 'enum') {
-          userFriendlyMessage = `'${errorDetail.value}' is not a valid value for the field '${firstErrorField}'. Allowed values are: ${errorDetail.properties.enumValues.join(', ')}.`;
-        } else if (errorDetail.kind === 'required') {
+        if (errorDetail.kind === "enum") {
+          userFriendlyMessage = `'${
+            errorDetail.value
+          }' is not a valid value for the field '${firstErrorField}'. Allowed values are: ${errorDetail.properties.enumValues.join(
+            ", "
+          )}.`;
+        } else if (errorDetail.kind === "required") {
           userFriendlyMessage = `The field '${firstErrorField}' is required.`;
         } else {
           userFriendlyMessage = errorDetail.message;
@@ -210,10 +237,15 @@ async function createAccount(req, res, next) {
 
 async function getAllAccounts(req, res, next) {
   try {
-    const accounts = await Account.find({ status: "Active" });
+    const accounts = await Account.find({
+      status: "Active",
+      isDeleted: { $ne: true },
+    });
     return res
       .status(200)
-      .json(new ApiResponse(200, accounts, "Active accounts fetched successfully"));
+      .json(
+        new ApiResponse(200, accounts, "Active accounts fetched successfully")
+      );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -222,11 +254,10 @@ async function getAllAccounts(req, res, next) {
   }
 }
 
-
 async function getAccountById(req, res, next) {
   try {
     const { id } = req.params;
-    const account = await Account.findById(id);
+    const account = await Account.findById(id, { isDeleted: { $ne: true } });
 
     if (!account) {
       return next(new ApiError(404, "Account not found"));
@@ -235,7 +266,9 @@ async function getAccountById(req, res, next) {
     if (account.status === "Archived") {
       return res
         .status(200)
-        .json(new ApiResponse(200, account, "Archived account fetched successfully"));
+        .json(
+          new ApiResponse(200, account, "Archived account fetched successfully")
+        );
     }
 
     return res
@@ -276,9 +309,18 @@ async function updateAccount(req, res, next) {
         );
         return res
           .status(200)
-          .json(new ApiResponse(200, updatedAccount, "Account reactivated successfully"));
+          .json(
+            new ApiResponse(
+              200,
+              updatedAccount,
+              "Account reactivated successfully"
+            )
+          );
       } else {
-        throw new ApiError(400, "Cannot update an archived account. Reactivate it first if you wish to modify its details.");
+        throw new ApiError(
+          400,
+          "Cannot update an archived account. Reactivate it first if you wish to modify its details."
+        );
       }
     }
 
@@ -312,7 +354,9 @@ async function updateAccount(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, updatedAccount, "Account updated successfully"));
+      .json(
+        new ApiResponse(200, updatedAccount, "Account updated successfully")
+      );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -334,51 +378,85 @@ async function deleteAccount(req, res, next) {
     }
 
     if (account.balance !== 0) {
-      throw new ApiError(400, "Cannot archive account with a non-zero balance.");
+      throw new ApiError(
+        400,
+        "Cannot archive account with a non-zero balance."
+      );
     }
 
-    const lcWithAccount = await mongoose.model('LC').findOne({
-      $or: [
-        { "basicInfo.accountId": id },
-        { "financialInfo.costs.accountId": id },
-        { "shippingCustomsInfo.costs.accountId": id },
-        { "agentTransportInfo.costs.accountId": id },
-        { "otherExpenses.costs.accountId": id }
-      ]
-    }).session(session);
+    const lcWithAccount = await mongoose
+      .model("LC")
+      .findOne({
+        $or: [
+          { "basicInfo.accountId": id },
+          { "financialInfo.costs.accountId": id },
+          { "shippingCustomsInfo.costs.accountId": id },
+          { "agentTransportInfo.costs.accountId": id },
+          { "otherExpenses.costs.accountId": id },
+        ],
+      })
+      .session(session);
 
     if (lcWithAccount) {
-      throw new ApiError(400, "Cannot archive account. It is associated with an LC.");
+      throw new ApiError(
+        400,
+        "Cannot archive account. It is associated with an LC."
+      );
     }
 
-    const saleWithAccount = await mongoose.model('Sales').findOne({
-      $or: [
-        { "costs.accountId": id },
-        { "payments.accountId": id }
-      ]
-    }).session(session);
+    const saleWithAccount = await mongoose
+      .model("Sales")
+      .findOne({
+        $or: [{ "costs.accountId": id }, { "payments.accountId": id }],
+      })
+      .session(session);
 
     if (saleWithAccount) {
-      throw new ApiError(400, "Cannot archive account. It is associated with a sale.");
+      throw new ApiError(
+        400,
+        "Cannot archive account. It is associated with a sale."
+      );
     }
 
-    const archivedAccount = await Account.findByIdAndUpdate(
-      id,
-      { status: "Archived" },
-      { new: true, session }
+    // const archivedAccount = await Account.findByIdAndUpdate(
+    //   id,
+    //   { status: "Archived" },
+    //   { new: true, session }
+    // );
+    const deletedBy = req.cookies?.userId || req.user?._id || null;
+
+    const Account = await Account.findOneAndUpdate(
+      { _id: id, isDeleted: { $ne: true } },
+      {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy,
+      },
+      { new: true }
     );
 
-    if (!archivedAccount) {
-      // This case should ideally not be reached if the above findById worked, but it's a safeguard.
-      throw new ApiError(404, "Account not found for archiving.");
-    }
+    await Trash.create({
+      docId: Account._id,
+      model: "Account",
+      deletedBy,
+    });
+
+    // if (!archivedAccount) {
+    //   // This case should ideally not be reached if the above findById worked, but it's a safeguard.
+    //   throw new ApiError(404, "Account not found for archiving.");
+    // }
 
     await session.commitTransaction();
     session.endSession();
 
-    return res
-      .status(200)
-      .json(new ApiResponse(200, archivedAccount, "Account archived successfully"));
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        archivedAccount,
+        "Account moved to Trash successfully"
+      )
+      // new ApiResponse(200, archivedAccount, "Account archived successfully")
+    );
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -398,6 +476,7 @@ async function getAccountDetails(req, res, next) {
       {
         $match: {
           _id: new mongoose.Types.ObjectId(id),
+          isDeleted: { $ne: true },
         },
       },
       {
@@ -461,15 +540,25 @@ async function getAccountDetails(req, res, next) {
           },
           totalIncomingTransactionsCount: {
             $sum: {
-              $cond: [{ $eq: ["$transactions.transactionType", "Income"] }, 1, 0],
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Income"] },
+                1,
+                0,
+              ],
             },
           },
           totalOutgoingTransactionsCount: {
             $sum: {
-              $cond: [{ $eq: ["$transactions.transactionType", "Expense"] }, 1, 0],
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Expense"] },
+                1,
+                0,
+              ],
             },
           },
-          totalTransactionAmount: { $sum: { $ifNull: ["$transactions.amount", 0] } },
+          totalTransactionAmount: {
+            $sum: { $ifNull: ["$transactions.amount", 0] },
+          },
         },
       },
       {
@@ -501,14 +590,17 @@ async function getAccountDetails(req, res, next) {
               $cond: [
                 { $eq: ["$totalTransactionsCount", 0] },
                 0,
-                { $divide: ["$totalTransactionAmount", "$totalTransactionsCount"] },
+                {
+                  $divide: [
+                    "$totalTransactionAmount",
+                    "$totalTransactionsCount",
+                  ],
+                },
               ],
             },
             totalTransactionsCount: "$totalTransactionsCount",
-            totalIncomingTransactionsCount:
-              "$totalIncomingTransactionsCount",
-            totalOutgoingTransactionsCount:
-              "$totalOutgoingTransactionsCount",
+            totalIncomingTransactionsCount: "$totalIncomingTransactionsCount",
+            totalOutgoingTransactionsCount: "$totalOutgoingTransactionsCount",
           },
           _id: 0,
         },
@@ -522,7 +614,7 @@ async function getAccountDetails(req, res, next) {
     // If there were no transactions, the aggregation will still return the account
     // with empty stats, which is the desired behavior.
     const accountDetails = results[0];
-     return res
+    return res
       .status(200)
       .json(
         new ApiResponse(
