@@ -1,17 +1,16 @@
 const DailyCash = require("../models/dailyCash.model");
 const Transaction = require("../models/transaction.model");
 const Account = require("../models/account.model");
+const Trash = require("../models/trash.model");
+const LC = require("../models/lc.model");
+const Sale = require("../models/sales.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose");
 const logger = require("../utils/logger");
 
-// @desc    Open a new cash session for the current day
-// @route   POST /api/cash/open
-// @access  Private (Admin)
 async function openCash(req, res, next) {
   try {
-    // 1. Validate date: Only allow opening for the current day
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -22,21 +21,17 @@ async function openCash(req, res, next) {
       return next(new ApiError(400, "Cash can only be opened for the current day."));
     }
 
-    // 2. Check if cash for today is already open
     const openSession = await DailyCash.findOne({ date: today, status: "Open" });
     if (openSession) {
       return next(new ApiError(400, `Daily cash for ${today.toDateString()} is already open.`));
     }
 
-    // 3. Calculate opening balance
     let openingBalance;
     const lastSessionToday = await DailyCash.findOne({ date: today }).sort({ createdAt: -1 });
 
     if (lastSessionToday) {
-      // This is a reopening on the same day. Opening balance is the last closing balance.
       openingBalance = lastSessionToday.closingBalance;
     } else {
-      // This is the first opening of the day. Auto-close previous day if forgotten.
       const previousDay = new Date(today);
       previousDay.setDate(today.getDate() - 1);
       previousDay.setHours(0, 0, 0, 0);
@@ -45,41 +40,32 @@ async function openCash(req, res, next) {
 
       if (lastSessionYesterday) {
         if (lastSessionYesterday.status === 'Open') {
-          // If yesterday was left open, we need to calculate its running balance and close it.
           const prevDayMetrics = await _calculateDailyCashMetrics(previousDay.toISOString());
-          openingBalance = prevDayMetrics.runningBalance; // Today's opening is yesterday's running balance
+          openingBalance = prevDayMetrics.runningBalance;
 
-          // Auto-close yesterday's session
           lastSessionYesterday.status = "Closed";
           const endOfPreviousDay = new Date(previousDay);
           endOfPreviousDay.setHours(23, 59, 59, 999);
           lastSessionYesterday.closedAt = endOfPreviousDay;
           lastSessionYesterday.closingBalance = openingBalance;
           await lastSessionYesterday.save();
-          logger.info(`Auto-closed daily cash for ${previousDay.toDateString()}.`);
-        } else { // Yesterday's last session was closed
+        } else {
           openingBalance = lastSessionYesterday.closingBalance;
         }
       } else {
-        // No session yesterday, could be the first ever opening in the system.
         const firstEverEntry = await DailyCash.findOne().sort({ createdAt: 'asc' });
         if (!firstEverEntry) {
-            // Sum all account balances as the very first opening balance
-            const totalAccountBalance = await Account.aggregate([
-                { $group: { _id: null, totalBalance: { $sum: "$balance" } } },
-            ]);
-            openingBalance = totalAccountBalance.length > 0 ? totalAccountBalance[0].totalBalance : 0;
+          const totalAccountBalance = await Account.aggregate([
+            { $match: { isDeleted: { $ne: true } } },
+            { $group: { _id: null, totalBalance: { $sum: "$balance" } } },
+          ]);
+          openingBalance = totalAccountBalance.length > 0 ? totalAccountBalance[0].totalBalance : 0;
         } else {
-            openingBalance = 0; // Default if no history and not the first ever
+          openingBalance = 0;
         }
       }
     }
-    
-    if (typeof openingBalance === 'undefined') {
-        return next(new ApiError(500, "Could not determine opening balance."));
-    }
 
-    // 4. Create new DailyCash session for today
     const newDailyCashSession = await DailyCash.create({
       date: today,
       status: "Open",
@@ -87,641 +73,263 @@ async function openCash(req, res, next) {
       openedAt: new Date(),
     });
 
-    return res
-      .status(201)
-      .json(new ApiResponse(201, newDailyCashSession, `Daily cash for ${today.toDateString()} opened successfully with an opening balance of ${openingBalance}.`));
+    return res.status(201).json(new ApiResponse(201, newDailyCashSession, "Daily cash opened."));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
-// @desc    Close the currently open cash session for a specific day
-// @route   POST /api/cash/close
-// @access  Private (Admin)
 async function closeCash(req, res, next) {
   try {
     const { date } = req.body;
-    if (!date) {
-      return next(new ApiError(400, "Date is required to close daily cash."));
-    }
+    if (!date) return next(new ApiError(400, "Date is required."));
 
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
 
-    // 1. Find the currently open session for the target date
     const openSession = await DailyCash.findOne({ date: targetDate, status: "Open" });
+    if (!openSession) return next(new ApiError(404, "No open session found."));
 
-    if (!openSession) {
-      return next(new ApiError(404, `No open daily cash session found for ${targetDate.toDateString()} to close.`));
-    }
-
-    // 2. Calculate final running balance for the WHOLE day
     const metrics = await _calculateDailyCashMetrics(targetDate.toISOString());
-    const finalRunningBalance = metrics.runningBalance;
-
-    // 3. Update the open session document
     openSession.status = "Closed";
     openSession.closedAt = new Date();
-    openSession.closingBalance = finalRunningBalance;
+    openSession.closingBalance = metrics.runningBalance;
     await openSession.save();
 
-    // 4. Recalculate metrics to get the final state with the closed session
-    const finalMetrics = await _calculateDailyCashMetrics(targetDate.toISOString());
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, finalMetrics, `Daily cash for ${targetDate.toDateString()} closed successfully with a closing balance of ${finalRunningBalance}.`));
+    return res.status(200).json(new ApiResponse(200, openSession, "Daily cash closed."));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
 
-// @desc    Get the status of the last cash session for a specific date
-// @route   GET /api/cash/status/:date
-// @access  Private
-async function getDailyCashStatus(req, res, next) {
-  try {
-    const { date } = req.query;
-    if (!date) {
-      return next(new ApiError(400, "Date is required to get daily cash status."));
-    }
-
-    const targetDate = new Date(date);
-    targetDate.setHours(0, 0, 0, 0);
-
-    // Find the last session for the date to determine the current status
-    const lastSession = await DailyCash.findOne({ date: targetDate }).sort({ createdAt: -1 });
-
-    if (lastSession) {
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            200,
-            { status: lastSession.status, date: lastSession.date },
-            `Daily cash status for ${targetDate.toDateString()} fetched successfully.`
-          )
-        );
-    } else {
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            200,
-            { status: "Not Opened Yet", date: targetDate },
-            `Daily cash for ${targetDate.toDateString()} has not been opened yet.`
-          )
-        );
-    }
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
-  }
-}
-
-// Helper function to calculate daily cash metrics for a whole day
 async function _calculateDailyCashMetrics(dateString) {
   const targetDate = new Date(dateString);
   targetDate.setHours(0, 0, 0, 0);
   const nextDay = new Date(targetDate);
   nextDay.setDate(targetDate.getDate() + 1);
 
-  // Get all sessions for the target date, sorted by creation time
   const sessions = await DailyCash.find({ date: targetDate }).sort({ createdAt: 'asc' });
-
-  let openingBalance = 0;
-  let status = "Not Opened Yet";
-
-  if (sessions.length > 0) {
-    // The day's opening balance is the opening balance of the very first session
-    openingBalance = sessions[0].openingBalance;
-    // The day's overall status is the status of the very last session
-    status = sessions[sessions.length - 1].status;
-  } else {
-    // If no sessions for today, calculate opening balance from previous day's last session
+  let openingBalance = sessions.length > 0 ? sessions[0].openingBalance : 0;
+  
+  if (sessions.length === 0) {
     const previousDay = new Date(targetDate);
     previousDay.setDate(targetDate.getDate() - 1);
-    previousDay.setHours(0, 0, 0, 0);
-
-    const prevDayLastSession = await DailyCash.findOne({ date: previousDay }).sort({ createdAt: -1 });
-
-    if (prevDayLastSession) {
-        if (prevDayLastSession.status === "Closed") {
-            openingBalance = prevDayLastSession.closingBalance || 0;
-        } else if (prevDayLastSession.status === "Open") {
-            // This case should ideally be handled by the startup/cron jobs, but as a fallback:
-            const prevDayMetrics = await _calculateDailyCashMetrics(previousDay.toISOString());
-            openingBalance = prevDayMetrics.runningBalance;
-        }
-    } else {
-        // Very first entry in the system logic
-        const firstEverEntry = await DailyCash.findOne().sort({ createdAt: 'asc' });
-        if (!firstEverEntry) {
-            const totalAccountBalance = await Account.aggregate([
-                { $group: { _id: null, totalBalance: { $sum: "$balance" } } },
-            ]);
-            openingBalance = totalAccountBalance.length > 0 ? totalAccountBalance[0].totalBalance : 0;
-        }
-    }
+    const prevSession = await DailyCash.findOne({ date: previousDay }).sort({ createdAt: -1 });
+    openingBalance = prevSession ? prevSession.closingBalance : 0;
   }
 
-  // --- Optimized Transaction Aggregation ---
-  const transactionStatsPipeline = [
+  const transactionResults = await Transaction.aggregate([
     {
       $match: {
         date: { $gte: targetDate, $lt: nextDay },
-      },
+        isDeleted: { $ne: true }
+      }
     },
     {
       $lookup: {
         from: "accounts",
         localField: "accountId",
         foreignField: "_id",
-        as: "accountInfo",
-      },
+        as: "account"
+      }
     },
-    {
-      $addFields: {
-        accountId: {
-          $let: {
-            vars: { acc: { $arrayElemAt: ["$accountInfo", 0] } },
-            in: {
-              _id: "$$acc._id",
-              accountName: "$$acc.accountName",
-              accountType: "$$acc.accountType",
-            },
-          },
-        },
-      },
-    },
-    { $project: { accountInfo: 0 } },
-    { $sort: { date: -1 } }, // Sort transactions descending by date
+    { $unwind: "$account" },
     {
       $group: {
         _id: null,
-        totalIncome: {
-          $sum: {
-            $cond: [{ $eq: ["$transactionType", "Income"] }, "$amount", 0],
-          },
-        },
-        totalExpenses: {
-          $sum: {
-            $cond: [{ $eq: ["$transactionType", "Expense"] }, "$amount", 0],
-          },
-        },
-        transactions: { $push: "$$ROOT" },
-      },
-    },
-  ];
+        totalIncome: { $sum: { $cond: [{ $eq: ["$transactionType", "Income"] }, "$amount", 0] } },
+        totalExpenses: { $sum: { $cond: [{ $eq: ["$transactionType", "Expense"] }, "$amount", 0] } },
+        transactions: { $push: "$$ROOT" }
+      }
+    }
+  ]);
 
-  const transactionResults = await Transaction.aggregate(transactionStatsPipeline);
-
-  let totalIncome = 0;
-  let totalExpenses = 0;
-  let transactions = [];
-
-  if (transactionResults.length > 0) {
-    totalIncome = transactionResults[0].totalIncome;
-    totalExpenses = transactionResults[0].totalExpenses;
-    transactions = transactionResults[0].transactions;
-  }
-  // --- End of Optimization ---
-
-  // Running balance is based on the day's starting opening balance
+  const totalIncome = transactionResults[0]?.totalIncome || 0;
+  const totalExpenses = transactionResults[0]?.totalExpenses || 0;
   const runningBalance = openingBalance + totalIncome - totalExpenses;
 
   return {
     date: targetDate,
-    status, // Status of the last session
-    openingBalance, // Opening balance of the first session
+    status: sessions[sessions.length - 1]?.status || "Closed",
+    openingBalance,
     totalIncome,
     totalExpenses,
     runningBalance,
-    transactions,
-    dailyCashSessions: sessions, // Return all session documents for the day
+    transactions: transactionResults[0]?.transactions || [],
+    dailyCashSessions: sessions
   };
 }
 
-
-// @desc    Get a summary of daily cash for a specific date
-// @route   GET /api/cash/summary/:date
-// @access  Private
 async function getDailyCashSummary(req, res, next) {
   try {
     const { date } = req.query;
-    if (!date) {
-      return next(new ApiError(400, "Date is required to get daily cash summary."));
-    }
     const metrics = await _calculateDailyCashMetrics(date);
-    return res.status(200).json(new ApiResponse(200, metrics, `Daily cash summary for ${new Date(date).toDateString()} fetched successfully.`));
+    res.status(200).json(new ApiResponse(200, metrics, "Summary fetched."));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(error);
   }
 }
-
-// @desc    Add a manual income transaction
-// @route   POST /api/cash/income
-// @access  Private
-const LC = require("../models/lc.model");
-const Sale = require("../models/sales.model");
 
 async function addIncome(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const {
-      amount,
-      category,
-      name, // income name
-      paymentMethod,
-      accountId,
-      description, // user provided description
-      lcId, // optional for LC category
-      salesId, // optional for Sales category
-    } = req.body;
-
-    // 1. Gatekeeper: Check if Daily Cash for today is Open
+    const { amount, category, name, paymentMethod, accountId, description, lcId, salesId } = req.body;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     const openSession = await DailyCash.findOne({ date: today, status: "Open" });
+    if (!openSession) throw new ApiError(400, "Daily cash is closed.");
 
-    if (!openSession) {
-      throw new ApiError(400, "Daily cash is closed. Cannot add income.");
-    }
-
-    // 2. Validate input
-    const validationErrors = [];
-    if (!amount || amount <= 0)
-      validationErrors.push({
-        field: "amount",
-        message: "Amount is required and must be positive.",
-      });
-    if (!category)
-      validationErrors.push({ field: "category", message: "Category is required." });
-    if (!name)
-      validationErrors.push({ field: "name", message: "Income name is required." });
-    if (!paymentMethod)
-      validationErrors.push({
-        field: "paymentMethod",
-        message: "Payment method is required.",
-      });
-    if (!accountId)
-      validationErrors.push({
-        field: "accountId",
-        message: "Account ID is required for payment.",
-      });
-
-    if (validationErrors.length > 0) {
-      throw new ApiError(400, validationErrors[0].message, validationErrors);
-    }
-
-    const account = await Account.findById(accountId).session(session);
+    const account = await Account.findOne({ _id: accountId, isDeleted: { $ne: true } }).session(session);
     if (!account) throw new ApiError(404, "Account not found.");
-    if (account.accountType !== paymentMethod) {
-      throw new ApiError(400, `Payment method '${paymentMethod}' requires a matching account type.`);
-    }
 
-    let finalDescription = description;
-    let reference = null;
-    let referenceModel = null;
-    let miscReference = {};
-    const incomeCategories = ["LC", "Sales", "Donation", "Commission", "Interest", "Service Charge", "Others"];
-    if (!incomeCategories.includes(category)) throw new ApiError(400, "Invalid income category.");
-
+    let reference = null, referenceModel = null, miscReference = {};
     if (category === "LC") {
-      if (!lcId) {
-        throw new ApiError(400, "LC ID is mandatory for LC income category.");
-      }
       const lc = await LC.findById(lcId);
-      if (!lc) {
-        throw new ApiError(404, "LC not found.");
-      }
-      // Updated description format for LC income
-      finalDescription = `${name} Income from LC Number: ${lc.basicInfo.lcNumber} via ${paymentMethod} Account: ${account.accountName} - holder name:${account.accountName}.`;
-      reference = lcId;
-      referenceModel = "LC";
-      miscReference = { lcNumber: lc.basicInfo.lcNumber };
+      reference = lcId; referenceModel = "LC"; miscReference = { lcNumber: lc?.basicInfo?.lcNumber };
     } else if (category === "Sales") {
-      if (!salesId) {
-        throw new ApiError(400, "Sales ID is mandatory for Sales income category.");
-      }
       const sale = await Sale.findById(salesId);
-      if (!sale) {
-        throw new ApiError(404, "Sale not found.");
-      }
-      // Updated description format for Sales income
-      finalDescription = `${name} Income from Sale ID: ${sale.saleId} (Customer: ${sale.customer.name}) via ${paymentMethod} Account: ${account.accountName} - holder name:${account.accountName}.`;
-      reference = salesId;
-      referenceModel = "Sale";
-      miscReference = { saleId: sale.saleId, customerName: sale.customer.name };
+      reference = salesId; referenceModel = "Sale"; miscReference = { saleId: sale?.saleId };
     }
 
-    // 3. Update Account Balance
     account.balance += amount;
     await account.save({ session });
 
-    const newTransaction = new Transaction({ accountId, date: new Date(), transactionType: "Income", amount, name, source: "Manual", paymentMethod, description: finalDescription, category, reference, referenceModel, miscReference });
-    await newTransaction.save({ session });
+    const transaction = await Transaction.create([{
+      accountId, amount, name, category, paymentMethod, description, reference, referenceModel, miscReference,
+      transactionType: "Income", date: new Date(), source: "Manual", isDeleted: false
+    }], { session });
 
     await session.commitTransaction();
-    session.endSession();
-
-    return res.status(201).json(new ApiResponse(201, newTransaction, "Income added successfully."));
+    res.status(201).json(new ApiResponse(201, transaction[0], "Income added."));
   } catch (error) {
     await session.abortTransaction();
+    next(error);
+  } finally {
     session.endSession();
-    if (error instanceof ApiError) { // This handles custom ApiError thrown earlier in the function
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    // Fallback for any other unexpected errors
-    next(new ApiError(500, error.message || "An internal server error occurred."));
   }
 }
 
-// @desc    Add a manual expense transaction
-// @route   POST /api/cash/expense
-// @access  Private
 async function addExpense(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { amount, category, name, paymentMethod, accountId, description = "No Description", lcId, salesId, lcCostCategory } = req.body;
-
-    // 1. Gatekeeper: Check if Daily Cash for today is Open
+    const { amount, category, name, paymentMethod, accountId, description, lcId, salesId, lcCostCategory } = req.body;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     const openSession = await DailyCash.findOne({ date: today, status: "Open" });
-    if (!openSession) throw new ApiError(400, "Daily cash is closed. Cannot add expense.");
+    if (!openSession) throw new ApiError(400, "Daily cash is closed.");
 
-    // 2. Universal Validation
-    const validationErrors = [];
-    if (!amount || amount <= 0)
-      validationErrors.push({
-        field: "amount",
-        message: "Amount is required and must be positive.",
-      });
-    if (!category)
-      validationErrors.push({ field: "category", message: "Category is required." });
-    if (!paymentMethod)
-      validationErrors.push({
-        field: "paymentMethod",
-        message: "Payment method is required.",
-      });
-    if (!accountId)
-      validationErrors.push({
-        field: "accountId",
-        message: "Account ID is required for payment.",
-      });
+    const account = await Account.findOne({ _id: accountId, isDeleted: { $ne: true } }).session(session);
+    if (!account || account.balance < amount) throw new ApiError(400, "Invalid account or insufficient balance.");
 
-    if (validationErrors.length > 0) {
-      throw new ApiError(400, validationErrors[0].message, validationErrors);
-    }
-
-    const account = await Account.findById(accountId).session(session);
-    if (!account) throw new ApiError(404, "Account not found.");
-    if (account.accountType !== paymentMethod) throw new ApiError(400, "Payment method requires a matching account type.");
-    if (account.balance < amount) throw new ApiError(400, `Insufficient balance in ${account.accountName}.`);
-
-    let finalDescription = description;
-    let transactionName = name; // Default to user-provided name
-    let reference = null;
-    let referenceModel = null;
-    let miscReference = {};
-    const expenseCategories = ["LC", "Sales", "Rent", "Salary", "Office Expense", "Transport", "Utility", "Others"];
-    if (!expenseCategories.includes(category)) throw new ApiError(400, "Invalid expense category.");
-
-    // 3. Category-Specific Logic
+    let reference = null, referenceModel = null, miscReference = {};
     if (category === "LC") {
-      if (!name) throw new ApiError(400, "An expense name is required for LC expenses.");
-      if (!lcId) throw new ApiError(400, "LC ID is mandatory for an LC expense.");
       const lc = await LC.findById(lcId).session(session);
-      if (!lc) throw new ApiError(404, "LC not found.");
-
-      const validLCCategories = ["financialInfo", "shippingCustomsInfo", "agentTransportInfo", "otherExpenses"];
-      const targetLCCostCategory = lcCostCategory && validLCCategories.includes(lcCostCategory) ? lcCostCategory : "otherExpenses";
-
-      if (!lc[targetLCCostCategory]) lc[targetLCCostCategory] = { costs: [] };
-      else if (!lc[targetLCCostCategory].costs) lc[targetLCCostCategory].costs = [];
-      
-      lc[targetLCCostCategory].costs.push({ name: name, amount, date: new Date(), paymentMethod, accountId });
+      const target = lcCostCategory || "otherExpenses";
+      lc[target].costs.push({ name, amount, date: new Date(), paymentMethod, accountId });
       await lc.save({ session });
-
-      finalDescription = `Expense for LC: ${lc.basicInfo.lcNumber}, Cost: ${name}.`;
-      reference = lcId;
-      referenceModel = "LC";
-      miscReference = { costName: name, lcNumber: lc.basicInfo.lcNumber, lcCostCategory: targetLCCostCategory };
-    
+      reference = lcId; referenceModel = "LC"; miscReference = { lcNumber: lc.basicInfo.lcNumber };
     } else if (category === "Sales") {
-      if (!name) throw new ApiError(400, "An expense name is required for Sales expenses.");
-      if (!salesId) throw new ApiError(400, "Sales ID is mandatory for a Sales expense.");
       const sale = await Sale.findById(salesId).session(session);
-      if (!sale) throw new ApiError(404, "Sale not found.");
-
-      sale.otherCharges.push({ name: name, amount });
-      await sale.save({ session }); // Let pre-save hook handle paymentStatus
-
-      finalDescription = `Expense for Sale: ${sale.saleId}, Cost: ${name}.`;
-      reference = salesId;
-      referenceModel = "Sale";
-      miscReference = { costName: name, saleId: sale.saleId, customerName: sale.customer.name };
-
-    } else {
-      // For all other categories, description is required, and name is derived
-      if (!description) {
-        throw new ApiError(400, "A description is required for this expense category.");
-      }
-      finalDescription = description;
-      transactionName = category; // Set the transaction name to the category itself
+      sale.otherCharges.push({ name, amount });
+      await sale.save({ session });
+      reference = salesId; referenceModel = "Sale"; miscReference = { saleId: sale.saleId };
     }
 
-    // 4. Update Account Balance and Create Transaction
     account.balance -= amount;
     await account.save({ session });
 
-    const newTransaction = new Transaction({ accountId, date: new Date(), transactionType: "Expense", amount, name: transactionName, source: "Manual", paymentMethod, description: finalDescription, category, reference, referenceModel, miscReference });
-    await newTransaction.save({ session });
+    const transaction = await Transaction.create([{
+      accountId, amount, name, category, paymentMethod, description, reference, referenceModel, miscReference,
+      transactionType: "Expense", date: new Date(), source: "Manual", isDeleted: false
+    }], { session });
 
     await session.commitTransaction();
-    session.endSession();
-
-    return res.status(201).json(new ApiResponse(201, newTransaction, "Expense added successfully."));
+    res.status(201).json(new ApiResponse(201, transaction[0], "Expense added."));
   } catch (error) {
     await session.abortTransaction();
+    next(error);
+  } finally {
     session.endSession();
-    if (error instanceof ApiError) { // This handles custom ApiError thrown earlier in the function
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true) - unlikely for dailyCash model
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    // Fallback for any other unexpected errors
-    next(new ApiError(500, error.message || "An internal server error occurred."));
   }
 }
 
-// @desc    Function to be called by a cron job to auto-close daily cash
+async function deleteIncomeOrExpense(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { id } = req.params;
+    const deletedBy = req.user?._id || req.cookies?.userId || null;
+
+    const transaction = await Transaction.findOne({ _id: id, isDeleted: { $ne: true } }).session(session);
+    if (!transaction) throw new ApiError(404, "Transaction not found.");
+
+    const transDate = new Date(transaction.date);
+    transDate.setHours(0, 0, 0, 0);
+    const openSession = await DailyCash.findOne({ date: transDate, status: "Open" }).session(session);
+    if (!openSession) throw new ApiError(400, "Daily cash session is closed for this date.");
+
+    const account = await Account.findById(transaction.accountId).session(session);
+    if (account) {
+      if (transaction.transactionType === "Income") account.balance -= transaction.amount;
+      else account.balance += transaction.amount;
+      await account.save({ session });
+    }
+
+    transaction.isDeleted = true;
+    await transaction.save({ session });
+
+    await Trash.create([{ docId: transaction._id, model: "Transaction", deletedBy }], { session });
+
+    await session.commitTransaction();
+    res.status(200).json(new ApiResponse(200, null, "Transaction deleted."));
+  } catch (error) {
+    await session.abortTransaction();
+    next(error);
+  } finally {
+    session.endSession();
+  }
+}
+
+async function getDailyCashStatus(req, res, next) {
+  try {
+    const { date } = req.query;
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+    const lastSession = await DailyCash.findOne({ date: targetDate }).sort({ createdAt: -1 });
+    res.status(200).json(new ApiResponse(200, { status: lastSession?.status || "Not Opened Yet", date: targetDate }));
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function autoCloseDailyCashForCron() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
   const openSession = await DailyCash.findOne({ date: today, status: "Open" });
-
   if (openSession) {
-    try {
-      const metrics = await _calculateDailyCashMetrics(today.toISOString());
-      const finalRunningBalance = metrics.runningBalance;
-
-      openSession.status = "Closed";
-      const endOfDay = new Date();
-      endOfDay.setHours(23, 59, 59, 999);
-      openSession.closedAt = endOfDay;
-      openSession.closingBalance = finalRunningBalance;
-      await openSession.save();
-      logger.info(`Successfully auto-closed daily cash for ${today.toDateString()} via cron job.`);
-    } catch (error) {
-      logger.error(`Error auto-closing daily cash for ${today.toDateString()} via cron job:`, error);
-    }
+    const metrics = await _calculateDailyCashMetrics(today.toISOString());
+    openSession.status = "Closed";
+    openSession.closedAt = new Date();
+    openSession.closingBalance = metrics.runningBalance;
+    await openSession.save();
   }
 }
 
-// @desc    Function to be called on server startup to close any missed daily cash entries
 async function closeMissedDailyCashEntries() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
-  try {
-    const missedEntries = await DailyCash.find({ date: { $lt: today }, status: "Open" });
-
-    if (missedEntries.length > 0) {
-      logger.info(`Found ${missedEntries.length} missed daily cash entries to close.`);
-      for (const entry of missedEntries) {
-        try {
-          const metrics = await _calculateDailyCashMetrics(entry.date.toISOString());
-          entry.status = "Closed";
-          const endOfDay = new Date(entry.date);
-          endOfDay.setHours(23, 59, 59, 999);
-          entry.closedAt = endOfDay;
-          entry.closingBalance = metrics.runningBalance;
-          await entry.save();
-          logger.info(`Successfully closed missed daily cash for ${entry.date.toDateString()}.`);
-        } catch (error) {
-          logger.error(`Error closing missed daily cash for ${entry.date.toDateString()}:`, error);
-        }
-      }
-    } else {
-      logger.info("No missed daily cash entries found on startup.");
-    }
-  } catch (error) {
-    logger.error("Error finding missed daily cash entries:", error);
+  const missed = await DailyCash.find({ date: { $lt: today }, status: "Open" });
+  for (const entry of missed) {
+    const metrics = await _calculateDailyCashMetrics(entry.date.toISOString());
+    entry.status = "Closed";
+    entry.closedAt = new Date();
+    entry.closingBalance = metrics.runningBalance;
+    await entry.save();
   }
-}
-
-async function deleteIncomeOrExpense(){
-
 }
 
 module.exports = {
