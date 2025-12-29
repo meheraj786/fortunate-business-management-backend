@@ -19,10 +19,15 @@ const registerUser = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+      return next(
+        new ApiError(
+          409,
+          `A user with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for user
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -38,7 +43,7 @@ const registerUser = async (req, res, next) => {
 const loginUser = async (req, res, next) => {
   try {
     console.log(process.env.SECRET_KEY);
-    
+
     const { email, password } = req.body;
     const validationErrors = [];
     if (!email)
@@ -49,12 +54,15 @@ const loginUser = async (req, res, next) => {
         message: "Password is required",
       });
 
+
     if (validationErrors.length > 0) {
-      return next(new ApiError(400, validationErrors[0].message, validationErrors));
+      return next(
+        new ApiError(400, validationErrors[0].message, validationErrors)
+      );
     }
 
     const user = await User.findOne({ email }).select("+password");
-    if (!user) {
+    if (!user || user.isDeleted) {
       return next(new ApiError(404, "User not found"));
     }
 
@@ -83,10 +91,15 @@ const loginUser = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+      return next(
+        new ApiError(
+          409,
+          `A user with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for user
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -106,7 +119,9 @@ const logoutUser = async (_, res, next) => {
       sameSite: "none",
     });
 
-    return res.status(200).json(new ApiResponse(200, {}, "Logged out successfully"));
+    return res
+      .status(200)
+      .json(new ApiResponse(200, {}, "Logged out successfully"));
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -115,10 +130,15 @@ const logoutUser = async (_, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+      return next(
+        new ApiError(
+          409,
+          `A user with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for user
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -136,7 +156,7 @@ const getUser = async (req, res, next) => {
     const fetchedUser = await User.findById(req.params.id).populate(
       "warehouse"
     );
-    if (!fetchedUser) {
+    if (!fetchedUser || fetchedUser.isDeleted) {
       return next(new ApiError(404, "User not found"));
     }
 
@@ -151,10 +171,15 @@ const getUser = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+      return next(
+        new ApiError(
+          409,
+          `A user with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for user
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -169,7 +194,7 @@ const getUser = async (req, res, next) => {
 const getProfile = async (req, res, next) => {
   try {
     const fetchedUser = await User.findById(req.user._id).populate("warehouse");
-    if (!fetchedUser) {
+    if (!fetchedUser || fetchedUser.isDeleted) {
       return next(new ApiError(404, "User not found"));
     }
 
@@ -184,10 +209,15 @@ const getProfile = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+      return next(
+        new ApiError(
+          409,
+          `A user with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for user
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -202,6 +232,11 @@ const getProfile = async (req, res, next) => {
 const getAllUser = async (req, res, next) => {
   try {
     const fetchedUser = await User.aggregate([
+      {
+        $match: {
+          isDeleted: false,
+        },
+      },
       {
         $lookup: {
           from: "warehouses",
@@ -232,10 +267,15 @@ const getAllUser = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+      return next(
+        new ApiError(
+          409,
+          `A user with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for user
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -267,16 +307,16 @@ const updateUser = async (req, res, next) => {
     }
 
     if (updates.access && Array.isArray(updates.access)) {
-      updates.access = updates.access.map(module => {
+      updates.access = updates.access.map((module) => {
         let permissions = module.permissions || [];
-        
+
         permissions = permissions.flat(Infinity);
-        
+
         permissions = [...new Set(permissions)];
-        
+
         return {
           module: module.module,
-          permissions: permissions
+          permissions: permissions,
         };
       });
     }
@@ -300,10 +340,15 @@ const updateUser = async (req, res, next) => {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A user with the same ${field} '${value}' already exists.`)); // Specific message for user
+      return next(
+        new ApiError(
+          409,
+          `A user with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for user
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -316,6 +361,34 @@ const updateUser = async (req, res, next) => {
   }
 };
 
+const deleteUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const deletedBy = req.cookies?.userId || req.user?._id || null;
+    const deletedUser = await User.findByIdAndUpdate(
+      id,
+      { isDeleted: true },
+      { new: true }
+    );
+    if (!deletedUser) {
+      return next(new ApiError(404, "User not found"));
+    }
+    // move to trash
+    await Trash.create({
+      docId: deletedUser._id,
+      model: "User",
+      deletedBy,
+    });
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, deletedUser, "User moved to trash successfully")
+      );
+  } catch (error) {
+    next(new ApiError(500, error.message || "Something went wrong"));
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -323,5 +396,6 @@ module.exports = {
   logoutUser,
   getAllUser,
   getUser,
-  updateUser
+  updateUser,
+  deleteUser
 };
