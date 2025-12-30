@@ -59,6 +59,50 @@ async function createSale(req, res, next) {
       saleDate,
     } = req.body;
 
+    if (customerInfo && customerInfo.customerId) {
+      const customer = await Customer.findById(customerInfo.customerId).session(
+        session
+      );
+      if (!customer) {
+        throw new ApiError(404, "Customer specified for credit check not found.");
+      }
+
+      const sales = await Sales.find({
+        "customer.customerId": customer._id,
+        isDeleted: false,
+      }).session(session);
+      let outstandingDues = 0;
+      sales.forEach((sale) => {
+        const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
+        const due = sale.totalAmountToBePaid - totalPaid;
+        if (due > 0) {
+          outstandingDues += due;
+        }
+      });
+
+      const costsTotal = costs.reduce((acc, cost) => acc + cost.amount, 0);
+      const totalAmountToBePaidForNewSale =
+        quantity * pricePerUnit + costsTotal - discount;
+      const totalPaidForNewSale = originalPayments.reduce(
+        (acc, p) => acc + p.amount,
+        0
+      );
+      const newSaleDue = totalAmountToBePaidForNewSale - totalPaidForNewSale;
+
+      if (newSaleDue > 0) {
+        if (customer.creditLimit > 0) {
+          if (outstandingDues + newSaleDue > customer.creditLimit) {
+            throw new ApiError(400, `Credit limit of ${customer.creditLimit} exceeded.`);
+          }
+        } else {
+          throw new ApiError(
+            400,
+            `This customer has no credit limit. Full payment is required.`
+          );
+        }
+      }
+    }
+
     // Transform payments to ensure lowercase methods and correct accountId
     const transformedPayments = originalPayments.map(p => ({
       ...p,
