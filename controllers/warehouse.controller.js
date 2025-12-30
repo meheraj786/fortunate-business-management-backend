@@ -1,63 +1,85 @@
 const Warehouse = require("../models/warehouse.model");
 const Product = require("../models/product.model");
-const Trash = require("../models/trash.model");
-const User = require("../models/user.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
-const mongoose = require("mongoose");
+const Trash = require("../models/trash.model");
 
-/* ================= CREATE WAREHOUSE ================= */
 const createWarehouse = async (req, res, next) => {
   try {
     const { name, location } = req.body;
+
     const warehouse = await Warehouse.create({ name, location });
-    return res.status(201).json(new ApiResponse(201, warehouse, "Warehouse created successfully"));
+
+    return res
+      .status(201)
+      .json(new ApiResponse(201, warehouse, "Warehouse created successfully"));
   } catch (error) {
-    if (error.code === 11000) {
-      return next(new ApiError(409, "A warehouse with this name already exists."));
+    if (error instanceof ApiError) {
+      return next(error);
     }
-    next(new ApiError(500, error.message || "Internal Server Error"));
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
+    }
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
-/* ================= GET ALL WAREHOUSES (Access Controlled) ================= */
-const getAllWarehouses = async (req, res, next) => {
+const getAllWarehouses = async (_, res, next) => {
   try {
-    // Auth Middleware থেকে ইউজার ইনফো নেওয়ার চেষ্টা
-    const userId = req.user?._id || req.cookies?.userId;
-    const userRole = req.user?.roleName || req.cookies?.role;
-
-    let accessFilter = { isDeleted: { $ne: true } };
-
-    // যদি ইউজার SUPER_ADMIN না হয়, তবে তার প্রোফাইল থেকে ওয়্যারহাউস আইডি নিতে হবে
-    if (userRole !== "SUPER_ADMIN") {
-      if (!userId) {
-        return next(new ApiError(401, "Unauthorized access. User ID missing."));
-      }
-
-      const user = await User.findById(userId);
-      if (!user) {
-        return next(new ApiError(404, "User not found."));
-      }
-
-      // ইউজারকে যেসব ওয়্যারহাউস এসাইন করা হয়েছে শুধু সেগুলোই ফিল্টার হবে
-      accessFilter._id = { $in: user.warehouse || [] };
-    }
-
     const results = await Warehouse.aggregate([
-      { $match: accessFilter },
+      {
+        $match: {
+          isDeleted: false,
+        },
+      },
       {
         $facet: {
           warehouses: [
             {
               $lookup: {
                 from: "products",
-                localField: "_id",
-                foreignField: "warehouse",
-                pipeline: [{ $match: { isDeleted: { $ne: true } } }],
+                let: { warehouseId: "$_id" },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [
+                          { $eq: ["$warehouse", "$$warehouseId"] },
+                          { $eq: ["$isDeleted", false] },
+                        ],
+                      },
+                    },
+                  },
+                ],
                 as: "products",
               },
             },
+            // {
+            //   $lookup: {
+            //     from: "products",
+            //     localField: "_id",
+            //     foreignField: "warehouse",
+            //     as: "products",
+            //   },
+            // },
             {
               $lookup: {
                 from: "users",
@@ -105,7 +127,11 @@ const getAllWarehouses = async (req, res, next) => {
                 },
               },
             },
-            { $project: { products: 0 } },
+            {
+              $project: {
+                products: 0,
+              },
+            },
           ],
           globalStats: [
             {
@@ -113,7 +139,6 @@ const getAllWarehouses = async (req, res, next) => {
                 from: "products",
                 localField: "_id",
                 foreignField: "warehouse",
-                pipeline: [{ $match: { isDeleted: { $ne: true } } }],
                 as: "products",
               },
             },
@@ -122,17 +147,30 @@ const getAllWarehouses = async (req, res, next) => {
               $group: {
                 _id: null,
                 totalproducts: { $sum: 1 },
-                "Total In-stock": { $sum: { $cond: [{ $gt: ["$products.quantity", 0] }, 1, 0] } },
+                "Total In-stock": {
+                  $sum: {
+                    $cond: [{ $gt: ["$products.quantity", 0] }, 1, 0],
+                  },
+                },
                 "total lowstock": {
                   $sum: {
                     $cond: [
-                      { $and: [{ $gt: ["$products.quantity", 0] }, { $lt: ["$products.quantity", 20] }] },
+                      {
+                        $and: [
+                          { $gt: ["$products.quantity", 0] },
+                          { $lt: ["$products.quantity", 20] },
+                        ],
+                      },
                       1,
                       0,
                     ],
                   },
                 },
-                "Total outofstock": { $sum: { $cond: [{ $eq: ["$products.quantity", 0] }, 1, 0] } },
+                "Total outofstock": {
+                  $sum: {
+                    $cond: [{ $eq: ["$products.quantity", 0] }, 1, 0],
+                  },
+                },
               },
             },
             { $project: { _id: 0 } },
@@ -142,7 +180,7 @@ const getAllWarehouses = async (req, res, next) => {
     ]);
 
     const response = {
-      warehouses: results[0].warehouses || [],
+      warehouses: results[0].warehouses,
       stats: results[0].globalStats[0] || {
         totalproducts: 0,
         "Total In-stock": 0,
@@ -151,30 +189,50 @@ const getAllWarehouses = async (req, res, next) => {
       },
     };
 
-    return res.status(200).json(new ApiResponse(200, response, "Warehouses fetched successfully"));
+    return res
+      .status(200)
+      .json(new ApiResponse(200, response, "Warehouses fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message || "Internal Server Error"));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
+    }
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
-/* ================= GET WAREHOUSE BY ID ================= */
 const getWarehouseById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user?._id || req.cookies?.userId;
-    const userRole = req.user?.roleName || req.cookies?.role;
-
-    // Access Check for non-superadmin
-    if (userRole !== "SUPER_ADMIN") {
-      const user = await User.findById(userId);
-      const hasAccess = user?.warehouse?.some((whId) => whId.toString() === id);
-      if (!hasAccess) {
-        return next(new ApiError(403, "You do not have access to this warehouse."));
-      }
-    }
+    const mongoose = require("mongoose");
 
     const results = await Warehouse.aggregate([
-      { $match: { _id: new mongoose.Types.ObjectId(id), isDeleted: { $ne: true } } },
+      {
+        $match: {
+          _id: new mongoose.Types.ObjectId(id),
+          isDeleted: false,
+        },
+      },
       {
         $lookup: {
           from: "users",
@@ -188,7 +246,6 @@ const getWarehouseById = async (req, res, next) => {
           from: "products",
           localField: "_id",
           foreignField: "warehouse",
-          pipeline: [{ $match: { isDeleted: { $ne: true } } }],
           as: "products",
         },
       },
@@ -232,70 +289,157 @@ const getWarehouseById = async (req, res, next) => {
           },
         },
       },
-      { $project: { products: 0, "manager.password": 0 } },
+      {
+        $project: {
+          products: 0,
+          "manager.password": 0, // Ensure sensitive fields are not returned
+        },
+      },
     ]);
 
-    if (!results.length) return next(new ApiError(404, "Warehouse not found"));
-    return res.status(200).json(new ApiResponse(200, results[0], "Warehouse fetched successfully"));
+    if (!results.length) {
+      return next(new ApiError(404, "Warehouse not found"));
+    }
+
+    const warehouse = results[0];
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, warehouse, "Warehouse fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message || "Internal Server Error"));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
+    }
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
-/* ================= UPDATE WAREHOUSE ================= */
 const updateWarehouse = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const warehouse = await Warehouse.findOneAndUpdate(
-      { _id: id, isDeleted: { $ne: true } },
-      req.body,
-      { new: true, runValidators: true }
-    ).populate("manager");
+    const updates = req.body;
 
-    if (!warehouse) return next(new ApiError(404, "Warehouse not found"));
-    return res.status(200).json(new ApiResponse(200, warehouse, "Warehouse updated successfully"));
-  } catch (error) {
-    if (error.code === 11000) {
-      return next(new ApiError(409, "A warehouse with this name already exists."));
+    const warehouse = await Warehouse.findByIdAndUpdate(id, updates, {
+      new: true,
+      runValidators: true,
+    })
+      .populate("manager")
+      .populate("product");
+
+    if (!warehouse) {
+      return next(new ApiError(404, "Warehouse not found"));
     }
-    next(new ApiError(500, error.message || "Internal Server Error"));
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, warehouse, "Warehouse updated successfully"));
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
+    }
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 
-/* ================= DELETE WAREHOUSE (Soft Delete) ================= */
 const deleteWarehouse = async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
     const { id } = req.params;
-    const deletedBy = req.user?._id || req.cookies?.userId || null;
+    const warehouse = await Warehouse.findById(id);
 
-    const warehouse = await Warehouse.findOne({ _id: id, isDeleted: { $ne: true } }).session(session);
-    if (!warehouse) throw new ApiError(404, "Warehouse not found");
-
-    // চেক করা হচ্ছে কোনো প্রোডাক্ট আছে কি না যা ডিলিট করা হয়নি
-    const activeProducts = await Product.countDocuments({ warehouse: id, isDeleted: { $ne: true } }).session(session);
-    if (activeProducts > 0) {
-      throw new ApiError(400, "Cannot delete warehouse with active products. Move or delete them first.");
+    if (!warehouse) {
+      return next(new ApiError(404, "Warehouse not found"));
     }
 
-    warehouse.isDeleted = true;
-    await warehouse.save({ session });
+    if (warehouse.product && warehouse.product.length > 0) {
+      return next(
+        new ApiError(
+          400,
+          "Cannot delete warehouse with associated products. Please move or delete them first."
+        )
+      );
+    }
 
-    await Trash.create([{
-      docId: warehouse._id,
+    await Warehouse.findByIdAndUpdate(id, { isDeleted: true });
+
+    // move to trash
+    await Trash.create({
+      docId: id,
       model: "Warehouse",
-      deletedBy
-    }], { session });
+      deletedBy: req.cookies?.userId || req.user?._id || null,
+      deletedAt: new Date(),
+    });
 
-    await session.commitTransaction();
-    session.endSession();
-
-    return res.status(200).json(new ApiResponse(200, {}, "Warehouse moved to trash successfully"));
+    return res
+      .status(200)
+      .json(new ApiResponse(200, {}, "Warehouse moved to trash successfully"));
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    next(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(
+        new ApiError(
+          409,
+          `A warehouse with the same ${field} '${value}' already exists.`
+        )
+      ); // Specific message for warehouse
+    }
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 };
 

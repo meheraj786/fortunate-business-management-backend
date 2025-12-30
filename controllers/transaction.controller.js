@@ -1,30 +1,24 @@
 const Transaction = require("../models/transaction.model");
-const Trash = require("../models/trash.model");
-const Account = require("../models/account.model"); // Added
-const DailyCash = require("../models/dailyCash.model"); // Added
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
-const mongoose = require("mongoose");
+const Trash = require("../models/trash.model");
 
-/* ================= GET TRANSACTION DETAILS ================= */
 async function getTransactionDetails(req, res, next) {
   try {
-    const { id } = req.params;
-    if (!id) return next(new ApiError(400, "Transaction ID is required."));
+    const { id } = req.params; // Transaction ID
+    if (!id) {
+      return next(new ApiError(400, "Transaction ID is required."));
+    }
+    const mongoose = require("mongoose");
 
     const results = await Transaction.aggregate([
-      { 
-        $match: { 
-          _id: new mongoose.Types.ObjectId(id),
-          isDeleted: { $ne: true } 
-        } 
-      },
+      { $match: { _id: new mongoose.Types.ObjectId(id) } },
       {
         $lookup: {
           from: "accounts",
           localField: "accountId",
           foreignField: "_id",
-          as: "account",
+          as: "accountId",
         },
       },
       {
@@ -43,7 +37,7 @@ async function getTransactionDetails(req, res, next) {
           as: "lcRef",
         },
       },
-      { $unwind: { path: "$account", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$accountId", preserveNullAndEmptyArrays: true } },
       { $unwind: { path: "$saleRef", preserveNullAndEmptyArrays: true } },
       { $unwind: { path: "$lcRef", preserveNullAndEmptyArrays: true } },
       {
@@ -57,91 +51,197 @@ async function getTransactionDetails(req, res, next) {
           },
         },
       },
-      { $project: { saleRef: 0, lcRef: 0 } },
+      { $project: { saleRef: 0, lcRef: 0 } }, // Clean up
     ]);
 
     if (results.length === 0) {
-      return next(new ApiError(404, "Transaction not found or has been deleted."));
+      return next(new ApiError(404, "Transaction not found."));
     }
+    const transaction = results[0];
 
-    return res.status(200).json(new ApiResponse(200, results[0], "Transaction details fetched successfully."));
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, transaction, "Transaction details fetched successfully.")
+      );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-/* ================= GET ALL TRANSACTIONS ================= */
 async function getAllTransactions(req, res, next) {
   try {
     const {
-      page = 1, limit = 10, transactionType, category,
-      paymentMethod, search, sortBy = "date", sortOrder = "desc",
+      page = 1,
+      limit = 10,
+      transactionType,
+      category,
+      paymentMethod,
+      search,
+      sortBy = "date",
+      sortOrder = "desc",
     } = req.query;
 
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
     const skip = (pageNum - 1) * limitNum;
 
-    const matchQuery = { isDeleted: { $ne: true } }; 
+    const pipeline = [];
+
+    // --- Main Filtering Stage ---
+    const matchQuery = {};
     if (transactionType) matchQuery.transactionType = transactionType;
     if (category) matchQuery.category = category;
     if (paymentMethod) matchQuery.paymentMethod = paymentMethod;
     if (search) matchQuery.description = { $regex: search, $options: "i" };
 
+    if (Object.keys(matchQuery).length > 0) {
+      pipeline.push({ $match: matchQuery });
+    }
+
     const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
 
-    const pipeline = [
-      { $match: matchQuery },
-      {
-        $facet: {
-          data: [
-            { $sort: sort },
-            { $skip: skip },
-            { $limit: limitNum },
-            {
-              $lookup: {
-                from: "accounts",
-                localField: "accountId",
-                foreignField: "_id",
-                as: "account",
+    // --- Facet Stage for Parallel Execution ---
+    pipeline.push({
+      $facet: {
+        // Facet 1: Main data with pagination and lookups
+        data: [
+          { $sort: sort },
+          { $skip: skip },
+          { $limit: limitNum },
+          {
+            $lookup: {
+              from: "accounts",
+              localField: "accountId",
+              foreignField: "_id",
+              as: "accountId",
+            },
+          },
+          {
+            $lookup: {
+              from: "sales",
+              localField: "reference",
+              foreignField: "_id",
+              as: "saleRef",
+            },
+          },
+          {
+            $lookup: {
+              from: "lcs",
+              localField: "reference",
+              foreignField: "_id",
+              as: "lcRef",
+            },
+          },
+          { $unwind: { path: "$accountId", preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: "$saleRef", preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: "$lcRef", preserveNullAndEmptyArrays: true } },
+          {
+            $addFields: {
+              reference: {
+                $cond: {
+                  if: { $eq: ["$referenceModel", "Sale"] },
+                  then: "$saleRef",
+                  else: "$lcRef",
+                },
               },
             },
-            { $unwind: { path: "$account", preserveNullAndEmptyArrays: true } },
-          ],
-          metadata: [{ $count: "total" }],
-          categories: [
-            { $group: { _id: "$category" } },
-            { $project: { _id: 0, category: "$_id" } },
-          ],
-        },
+          },
+          { $project: { saleRef: 0, lcRef: 0 } }, // Clean up
+        ],
+        // Facet 2: Metadata for total count
+        metadata: [{ $count: "total" }],
+        // Facet 3: Distinct categories
+        categories: [
+          { $group: { _id: "$category" } },
+          { $project: { _id: 0, category: "$_id" } },
+        ],
       },
-    ];
+    });
 
     const result = await Transaction.aggregate(pipeline);
-    const transactions = result[0].data;
-    const totalCount = result[0].metadata[0]?.total || 0;
-    const categories = result[0].categories.map((c) => c.category);
 
-    res.status(200).json(new ApiResponse(200, {
+    const transactions = result[0].data;
+    const totalCount = result[0].metadata[0] ? result[0].metadata[0].total : 0;
+    const categories = result[0].categories.map(c => c.category);
+
+    const response = {
       transactions: {
         docs: transactions,
         totalDocs: totalCount,
         limit: limitNum,
         totalPages: Math.ceil(totalCount / limitNum),
         page: pageNum,
+        // You can add other pagination fields if needed
       },
       categories,
-    }, "Transactions fetched successfully."));
+    };
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, response, "All transactions fetched successfully.")
+      );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`
+        )
+      ); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-/* ================= GET STATS ================= */
 async function getTransactionStats(req, res, next) {
   try {
-    const { startDate, endDate, transactionType, category, paymentMethod, accountId } = req.query;
-    const matchQuery = { isDeleted: { $ne: true } };
+    const {
+      startDate,
+      endDate,
+      transactionType,
+      category,
+      paymentMethod,
+      accountId,
+    } = req.query;
+
+    const matchQuery = {};
 
     if (startDate || endDate) {
       matchQuery.date = {};
@@ -151,7 +251,7 @@ async function getTransactionStats(req, res, next) {
     if (transactionType) matchQuery.transactionType = transactionType;
     if (category) matchQuery.category = category;
     if (paymentMethod) matchQuery.paymentMethod = paymentMethod;
-    if (accountId) matchQuery.accountId = new mongoose.Types.ObjectId(accountId);
+    if (accountId) matchQuery.accountId = accountId;
 
     const stats = await Transaction.aggregate([
       { $match: matchQuery },
@@ -164,8 +264,20 @@ async function getTransactionStats(req, res, next) {
                 totalTransactionsCount: { $sum: 1 },
                 totalAmount: { $sum: "$amount" },
                 averageTransactionAmount: { $avg: "$amount" },
+                maxTransactionAmount: { $max: "$amount" },
+                minTransactionAmount: { $min: "$amount" },
               },
             },
+            {
+                $project: {
+                    _id: 0,
+                    totalTransactionsCount: 1,
+                    totalAmount: 1,
+                    averageTransactionAmount: 1,
+                    maxTransactionAmount: 1,
+                    minTransactionAmount: 1,
+                }
+            }
           ],
           paymentMethodStats: [
             {
@@ -175,108 +287,207 @@ async function getTransactionStats(req, res, next) {
                 totalAmount: { $sum: "$amount" },
               },
             },
+            {
+                $project: {
+                    _id: 0, // Exclude _id
+                    paymentMethod: "$_id",
+                    count: 1,
+                    totalAmount: 1,
+                }
+            }
           ],
+        },
+      },
+      {
+        $project: {
+          overall: { $arrayElemAt: ["$overallStats", 0] },
+          paymentMethods: "$paymentMethodStats",
         },
       },
     ]);
 
-    const result = stats[0];
+    // Format the paymentMethodStats into the desired output
     const formattedStats = {
-      totalTransactionsCount: result.overallStats[0]?.totalTransactionsCount || 0,
-      totalAmount: result.overallStats[0]?.totalAmount || 0,
-      totalBankTransactionsAmount: result.paymentMethodStats.find(p => p._id === 'Bank')?.totalAmount || 0,
-      totalCashTransactionsAmount: result.paymentMethodStats.find(p => p._id === 'Cash')?.totalAmount || 0,
-      totalMobileBankingTransactionsAmount: result.paymentMethodStats.find(p => p._id === 'Mobile Banking')?.totalAmount || 0,
+      totalTransactionsCount: stats[0]?.overall?.totalTransactionsCount || 0,
+      totalAmount: stats[0]?.overall?.totalAmount || 0,
+      averageTransactionAmount: stats[0]?.overall?.averageTransactionAmount || 0,
+      maxTransactionAmount: stats[0]?.overall?.maxTransactionAmount || 0,
+      minTransactionAmount: stats[0]?.overall?.minTransactionAmount || 0,
+      totalBankTransactionCount: 0,
+      totalMobileBankingTransactionCount: 0,
+      totalCashTransactionCount: 0,
+      totalBankTransactionsAmount: 0,
+      totalMobileBankingTransactionsAmount: 0,
+      totalCashTransactionsAmount: 0,
     };
 
-    res.status(200).json(new ApiResponse(200, formattedStats, "Stats fetched successfully."));
+    stats[0]?.paymentMethods?.forEach((pmStat) => {
+      if (pmStat.paymentMethod === "Bank") {
+        formattedStats.totalBankTransactionCount = pmStat.count;
+        formattedStats.totalBankTransactionsAmount = pmStat.totalAmount;
+      } else if (pmStat.paymentMethod === "Mobile Banking") {
+        formattedStats.totalMobileBankingTransactionCount = pmStat.count;
+        formattedStats.totalMobileBankingTransactionsAmount = pmStat.totalAmount;
+      } else if (pmStat.paymentMethod === "Cash") {
+        formattedStats.totalCashTransactionCount = pmStat.count;
+        formattedStats.totalCashTransactionsAmount = pmStat.totalAmount;
+      }
+    });
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          formattedStats,
+          "Transaction statistics fetched successfully."
+        )
+      );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-/* ================= GET TRANSACTIONS BY ACCOUNT ================= */
 async function getTransactionsByAccount(req, res, next) {
   try {
     const { accountId } = req.params;
-    const { page = 1, limit = 10, search } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = "date",
+      sortOrder = "desc",
+      category,
+      transactionType,
+      paymentMethod,
+      search,
+    } = req.query;
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const matchQuery = { 
-      accountId: new mongoose.Types.ObjectId(accountId),
-      isDeleted: { $ne: true } 
-    };
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
+    const mongoose = require("mongoose");
 
+    const pipeline = [];
+
+    // --- Main Filtering Stage ---
+    const matchQuery = { accountId: new mongoose.Types.ObjectId(accountId) };
+    if (category) matchQuery.category = category;
+    if (transactionType) matchQuery.transactionType = transactionType;
+    if (paymentMethod) matchQuery.paymentMethod = paymentMethod;
     if (search) matchQuery.description = { $regex: search, $options: "i" };
 
-    const [transactions, total] = await Promise.all([
-      Transaction.find(matchQuery).sort({ date: -1 }).skip(skip).limit(parseInt(limit)),
-      Transaction.countDocuments(matchQuery)
-    ]);
+    pipeline.push({ $match: matchQuery });
+    
+    const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
 
-    res.status(200).json(new ApiResponse(200, {
-      transactions: { docs: transactions, totalDocs: total, page: parseInt(page), limit: parseInt(limit) }
-    }, "Account transactions fetched."));
+    // --- Facet Stage for Parallel Execution ---
+    pipeline.push({
+      $facet: {
+        // Facet 1: Main data with pagination and lookups
+        data: [
+          { $sort: sort },
+          { $skip: skip },
+          { $limit: limitNum },
+          {
+            $lookup: {
+              from: "accounts",
+              localField: "accountId",
+              foreignField: "_id",
+              as: "accountId",
+            },
+          },
+          {
+            $lookup: {
+              from: "sales",
+              localField: "reference",
+              foreignField: "_id",
+              as: "saleRef",
+            },
+          },
+          {
+            $lookup: {
+              from: "lcs",
+              localField: "reference",
+              foreignField: "_id",
+              as: "lcRef",
+            },
+          },
+          { $unwind: { path: "$accountId", preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: "$saleRef", preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: "$lcRef", preserveNullAndEmptyArrays: true } },
+          {
+            $addFields: {
+              reference: {
+                $cond: {
+                  if: { $eq: ["$referenceModel", "Sale"] },
+                  then: "$saleRef",
+                  else: "$lcRef",
+                },
+              },
+            },
+          },
+          { $project: { saleRef: 0, lcRef: 0 } }, // Clean up
+        ],
+        // Facet 2: Metadata for total count
+        metadata: [{ $count: "total" }],
+        // Facet 3: Distinct categories for this account's transactions
+        categories: [
+          { $group: { _id: "$category" } },
+          { $project: { _id: 0, category: "$_id" } },
+        ],
+      },
+    });
+
+    const result = await Transaction.aggregate(pipeline);
+
+    const transactions = result[0].data;
+    const totalCount = result[0].metadata[0] ? result[0].metadata[0].total : 0;
+    const categories = result[0].categories.map(c => c.category);
+
+    const response = {
+      transactions: {
+        docs: transactions,
+        totalDocs: totalCount,
+        limit: limitNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        page: pageNum,
+      },
+      categories,
+    };
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          response,
+          "Transactions for the account fetched successfully."
+        )
+      );
   } catch (error) {
-    next(new ApiError(500, error.message));
-  }
-}
-
-/* ================= DELETE TRANSACTION (SOFT) WITH BALANCE ADJUSTMENT ================= */
-async function deleteTransaction(req, res, next) {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
-    const { id } = req.params;
-    const deletedBy = req.user?._id || req.cookies?.userId || null;
-
-    if (!id) throw new ApiError(400, "Transaction ID is required.");
-
-    // 1. Find transaction
-    const transaction = await Transaction.findOne({ _id: id, isDeleted: { $ne: true } }).session(session);
-    if (!transaction) {
-      throw new ApiError(404, "Transaction not found or already deleted.");
+    if (error instanceof ApiError) {
+      return next(error);
     }
-
-    // 2. Gatekeeper: Check Daily Cash status for the transaction's date
-    const transDate = new Date(transaction.date);
-    transDate.setHours(0, 0, 0, 0);
-    const dailySession = await DailyCash.findOne({ date: transDate, status: "Open" }).session(session);
-
-    if (!dailySession) {
-      throw new ApiError(400, `Cannot delete. Daily cash session for ${transDate.toDateString()} is already closed.`);
-    }
-
-    // 3. Adjust Account Balance
-    const account = await Account.findById(transaction.accountId).session(session);
-    if (account) {
-      if (transaction.transactionType === "Income") {
-        account.balance -= transaction.amount; // Income delete korle account balance kombe
-      } else if (transaction.transactionType === "Expense") {
-        account.balance += transaction.amount; // Expense delete korle account balance barbe
-      }
-      await account.save({ session });
-    }
-
-    // 4. Mark Transaction as deleted
-    transaction.isDeleted = true;
-    await transaction.save({ session });
-
-    // 5. Create Trash entry
-    await Trash.create([{
-      docId: transaction._id,
-      model: "Transaction",
-      deletedBy,
-    }], { session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return res.status(200).json(new ApiResponse(200, null, "Transaction deleted and balance adjusted successfully."));
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    next(error);
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
@@ -285,5 +496,4 @@ module.exports = {
   getTransactionDetails,
   getTransactionStats,
   getTransactionsByAccount,
-  deleteTransaction,
 };

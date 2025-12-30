@@ -1,32 +1,160 @@
 const Account = require("../models/account.model");
 const Transaction = require("../models/transaction.model");
-const DailyCash = require("../models/dailyCash.model");
-const Trash = require("../models/trash.model");
+const DailyCash = require("../models/dailyCash.model"); // Added
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
-const mongoose = require("mongoose");
+const mongoose = require("mongoose"); // Added
+const Trash = require("../models/trash.model");
 
-// --- CREATE ---
 async function createAccount(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { initialBalance = 0, ...rest } = req.body;
-    const accountArray = await Account.create(
-      [{ ...rest, balance: initialBalance }],
-      { session }
-    );
-    const createdAccount = accountArray[0];
+    // Strict validation for payload keys
+    const allowedFields = new Set([
+      "accountType",
+      "accountName",
+      "initialBalance",
+      "accountHolderName",
+      "bankName",
+      "branchName",
+      "accountNumber",
+      "swiftCode",
+      "serviceName",
+      "mobileNumber",
+      "routingNumber",
+    ]);
 
-    if (initialBalance > 0) {
+    const validationErrors = [];
+    const bodyKeys = Object.keys(req.body);
+
+    for (const key of bodyKeys) {
+      if (!allowedFields.has(key)) {
+        validationErrors.push({
+          field: key,
+          message: `Field '${key}' is not allowed.`,
+        });
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
+    }
+
+    const {
+      accountType,
+      accountName,
+      initialBalance, // Changed from balance to initialBalance
+      accountHolderName,
+      bankName,
+      branchName,
+      accountNumber,
+      swiftCode,
+      serviceName,
+      mobileNumber,
+      routingNumber,
+    } = req.body;
+
+    const validAccountTypes = ["Bank", "Mobile Banking", "Cash"];
+    if (!validAccountTypes.includes(accountType)) {
+      throw new ApiError(
+        400,
+        `'${accountType}' is not a valid value for 'accountType'. Allowed values are: ${validAccountTypes.join(
+          ", "
+        )}.`
+      );
+    }
+
+    // Business logic validation for initialBalance
+    if (initialBalance < 0) {
+      validationErrors.push({
+        field: "initialBalance",
+        message: "Initial balance cannot be negative",
+      });
+    }
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
+    }
+
+    // Filter fields based on accountType to prevent irrelevant data storage
+    let accountData;
+
+    if (accountType === "Cash") {
+      accountData = {
+        accountType,
+        accountName,
+        balance: initialBalance || 0,
+        accountHolderName,
+      };
+    } else if (accountType === "Bank") {
+      accountData = {
+        accountType,
+        accountName,
+        balance: initialBalance || 0,
+        accountHolderName,
+        bankName,
+        branchName,
+        accountNumber,
+        swiftCode,
+        routingNumber,
+      };
+    } else if (accountType === "Mobile Banking") {
+      accountData = {
+        accountType,
+        accountName,
+        balance: initialBalance || 0,
+        accountHolderName,
+        serviceName,
+        mobileNumber,
+      };
+    }
+
+    // Check for existing archived accounts with similar details
+    let existingArchivedAccountQuery = { status: "Archived" };
+    if (accountType === "Cash") {
+      existingArchivedAccountQuery.accountName = accountName;
+      existingArchivedAccountQuery.accountHolderName = accountHolderName;
+    } else if (accountType === "Bank") {
+      existingArchivedAccountQuery.bankName = bankName;
+      existingArchivedAccountQuery.accountNumber = accountNumber;
+    } else if (accountType === "Mobile Banking") {
+      existingArchivedAccountQuery.serviceName = serviceName;
+      existingArchivedAccountQuery.mobileNumber = mobileNumber;
+    }
+
+    const existingArchivedAccount = await Account.findOne(
+      existingArchivedAccountQuery
+    ).session(session);
+
+    if (existingArchivedAccount) {
+      throw new ApiError(
+        400,
+        `An archived account with similar details already exists for ${accountType} type.`
+      );
+    }
+
+    const account = await Account.create([accountData], { session });
+
+    const createdAccount = account[0]; // Mongoose create with session returns an array
+
+    // If there's an initial balance, create a corresponding transaction
+    if (initialBalance && initialBalance > 0) {
+      // 1. DailyCash Gatekeeper Check
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const dailyCash = await DailyCash.findOne({ date: today }).session(
-        session
-      );
-      if (!dailyCash || dailyCash.status === "Closed")
-        throw new ApiError(400, "Daily cash is closed.");
+      const dailyCash = await DailyCash.findOne({ date: today })
+        .sort({ createdAt: -1 })
+        .session(session);
 
+      if (!dailyCash || dailyCash.status === "Closed") {
+        throw new ApiError(
+          400,
+          `Daily cash is closed for ${today.toDateString()}. Cannot create account with initial balance. Open daily cash first.`
+        );
+      }
+
+      // 2. Create Transaction for initial balance
       await Transaction.create(
         [
           {
@@ -36,94 +164,321 @@ async function createAccount(req, res, next) {
             amount: initialBalance,
             name: "Initial Balance",
             source: "Account",
-            paymentMethod: createdAccount.accountType,
+            paymentMethod: createdAccount.accountType, // Use the account's type as payment method
+            description: `Initial balance for new ${createdAccount.accountType} account '${createdAccount.accountName}'`,
             category: "Initial Balance",
+            miscReference: {
+              accountId: createdAccount._id,
+              accountName: createdAccount.accountName,
+              accountType: createdAccount.accountType,
+            },
           },
         ],
         { session }
       );
     }
+
     await session.commitTransaction();
-    res.status(201).json(new ApiResponse(201, createdAccount, "Success"));
+    session.endSession();
+
+    return res
+      .status(201)
+      .json(
+        new ApiResponse(201, createdAccount, "Account created successfully")
+      );
   } catch (error) {
     await session.abortTransaction();
-    next(new ApiError(400, error.message));
-  } finally {
     session.endSession();
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle duplicate account errors from model's pre-save hook
+    if (error.name === "DuplicateAccountError") {
+      return next(new ApiError(409, error.message)); // 409 Conflict
+    }
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      // Prioritize accountType enum error
+      if (
+        error.errors.accountType &&
+        error.errors.accountType.kind === "enum"
+      ) {
+        const errorDetail = error.errors.accountType;
+        const userFriendlyMessage = `'${
+          errorDetail.value
+        }' is not a valid value for 'accountType'. Allowed values are: ${errorDetail.properties.enumValues.join(
+          ", "
+        )}.`;
+        return next(new ApiError(400, userFriendlyMessage, error.errors));
+      }
+
+      // Fallback for other validation errors
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        const errorDetail = error.errors[firstErrorField];
+        if (errorDetail.kind === "enum") {
+          userFriendlyMessage = `'${
+            errorDetail.value
+          }' is not a valid value for the field '${firstErrorField}'. Allowed values are: ${errorDetail.properties.enumValues.join(
+            ", "
+          )}.`;
+        } else if (errorDetail.kind === "required") {
+          userFriendlyMessage = `The field '${firstErrorField}' is required.`;
+        } else {
+          userFriendlyMessage = errorDetail.message;
+        }
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-// --- GET ALL ---
 async function getAllAccounts(req, res, next) {
   try {
-    const accounts = await Account.find({ status: "Active" });
-    res.status(200).json(new ApiResponse(200, accounts, "Fetched"));
+    const accounts = await Account.find({
+      status: "Active",
+      isDeleted: { $ne: true },
+    });
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, accounts, "Active accounts fetched successfully")
+      );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-// --- GET BY ID ---
 async function getAccountById(req, res, next) {
   try {
-    const account = await Account.findById(req.params.id);
-    if (!account) throw new ApiError(404, "Account not found");
-    res.status(200).json(new ApiResponse(200, account, "Fetched"));
+    const { id } = req.params;
+    const account = await Account.findById(id, { isDeleted: { $ne: true } });
+
+    if (!account) {
+      return next(new ApiError(404, "Account not found"));
+    }
+
+    if (account.status === "Archived") {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(200, account, "Archived account fetched successfully")
+        );
+    }
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, account, "Account fetched successfully"));
   } catch (error) {
-    next(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-// --- UPDATE ---
 async function updateAccount(req, res, next) {
   try {
-    if (req.body.balance) delete req.body.balance;
-    const updated = await Account.findByIdAndUpdate(req.params.id, req.body, {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const existingAccount = await Account.findById(id);
+
+    if (!existingAccount) {
+      return next(new ApiError(404, "Account not found"));
+    }
+
+    // Prevent direct update of the balance
+    if (updateData.balance) {
+      delete updateData.balance;
+    }
+
+    // If the account is archived, prevent updates unless it's a reactivation
+    if (existingAccount.status === "Archived") {
+      if (updateData.status === "Active") {
+        // Allow reactivation, but remove other updateData to prevent unexpected changes
+        const updatedAccount = await Account.findByIdAndUpdate(
+          id,
+          { status: "Active" }, // Only update status for reactivation
+          { new: true, runValidators: true }
+        );
+        return res
+          .status(200)
+          .json(
+            new ApiResponse(
+              200,
+              updatedAccount,
+              "Account reactivated successfully"
+            )
+          );
+      } else {
+        throw new ApiError(
+          400,
+          "Cannot update an archived account. Reactivate it first if you wish to modify its details."
+        );
+      }
+    }
+
+    // Check for actual changes before updating
+    let hasChanges = false;
+    for (const key in updateData) {
+      if (Object.prototype.hasOwnProperty.call(updateData, key)) {
+        // Compare values, ensuring proper handling of different types if necessary.
+        // Mongoose document properties can be accessed directly.
+        if (existingAccount[key] !== updateData[key]) {
+          hasChanges = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasChanges) {
+      return res
+        .status(200)
+        .json(new ApiResponse(200, existingAccount, "No changes made"));
+    }
+
+    const updatedAccount = await Account.findByIdAndUpdate(id, updateData, {
       new: true,
+      runValidators: true,
     });
-    if (!updated) throw new ApiError(404, "Not found");
-    res.status(200).json(new ApiResponse(200, updated, "Updated"));
+
+    if (!updatedAccount) {
+      return next(new ApiError(404, "Account not found"));
+    }
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, updatedAccount, "Account updated successfully")
+      );
   } catch (error) {
-    next(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-// --- DELETE (SOFT) ---
 async function deleteAccount(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
     const { id } = req.params;
+
     const account = await Account.findById(id).session(session);
-    if (!account) throw new ApiError(404, "Not found");
-    if (account.balance !== 0) throw new ApiError(400, "Balance must be zero");
 
-    account.isDeleted = true;
-    await account.save({ session });
+    if (!account) {
+      throw new ApiError(404, "Account not found");
+    }
 
-    await Trash.create(
-      [{ docId: id, model: "Account", deletedBy: req.user?._id }],
-      { session }
+    if (account.balance !== 0) {
+      throw new ApiError(
+        400,
+        "Cannot archive account with a non-zero balance."
+      );
+    }
+
+    const lcWithAccount = await mongoose
+      .model("LC")
+      .findOne({
+        $or: [
+          { "basicInfo.accountId": id },
+          { "financialInfo.costs.accountId": id },
+          { "shippingCustomsInfo.costs.accountId": id },
+          { "agentTransportInfo.costs.accountId": id },
+          { "otherExpenses.costs.accountId": id },
+        ],
+      })
+      .session(session);
+
+    if (lcWithAccount) {
+      throw new ApiError(
+        400,
+        "Cannot archive account. It is associated with an LC."
+      );
+    }
+
+    const saleWithAccount = await mongoose
+      .model("Sales")
+      .findOne({
+        $or: [{ "costs.accountId": id }, { "payments.accountId": id }],
+      })
+      .session(session);
+
+    if (saleWithAccount) {
+      throw new ApiError(
+        400,
+        "Cannot archive account. It is associated with a sale."
+      );
+    }
+
+    // const archivedAccount = await Account.findByIdAndUpdate(
+    //   id,
+    //   { status: "Archived" },
+    //   { new: true, session }
+    // );
+    const deletedBy = req.cookies?.userId || req.user?._id || null;
+
+    const Account = await Account.findOneAndUpdate(
+      { _id: id, isDeleted: { $ne: true } },
+      {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy,
+      },
+      { new: true }
     );
 
+    await Trash.create({
+      docId: Account._id,
+      model: "Account",
+      deletedBy,
+      deletedAt: new Date(),
+    });
+
+    // if (!archivedAccount) {
+    //   // This case should ideally not be reached if the above findById worked, but it's a safeguard.
+    //   throw new ApiError(404, "Account not found for archiving.");
+    // }
+
     await session.commitTransaction();
-    res.status(200).json(new ApiResponse(200, null, "Deleted"));
+    session.endSession();
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        archivedAccount,
+        "Account moved to Trash successfully"
+      )
+      // new ApiResponse(200, archivedAccount, "Account archived successfully")
+    );
   } catch (error) {
     await session.abortTransaction();
-    next(error);
-  } finally {
     session.endSession();
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
-// --- DETAILS (FIXED AGGREGATION) ---
 async function getAccountDetails(req, res, next) {
   try {
+    const { id } = req.params;
+    const mongoose = require("mongoose");
+
     const results = await Account.aggregate([
       {
         $match: {
-          _id: new mongoose.Types.ObjectId(req.params.id),
-          isDeleted: { $ne: true }, // পুরাতন ডাটা পাওয়ার জন্য $ne: true ব্যবহার করা হয়েছে
+          _id: new mongoose.Types.ObjectId(id),
+          isDeleted: { $ne: true },
         },
       },
       {
@@ -135,47 +490,146 @@ async function getAccountDetails(req, res, next) {
         },
       },
       {
-        $addFields: {
+        $unwind: {
+          path: "$transactions",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $group: {
+          _id: "$_id",
+          // Bring account fields back
+          doc: { $first: "$$ROOT" },
+          // Calculate stats
           totalIncome: {
             $sum: {
-              $map: {
-                input: {
-                  $filter: {
-                    input: "$transactions",
-                    as: "t",
-                    cond: { $eq: ["$$t.transactionType", "Income"] },
-                  },
-                },
-                as: "i",
-                in: "$$i.amount",
-              },
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Income"] },
+                "$transactions.amount",
+                0,
+              ],
             },
           },
           totalExpense: {
             $sum: {
-              $map: {
-                input: {
-                  $filter: {
-                    input: "$transactions",
-                    as: "t",
-                    cond: { $eq: ["$$t.transactionType", "Expense"] },
-                  },
-                },
-                as: "e",
-                in: "$$e.amount",
-              },
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Expense"] },
+                "$transactions.amount",
+                0,
+              ],
             },
           },
-          transactionCount: { $size: "$transactions" },
+          largestIncome: {
+            $max: {
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Income"] },
+                "$transactions.amount",
+                0,
+              ],
+            },
+          },
+          largestExpense: {
+            $max: {
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Expense"] },
+                "$transactions.amount",
+                0,
+              ],
+            },
+          },
+          totalTransactionsCount: {
+            $sum: { $cond: [{ $ifNull: ["$transactions._id", false] }, 1, 0] },
+          },
+          totalIncomingTransactionsCount: {
+            $sum: {
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Income"] },
+                1,
+                0,
+              ],
+            },
+          },
+          totalOutgoingTransactionsCount: {
+            $sum: {
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Expense"] },
+                1,
+                0,
+              ],
+            },
+          },
+          totalTransactionAmount: {
+            $sum: { $ifNull: ["$transactions.amount", 0] },
+          },
         },
       },
-      { $project: { transactions: 0 } },
+      {
+        $project: {
+          account: {
+            _id: "$doc._id",
+            accountType: "$doc.accountType",
+            accountName: "$doc.accountName",
+            balance: "$doc.balance",
+            accountHolderName: "$doc.accountHolderName",
+            bankName: "$doc.bankName",
+            branchName: "$doc.branchName",
+            accountNumber: "$doc.accountNumber",
+            swiftCode: "$doc.swiftCode",
+            serviceName: "$doc.serviceName",
+            mobileNumber: "$doc.mobileNumber",
+            routingNumber: "$doc.routingNumber",
+            status: "$doc.status",
+            createdAt: "$doc.createdAt",
+            updatedAt: "$doc.updatedAt",
+          },
+          stats: {
+            currentBalance: "$doc.balance",
+            totalIncome: "$totalIncome",
+            totalExpense: "$totalExpense",
+            largestIncome: "$largestIncome",
+            largestExpense: "$largestExpense",
+            averageTransactionAmount: {
+              $cond: [
+                { $eq: ["$totalTransactionsCount", 0] },
+                0,
+                {
+                  $divide: [
+                    "$totalTransactionAmount",
+                    "$totalTransactionsCount",
+                  ],
+                },
+              ],
+            },
+            totalTransactionsCount: "$totalTransactionsCount",
+            totalIncomingTransactionsCount: "$totalIncomingTransactionsCount",
+            totalOutgoingTransactionsCount: "$totalOutgoingTransactionsCount",
+          },
+          _id: 0,
+        },
+      },
     ]);
 
-    if (!results.length) throw new ApiError(404, "Account not found");
-    res.status(200).json(new ApiResponse(200, results[0], "Success"));
+    if (!results.length) {
+      return next(new ApiError(404, "Account not found"));
+    }
+
+    // If there were no transactions, the aggregation will still return the account
+    // with empty stats, which is the desired behavior.
+    const accountDetails = results[0];
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          accountDetails,
+          "Account details fetched successfully"
+        )
+      );
   } catch (error) {
-    next(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 

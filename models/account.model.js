@@ -38,25 +38,50 @@ accountSchema.pre(/^find/, function (next) {
 // --- UNIQUE CHECK MIDDLEWARE ---
 accountSchema.pre("save", async function (next) {
   if (this.isNew) {
-    let query = { isDeleted: { $ne: true } };
-    if (this.accountType === "Bank") {
-      query.bankName = this.bankName;
-      query.accountNumber = this.accountNumber;
-    } else if (this.accountType === "Mobile Banking") {
-      query.serviceName = this.serviceName;
-      query.mobileNumber = this.mobileNumber;
-    } else if (this.accountType === "Cash") {
-      query.accountName = this.accountName;
-      query.accountHolderName = this.accountHolderName;
-    }
-
-    const existingAccount = await this.constructor.findOne(query);
-    if (existingAccount) {
-      return next(new Error(`Account with these details already exists.`));
+    let existingAccount;
+    try {
+      if (this.accountType === "Bank") {
+        existingAccount = await this.constructor.findOne({
+          bankName: this.bankName,
+          accountNumber: this.accountNumber,
+        });
+        if (existingAccount) {
+          const err = new Error(
+            "A bank account with the same bank name and account number already exists."
+          );
+          return next(err);
+        }
+      } else if (this.accountType === "Mobile Banking") {
+        existingAccount = await this.constructor.findOne({
+          serviceName: this.serviceName,
+          mobileNumber: this.mobileNumber,
+        });
+        if (existingAccount) {
+          const err = new Error(
+            "A mobile banking account with the same service name and mobile number already exists."
+          );
+          return next(err);
+        }
+      } else if (this.accountType === "Cash") {
+        existingAccount = await this.constructor.findOne({
+          accountName: this.accountName,
+          accountHolderName: this.accountHolderName,
+        });
+        if (existingAccount) {
+          const err = new Error(
+            "A cash account with the same account name and account holder name already exists."
+          );
+          return next(err);
+        }
+      }
+    } catch (error) {
+      return next(error);
     }
   }
   next();
 });
+
+accountSchema.index({ status: 1 });
 
 const Account = mongoose.model("Account", accountSchema);
 module.exports = Account;

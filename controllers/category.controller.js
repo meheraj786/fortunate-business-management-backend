@@ -135,6 +135,7 @@ exports.deleteCategory = async (req, res, next) => {
       docId: category._id,
       model: "Category",
       deletedBy,
+      deletedAt: new Date(),
     });
 
     res
