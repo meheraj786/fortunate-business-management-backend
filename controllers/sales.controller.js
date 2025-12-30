@@ -452,7 +452,8 @@ async function deleteSale(req, res, next) {
   session.startTransaction();
   try {
     const { id } = req.params;
-    const deletedSale = await Sales.findByIdAndDelete(id, { session }).populate('unit').populate({ path: 'product', populate: { path: 'unit' }});
+    // const deletedSale = await Sales.findByIdAndDelete(id, { session }).populate('unit').populate({ path: 'product', populate: { path: 'unit' }});
+    const deletedSale = await Sales.findByIdAndUpdate(id, { isDeleted: true }, { session }).populate('unit').populate({ path: 'product', populate: { path: 'unit' }});
     if (!deletedSale) throw new ApiError(404, "Sale not found");
 
     if (deletedSale.product) {
@@ -461,7 +462,7 @@ async function deleteSale(req, res, next) {
     }
 
     for (const payment of deletedSale.payments) {
-      if (["bank", "mobile-banking", "cash"].includes(payment.method)) { // ✅ Lowercase check
+      if (["bank", "mobile-banking", "cash"].includes(payment.method)) { 
         const account = await Account.findById(payment.accountId).session(session);
         if (account) {
           account.balance -= payment.amount;
@@ -480,6 +481,8 @@ async function deleteSale(req, res, next) {
         }
       }
     }
+
+    await Trash.create([{ docId: deletedSale._id, deletedBy: req?.user._id, deletedAt: new Date(), model: "Sale" }], { session });
 
     await session.commitTransaction();
     session.endSession();

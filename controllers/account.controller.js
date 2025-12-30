@@ -440,6 +440,7 @@ async function deleteAccount(req, res, next) {
       docId: Account._id,
       model: "Account",
       deletedBy,
+      deletedAt: new Date(),
     });
 
     // if (!archivedAccount) {

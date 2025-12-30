@@ -4,7 +4,6 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
 
-
 const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
   if (!docId || !modelName) {
     throw new Error("docId and modelName are required");
@@ -21,8 +20,6 @@ const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
     { upsert: true, new: true }
   );
 };
-
-
 
 const restoreFromTrash = async (req, res) => {
   const session = await mongoose.startSession();
@@ -52,19 +49,76 @@ const restoreFromTrash = async (req, res) => {
 
       const transDate = new Date(restoredDoc.date);
       transDate.setHours(0, 0, 0, 0);
-      const dailySession = await DailyCash.findOne({ date: transDate, status: "Open" }).session(session);
+      const dailySession = await DailyCash.findOne({
+        date: transDate,
+        status: "Open",
+      }).session(session);
 
       if (!dailySession) {
-        throw new Error(`Cannot restore. Daily cash session for ${transDate.toDateString()} is closed.`);
+        throw new Error(
+          `Cannot restore. Daily cash session for ${transDate.toDateString()} is closed.`
+        );
+      }
+      if (modelName === "Sale") {
+        const Product = mongoose.model("Product");
+        const restoredProduct = await Product.findById(
+          restoredDoc.product
+        ).session(session);
+        if (restoredProduct) {
+          const deductQty =
+            (restoredDoc.quantity * restoredDoc.unit.conversionFactor) /
+            restoredProduct.unit.conversionFactor;
+          await Product.findByIdAndUpdate(
+            restoredProduct._id,
+            { $inc: { quantity: -deductQty } },
+            { session }
+          );
+        }
+      }
+      if (modelName === "Sale") {
+        const Account = mongoose.model("Account");
+        for (const payment of restoredDoc.payments) {
+          if (["bank", "mobile-banking", "cash"].includes(payment.method)) {
+            const account = await Account.findById(payment.accountId).session(
+              session
+            );
+            if (account) {
+              account.balance += payment.amount;
+              await account.save({ session });
+
+              const Transaction = mongoose.model("Transaction");
+              await Transaction.create(
+                [
+                  {
+                    accountId: payment.accountId,
+                    date: new Date(),
+                    description: `Restored Sale: ${restoredDoc.saleId}`,
+                    transactionType: "Income",
+                    amount: payment.amount,
+                    source: "Auto",
+                    category: "Sales Restore",
+                    reference: restoredDoc._id,
+                    referenceModel: "Sale",
+                  },
+                ],
+                { session }
+              );
+            }
+          }
+        }
       }
 
-      const account = await Account.findById(restoredDoc.accountId).session(session);
+      const account = await Account.findById(restoredDoc.accountId).session(
+        session
+      );
       if (account) {
         if (restoredDoc.transactionType === "Income") {
           account.balance += restoredDoc.amount;
         } else if (restoredDoc.transactionType === "Expense") {
           if (account.balance < restoredDoc.amount) {
-            throw new Error(`Insufficient balance in ${account.accountName} to restore this expense.`);
+            throw new Error(
+              `Insufficient balance in ${account.accountName} to restore this expense.`
+            );
           }
           account.balance -= restoredDoc.amount;
         }
@@ -77,7 +131,10 @@ const restoreFromTrash = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    res.json({ success: true, message: `${modelName} restored and balance adjusted successfully` });
+    res.json({
+      success: true,
+      message: `${modelName} restored and balance adjusted successfully`,
+    });
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -85,20 +142,17 @@ const restoreFromTrash = async (req, res) => {
   }
 };
 
-
-
-
 const getAllTrash = async (req, res) => {
   try {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const { module: moduleFilter } = req.query; 
+    const { module: moduleFilter } = req.query;
 
     const filter = {};
     if (moduleFilter && moduleFilter !== "undefined" && moduleFilter !== "") {
-      filter.model = moduleFilter; 
+      filter.model = moduleFilter;
     }
 
     const [trash, total] = await Promise.all([
@@ -106,7 +160,7 @@ const getAllTrash = async (req, res) => {
         .populate("deletedBy", "name email")
         .populate({
           path: "docId",
-          match: { isDeleted: { $in: [true, false] } } 
+          match: { isDeleted: { $in: [true, false] } },
         })
         .sort({ deletedAt: -1 })
         .skip(skip)
@@ -128,7 +182,6 @@ const getAllTrash = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to load trash" });
   }
 };
-
 
 const deleteTrashPermanently = async (req, res) => {
   try {
@@ -166,15 +219,15 @@ const getTrashDetailById = async (id) => {
     const { docId, model: modelName, deletedBy, deletedAt } = trash;
 
     const TargetModel = mongoose.model(modelName);
-    const originalDoc = await TargetModel.findById(docId).lean(); 
+    const originalDoc = await TargetModel.findById(docId).lean();
 
     const response = {
       trashId: id,
       model: modelName,
       deletedBy: deletedBy || null,
       deletedAt: deletedAt || null,
-      originalDoc: originalDoc || null, 
-      isDeleted: originalDoc ? originalDoc.isDeleted : true, 
+      originalDoc: originalDoc || null,
+      isDeleted: originalDoc ? originalDoc.isDeleted : true,
     };
 
     return response;
@@ -183,8 +236,6 @@ const getTrashDetailById = async (id) => {
     throw err;
   }
 };
-
-
 
 module.exports = {
   moveToTrash,

@@ -408,6 +408,7 @@ const deleteWarehouse = async (req, res, next) => {
       docId: id,
       model: "Warehouse",
       deletedBy: req.cookies?.userId || req.user?._id || null,
+      deletedAt: new Date(),
     });
 
     return res

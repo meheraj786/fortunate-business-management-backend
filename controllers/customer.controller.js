@@ -256,6 +256,7 @@ async function deleteCustomer(req, res, next) {
       docId: deleted._id,
       model: "Customer",
       deletedBy: req.cookies?.userId || req.user?._id || null,
+      deletedAt: new Date(),
     });
 
     return res

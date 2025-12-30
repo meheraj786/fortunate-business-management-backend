@@ -379,6 +379,7 @@ const deleteUser = async (req, res, next) => {
       docId: deletedUser._id,
       model: "User",
       deletedBy,
+      deletedAt: new Date(),
     });
     return res
       .status(200)
