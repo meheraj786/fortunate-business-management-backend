@@ -607,12 +607,72 @@ async function getSalesSummary(_, res, next) {
   }
 }
 
+// get all sales invoices count in respose - suppose, total not invoiced sales (2), total paid {paid invoices are those, those's payment is completed} invoices sales (5)
 async function getAll_invoices_status_count(req, res, next) {
   try {
-    const stats = await Sales.aggregate([{ $group: { _id: { inv: "$invoiceStatus", pay: "$paymentStatus" }, count: { $sum: 1 } } }]);
-    return res.status(200).json(new ApiResponse(200, stats, "Counts fetched"));
+    const stats = await Sales.aggregate([
+      {
+        $group: {
+          _id: {
+            invoiceStatus: "$invoiceStatus",
+            paymentStatus: "$paymentStatus",
+          },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const counts = {
+      notInvoiced: 0,
+      paid: 0,
+      due: 0,
+      cancelled: 0,
+    };
+
+    stats.forEach((stat) => {
+      if (stat._id.invoiceStatus === "Not-invoiced") {
+        counts.notInvoiced += stat.count;
+      } else if (stat._id.invoiceStatus === "Cancelled") {
+        counts.cancelled += stat.count;
+      } else if (stat._id.invoiceStatus === "Invoiced") {
+        if (stat._id.paymentStatus === "Paid payment") {
+          counts.paid += stat.count;
+        } else if (stat._id.paymentStatus === "Due payment") {
+          counts.due += stat.count;
+        }
+      }
+    });
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          counts,
+          "Invoice status count fetched successfully"
+        )
+      );
   } catch (error) {
-    next(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
 
