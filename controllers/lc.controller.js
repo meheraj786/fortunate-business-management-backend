@@ -306,7 +306,7 @@ async function _handleLCCostTransaction(cost, lc, session) {
     const costDateNormalized = new Date(costDate);
     costDateNormalized.setHours(0, 0, 0, 0);
 
-    const openSession = await DailyCash.findOne({ date: costDateNormalized, status: "Open" }).session(session);
+    const openSession = await DailyCash.findOne({ date: costDateNormalized, status: "Open", isDeleted: false }).session(session);
     if (!openSession) {
         throw new ApiError(400, `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost.`);
     }
@@ -349,7 +349,7 @@ async function _handleLCCostTransaction(cost, lc, session) {
 
 async function getAllLCs(_, res, next) {
   try {
-    const lcs = await LC.find()
+    const lcs = await LC.find( { isDeleted: false } )
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .populate("basicInfo.accountId")
       .populate("financialInfo.costs.accountId")
@@ -393,7 +393,7 @@ async function getLCById(req, res, next) {
       .populate("shippingCustomsInfo.costs.accountId")
       .populate("agentTransportInfo.costs.accountId")
       .populate("otherExpenses.costs.accountId");
-    if (!lc) return next(new ApiError(404, "LC not found"));
+    if (!lc || lc.isDeleted) return next(new ApiError(404, "LC not found"));
     return res
       .status(200)
       .json(new ApiResponse(200, lc, "LC fetched successfully"));
@@ -467,11 +467,18 @@ async function deleteLC(req, res, next) {
   session.startTransaction();
   try {
     const { id } = req.params;
-    const deletedLC = await LC.findByIdAndDelete(id, { session }); // Use session here
+    const deletedLC = await LC.findByIdAndUpdate(id, { isDeleted: true }, { session, new: true });
 
     if (!deletedLC) {
       throw new ApiError(404, "LC not found");
     }
+
+    await Trash.create({
+      docId: deletedLC._id,
+      model: "LC",
+      deletedBy: req.user._id,
+      deletedAt: new Date(),
+    });
 
     // DailyCash Gatekeeper Check for reversal transactions
     const today = new Date();
@@ -560,7 +567,7 @@ async function deleteLC(req, res, next) {
 
 async function getAllCompletedLCs(_, res, next) {
   try {
-    const lcs = await LC.find({ "basicInfo.status": /^Completed$/i })
+    const lcs = await LC.find({ "basicInfo.status": /^Completed$/i, isDeleted: false })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .select("_id basicInfo.lcNumber basicInfo.status productInfo");
     return res
@@ -593,6 +600,7 @@ async function getAllCompletedLCs(_, res, next) {
 async function getLCCountsByStatus(req, res, next) {
   try {
     const counts = await LC.aggregate([
+      { $match: { isDeleted: false } },
       {
         $group: {
           _id: "$basicInfo.status",
@@ -649,7 +657,7 @@ async function getLCCountsByStatus(req, res, next) {
 
 async function getTotalLCCount(req, res, next) {
   try {
-    const totalCount = await LC.countDocuments();
+    const totalCount = await LC.countDocuments( { isDeleted: false } );
 
     return res
       .status(200)
@@ -854,7 +862,7 @@ async function exportLCAsPDF(req, res, next) {
 }
 async function getActiveLcs(req,res,next){
   try {
-    const lcs = await LC.find({ "basicInfo.status": /^Active$/i })
+    const lcs = await LC.find({ "basicInfo.status": /^Active$/i, isDeleted: false })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .select("_id basicInfo.lcNumber basicInfo.status productInfo");
     return res
@@ -893,7 +901,7 @@ async function getLCSummary(req, res, next) {
     const skip = (page - 1) * limit;
 
     // 2. Build filter and sort objects
-    const filter = {};
+    const filter = { isDeleted: false };
     if (status) {
       filter["basicInfo.status"] = status;
     }
@@ -1087,7 +1095,7 @@ async function searchLCSummary(req, res, next) {
     const skip = (page - 1) * limit;
 
     // 2. Build filter and sort objects
-    const filter = {};
+    const filter = { isDeleted: false };
     if (status) {
       filter["basicInfo.status"] = status;
     }
