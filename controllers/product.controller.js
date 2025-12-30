@@ -4,6 +4,7 @@ const Sales = require("../models/sales.model");
 const Unit = require("../models/unit.model"); // Import Unit model
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const Trash = require("../models/trash.model");
 
 // New function to create a product within a specific warehouse
 async function createProductInWarehouse(req, res, next) {

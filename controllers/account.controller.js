@@ -4,6 +4,7 @@ const DailyCash = require("../models/dailyCash.model"); // Added
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose"); // Added
+const Trash = require("../models/trash.model");
 
 async function createAccount(req, res, next) {
   const session = await mongoose.startSession();

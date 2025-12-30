@@ -4,6 +4,7 @@ const {
   restoreFromTrash,
   deleteTrashPermanently,
   moveToTrash,
+  getTrashDetailById,
 } = require("../../controllers/trash.controller");
 
 const trashRouter = express.Router();
@@ -15,5 +16,7 @@ trashRouter.get("/get", getAllTrash);
 trashRouter.post("/restore/:id", restoreFromTrash);
 
 trashRouter.delete("/delete/:id", deleteTrashPermanently);
+
+trashRouter.get("/get-detail/:id", getTrashDetailById);
 
 module.exports = trashRouter;

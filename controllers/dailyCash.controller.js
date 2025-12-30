@@ -4,6 +4,7 @@ const Account = require("../models/account.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose");
+const Trash = require("../models/trash.model");
 
 // @desc    Open a new cash session for the current day
 // @route   POST /api/cash/open

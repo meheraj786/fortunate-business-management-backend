@@ -1,6 +1,7 @@
 const Transaction = require("../models/transaction.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const Trash = require("../models/trash.model");
 
 async function getTransactionDetails(req, res, next) {
   try {

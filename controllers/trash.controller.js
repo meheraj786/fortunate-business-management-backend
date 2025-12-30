@@ -156,9 +156,40 @@ const deleteTrashPermanently = async (req, res) => {
   }
 };
 
+const getTrashDetailById = async (id) => {
+  try {
+    const trash = await Trash.findById(id).populate("deletedBy", "name email");
+    if (!trash) {
+      throw new Error("Trash entry not found");
+    }
+
+    const { docId, model: modelName, deletedBy, deletedAt } = trash;
+
+    const TargetModel = mongoose.model(modelName);
+    const originalDoc = await TargetModel.findById(docId).lean(); 
+
+    const response = {
+      trashId: id,
+      model: modelName,
+      deletedBy: deletedBy || null,
+      deletedAt: deletedAt || null,
+      originalDoc: originalDoc || null, 
+      isDeleted: originalDoc ? originalDoc.isDeleted : true, 
+    };
+
+    return response;
+  } catch (err) {
+    logger.error("GetTrashDetailById Error:", err);
+    throw err;
+  }
+};
+
+
+
 module.exports = {
   moveToTrash,
   restoreFromTrash,
   getAllTrash,
   deleteTrashPermanently,
+  getTrashDetailById,
 };

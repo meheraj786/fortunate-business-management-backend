@@ -2,6 +2,7 @@ const Warehouse = require("../models/warehouse.model");
 const Product = require("../models/product.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const Trash = require("../models/trash.model");
 
 const createWarehouse = async (req, res, next) => {
   try {

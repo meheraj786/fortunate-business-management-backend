@@ -3,6 +3,7 @@ const Customer = require("../models/customer.model");
 const Invoice = require("../models/invoice.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const Trash = require("../models/trash.model");
 
 async function generateInvoice(req, res, next) {
   try {

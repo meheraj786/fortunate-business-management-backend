@@ -2,6 +2,7 @@ const User = require("../models/user.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const jwt = require("jsonwebtoken");
+const Trash = require("../models/trash.model");
 
 const registerUser = async (req, res, next) => {
   try {

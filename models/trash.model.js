@@ -46,4 +46,6 @@ const trashSchema = new mongoose.Schema(
 // prevent duplicate trash entry
 trashSchema.index({ docId: 1, model: 1 }, { unique: true });
 
-module.exports = mongoose.model("Trash", trashSchema);
+const Trash = mongoose.model("Trash", trashSchema);
+
+module.exports = Trash;

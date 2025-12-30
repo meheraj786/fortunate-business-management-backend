@@ -3,6 +3,7 @@ const Sales = require("../models/sales.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose");
+const Trash = require("../models/trash.model");
 
 async function createCustomer(req, res, next) {
   try {
@@ -456,12 +457,17 @@ async function getCustomersSummary(req, res, next) {
                   "$$dueSale.totalAmountToBePaid",
                   {
                     $sum: {
-                      $filter: {
-                        input: "$$dueSale.payments",
+                      $map: {
+                        input: {
+                          $filter: {
+                            input: "$$dueSale.payments",
+                            as: "p",
+                            cond: { $eq: ["$$p.isDeleted", false] },
+                          },
+                        },
                         as: "p",
-                        cond: { $eq: ["$$p.isDeleted", false] }, // ignore deleted payments
+                        in: "$$p.amount",
                       },
-                      in: "$$p.amount",
                     },
                   },
                 ],

@@ -12,6 +12,7 @@ const DailyCash = require("../models/dailyCash.model"); // Added
 const Transaction = require("../models/transaction.model");
 require("../models/account.model"); // Ensure Account model is registered for population
 const mongoose = require("mongoose"); // Added
+const Trash = require("../models/trash.model");
 
 // Ensure the uploads directory exists
 const uploadDir = path.join(__dirname, "../uploads");

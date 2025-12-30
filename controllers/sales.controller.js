@@ -8,6 +8,7 @@ const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
 const mongoose = require("mongoose");
 const Transaction = require("../models/transaction.model");
+const Trash = require("../models/trash.model");
 
 // Helper mapping for Account Types (DB values vs Method values)
 const paymentMethodToAccountType = {
