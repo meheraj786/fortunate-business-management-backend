@@ -45,7 +45,7 @@ const registerUser = async (req, res, next) => {
 
 const loginUser = async (req, res, next) => {
   try {
-    console.log(process.env.SECRET_KEY);
+
 
     const { email, password } = req.body;
     const validationErrors = [];
@@ -76,6 +76,9 @@ const loginUser = async (req, res, next) => {
 
     const token = user.generateToken();
 
+    // Ensure password hash is not sent in the response
+    delete user.password;
+
     res.cookie("accessToken", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -86,7 +89,7 @@ const loginUser = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, { user, token }, "Logged in successfully"));
   } catch (error) {
-    console.log(error); // Keep original console.log for debugging purposes
+    logger.error(error);
     if (error instanceof ApiError) {
       return next(error);
     }

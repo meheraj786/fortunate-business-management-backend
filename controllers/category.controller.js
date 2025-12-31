@@ -1,5 +1,6 @@
 const Category = require("../models/category.model");
 const Trash = require("../models/trash.model");
+const Product = require("../models/product.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
@@ -121,6 +122,16 @@ exports.updateCategory = async (req, res, next) => {
 exports.deleteCategory = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Check if any active products are assigned to this category
+    const productsCount = await Product.countDocuments({
+      category: id,
+      isDeleted: false, // Only consider active products
+    });
+
+    if (productsCount > 0) {
+      return next(new ApiError(400, `Cannot delete category: it is currently assigned to ${productsCount} product(s).`));
+    }
 
     const deletedBy = req.cookies?.userId || req.user?._id || null;
 
