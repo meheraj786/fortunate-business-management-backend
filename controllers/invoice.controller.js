@@ -3,6 +3,7 @@ const Customer = require("../models/customer.model");
 const Invoice = require("../models/invoice.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const logger = require("../utils/logger");
 const Trash = require("../models/trash.model");
 
 async function generateInvoice(req, res, next) {
@@ -131,7 +132,8 @@ async function generateInvoice(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -179,7 +181,8 @@ async function getAllInvoices(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -215,7 +218,8 @@ async function getInvoiceById(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -255,7 +259,8 @@ async function getInvoicesBySaleId(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 

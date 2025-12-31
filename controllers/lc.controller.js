@@ -4,6 +4,7 @@ const path = require("path");
 const multer = require("multer");
 const { generateLCPDF } = require("../utils/LC_pdfGenerator");
 const { ApiError } = require("../utils/ApiError");
+const logger = require("../utils/logger");
 const { ApiResponse } = require("../utils/ApiResponse");
 const LC = require("../models/lc.model");
 const Unit = require("../models/unit.model"); // Import Unit model
@@ -836,28 +837,21 @@ async function exportLCAsPDF(req, res, next) {
     // DO NOT send any response here - generateLCPDF handles it
 
   } catch (error) {
-    console.error('=== EXPORT LC ERROR ===');
-    console.error('Error:', error);
-    console.error('Stack:', error.stack);
-    
-    // Check if response was already sent
+    // Check if response was already sent, which can happen during streaming
     if (res.headersSent) {
-      console.error('Headers already sent, cannot send error response');
+      logger.error('An error occurred during PDF streaming after headers were sent:', error);
+      // Can't send a new response, but we should log it. The connection will likely be terminated.
       return;
     }
-    
+
+    // If it's a known API error, pass it along.
     if (error instanceof ApiError) {
-      return res.status(error.statusCode).json({
-        error: error.message,
-        message: error.message
-      });
+      return next(error);
     }
     
-    // Return JSON error
-    return res.status(500).json({
-      error: "PDF generation failed",
-      message: error.message || "Something went wrong during PDF export"
-    });
+    // For all other errors, log them and send a generic response.
+    logger.error('Error during PDF export:', error);
+    next(new ApiError(500, "Failed to generate PDF. Please try again."));
   }
 }
 async function getActiveLcs(req,res,next){

@@ -2,6 +2,7 @@ const Account = require("../models/account.model");
 const Transaction = require("../models/transaction.model");
 const DailyCash = require("../models/dailyCash.model"); // Added
 const { ApiError } = require("../utils/ApiError");
+const logger = require("../utils/logger");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose"); // Added
 
@@ -204,7 +205,8 @@ async function createAccount(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -218,7 +220,8 @@ async function getAllAccounts(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -245,7 +248,8 @@ async function getAccountById(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -317,7 +321,8 @@ async function updateAccount(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -385,7 +390,8 @@ async function deleteAccount(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -536,7 +542,8 @@ async function getAccountDetails(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 

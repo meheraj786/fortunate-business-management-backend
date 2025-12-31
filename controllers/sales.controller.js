@@ -3,6 +3,7 @@ const Product = require("../models/product.model");
 const Customer = require("../models/customer.model");
 const Unit = require("../models/unit.model");
 const { ApiError } = require("../utils/ApiError");
+const logger = require("../utils/logger");
 const { ApiResponse } = require("../utils/ApiResponse");
 const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
@@ -357,7 +358,8 @@ async function createSale(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "An internal server error occurred during sale creation."));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -497,7 +499,8 @@ async function getAllSales(_, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -646,7 +649,8 @@ async function getSaleById(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -750,7 +754,8 @@ async function updateSale(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -906,7 +911,8 @@ miscReference: {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -994,7 +1000,8 @@ async function getSalesSummary(_, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -1063,7 +1070,8 @@ async function getAll_invoices_status_count(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -1191,7 +1199,8 @@ async function addPartialPayment(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "An internal server error occurred while adding partial payment."));
+    logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -1325,7 +1334,8 @@ async function getSalesByCustomerId(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -1484,7 +1494,8 @@ async function cancelSale(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -1680,7 +1691,8 @@ async function getPaginatedSalesSummary(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "An internal server error occurred while fetching sales summary."));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 

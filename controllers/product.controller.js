@@ -3,6 +3,7 @@ const Warehouse = require("../models/warehouse.model");
 const Sales = require("../models/sales.model");
 const Unit = require("../models/unit.model"); // Import Unit model
 const { ApiError } = require("../utils/ApiError");
+const logger = require("../utils/logger");
 const { ApiResponse } = require("../utils/ApiResponse");
 const Trash = require("../models/trash.model");
 
@@ -111,7 +112,8 @@ async function createProductInWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -355,7 +357,8 @@ async function getProductsByWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -696,7 +699,8 @@ async function getProductInWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -769,7 +773,8 @@ async function updateProductInWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -839,7 +844,8 @@ async function deleteProductInWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -906,7 +912,8 @@ async function getAllProducts(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -1001,7 +1008,8 @@ async function getStockStatus(_, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -1057,7 +1065,8 @@ async function getProductSalesHistory(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 

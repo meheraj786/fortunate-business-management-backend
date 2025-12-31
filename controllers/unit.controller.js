@@ -2,6 +2,7 @@ const Unit = require("../models/unit.model");
 const Trash = require("../models/trash.model"); 
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const logger = require("../utils/logger");
 
 /* ================= CREATE UNIT ================= */
 exports.createUnit = async (req, res, next) => {
@@ -25,7 +26,8 @@ exports.createUnit = async (req, res, next) => {
     if (error.name === 'ValidationError') {
       return next(new ApiError(400, "Validation failed", error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -38,7 +40,8 @@ exports.getUnits = async (_, res, next) => {
       .status(200)
       .json(new ApiResponse(200, units, "Units fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -55,7 +58,8 @@ exports.getUnitById = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, unit, "Unit fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -84,7 +88,8 @@ exports.updateUnit = async (req, res, next) => {
     if (error.code === 11000) {
       return next(new ApiError(409, "A unit with this name already exists."));
     }
-    next(new ApiError(500, error.message));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -112,6 +117,7 @@ exports.deleteUnit = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, unit, "Unit moved to trash successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };

@@ -1,6 +1,7 @@
 const Transaction = require("../models/transaction.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const logger = require("../utils/logger");
 const Trash = require("../models/trash.model");
 
 async function getTransactionDetails(req, res, next) {
@@ -84,7 +85,8 @@ async function getTransactionDetails(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -226,7 +228,8 @@ async function getAllTransactions(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -363,7 +366,8 @@ async function getTransactionStats(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
@@ -487,7 +491,8 @@ async function getTransactionsByAccount(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 

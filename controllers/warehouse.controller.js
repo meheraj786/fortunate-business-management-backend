@@ -2,6 +2,7 @@ const Warehouse = require("../models/warehouse.model");
 const Product = require("../models/product.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const logger = require("../utils/logger");
 const Trash = require("../models/trash.model");
 
 const createWarehouse = async (req, res, next) => {
@@ -38,7 +39,8 @@ const createWarehouse = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -217,7 +219,8 @@ const getAllWarehouses = async (_, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -331,7 +334,8 @@ const getWarehouseById = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -379,7 +383,8 @@ const updateWarehouse = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -439,7 +444,8 @@ const deleteWarehouse = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 

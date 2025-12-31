@@ -2,6 +2,7 @@ const Category = require("../models/category.model");
 const Trash = require("../models/trash.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const logger = require("../utils/logger");
 
 /* ================= CREATE ================= */
 exports.createCategory = async (req, res, next) => {
@@ -32,12 +33,14 @@ exports.createCategory = async (req, res, next) => {
 
     if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
+      const userFriendlyMessage = error.errors[firstErrorField].message;
       return next(
-        new ApiError(400, `The field ${firstErrorField} is required.`)
+        new ApiError(400, userFriendlyMessage, error.errors)
       );
     }
 
-    next(new ApiError(500, error.message));
+    logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -54,7 +57,8 @@ exports.getCategories = async (_, res, next) => {
         new ApiResponse(200, categories, "Categories fetched successfully")
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -74,7 +78,8 @@ exports.getCategoryById = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, category, "Category fetched successfully"));
   } catch (error) {
-    next(new ApiError(500, error.message));
+    logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -107,7 +112,8 @@ exports.updateCategory = async (req, res, next) => {
       );
     }
 
-    next(new ApiError(500, error.message));
+    logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -144,6 +150,7 @@ exports.deleteCategory = async (req, res, next) => {
         new ApiResponse(200, category, "Category moved to trash successfully")
       );
   } catch (error) {
-    next(new ApiError(500, error.message));
+    logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };

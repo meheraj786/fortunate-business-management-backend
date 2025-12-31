@@ -2,6 +2,7 @@ const User = require("../models/user.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const jwt = require("jsonwebtoken");
+const logger = require("../utils/logger");
 const Trash = require("../models/trash.model");
 
 const registerUser = async (req, res, next) => {
@@ -37,7 +38,8 @@ const registerUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -109,7 +111,8 @@ const loginUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 const logoutUser = async (_, res, next) => {
@@ -148,7 +151,8 @@ const logoutUser = async (_, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -189,7 +193,8 @@ const getUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 const getProfile = async (req, res, next) => {
@@ -227,7 +232,8 @@ const getProfile = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 const getAllUser = async (req, res, next) => {
@@ -285,7 +291,8 @@ const getAllUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -358,7 +365,8 @@ const updateUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
@@ -387,7 +395,8 @@ const deleteUser = async (req, res, next) => {
         new ApiResponse(200, deletedUser, "User moved to trash successfully")
       );
   } catch (error) {
-    next(new ApiError(500, error.message || "Something went wrong"));
+        logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 

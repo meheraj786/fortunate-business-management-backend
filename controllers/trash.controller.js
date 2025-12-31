@@ -412,7 +412,11 @@ const restoreFromTrash = async (req, res, next) => {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    next(error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    logger.error(error);
+    next(new ApiError(500, "Failed to restore item from trash. Please try again."));
   }
 };
 
@@ -453,7 +457,7 @@ const getAllTrash = async (req, res) => {
     });
   } catch (err) {
     logger.error("GetAllTrash Error:", err);
-    res.status(500).json({ success: false, message: "Failed to load trash" });
+    next(new ApiError(500, "Failed to load trash"));
   }
 };
 
@@ -476,10 +480,7 @@ const deleteTrashPermanently = async (req, res) => {
     });
   } catch (err) {
     logger.error("Permanent delete error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to delete trash item",
-    });
+    next(new ApiError(500, "Failed to delete trash item"));
   }
 };
 
