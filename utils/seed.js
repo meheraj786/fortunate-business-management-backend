@@ -6,27 +6,27 @@ require("dotenv").config();
 const fullAccess = [
   {
     module: "LC",
-    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
   },
   {
     module: "SALE",
-    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
   },
   {
     module: "CASH",
-    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
   },
   {
     module: "STOCK",
-    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
   },
   {
     module: "BANKING",
-    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
   },
   {
     module: "CUSTOMER",
-    permissions: ["CREATE", "READ", "UPDATE", "DELETE"],
+    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
   },
 ];
 
@@ -52,12 +52,14 @@ const seedSuperAdmin = async () => {
       location: "Head Office",
       access: fullAccess,
       phone: "01000000000",
+      isDeleted: false
     });
 
     logger.info("Super Admin Created Successfully!");
     process.exit(1);
   } catch (error) {
     logger.error("Seeder Failed:", error.message);
+    console.log(error)
     process.exit(1);
   }
 };

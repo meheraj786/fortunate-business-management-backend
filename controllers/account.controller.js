@@ -240,7 +240,7 @@ async function getAllAccounts(req, res, next) {
   try {
     const accounts = await Account.find({
       status: "Active",
-      isDeleted: { $ne: true },
+      // isDeleted: { $ne: true },
     });
     return res
       .status(200)
@@ -426,7 +426,7 @@ async function deleteAccount(req, res, next) {
     // );
     const deletedBy = req.cookies?.userId || req.user?._id || null;
 
-    const Account = await Account.findOneAndUpdate(
+    const deletedAccount = await Account.findOneAndUpdate(
       { _id: id, isDeleted: { $ne: true } },
       {
         isDeleted: true,
@@ -437,7 +437,7 @@ async function deleteAccount(req, res, next) {
     );
 
     await Trash.create({
-      docId: Account._id,
+      docId: deletedAccount._id,
       model: "Account",
       deletedBy,
       deletedAt: new Date(),
