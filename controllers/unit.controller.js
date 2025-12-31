@@ -9,6 +9,11 @@ exports.createUnit = async (req, res, next) => {
   try {
     const { name, type, conversionFactor } = req.body;
 
+    // Add validation for conversionFactor
+    if (conversionFactor <= 0) {
+      return next(new ApiError(400, "Conversion factor must be greater than 0."));
+    }
+
     const unit = await Unit.create({
       name: name.trim(),
       type: type.trim(),
@@ -68,6 +73,11 @@ exports.updateUnit = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, type, conversionFactor } = req.body;
+
+    // Add validation for conversionFactor if it's being updated
+    if (conversionFactor !== undefined && conversionFactor !== null && conversionFactor <= 0) {
+      return next(new ApiError(400, "Conversion factor must be greater than 0."));
+    }
 
     const unit = await Unit.findOneAndUpdate(
       { _id: id, isDeleted: { $ne: true } },
