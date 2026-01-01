@@ -666,7 +666,13 @@ async function deleteProductInWarehouse(req, res, next) {
   try {
     const { warehouseId, productId } = req.params;
 
-    // First, ensure the product exists and is in the specified warehouse
+    // First, check if the product has any associated sales
+    const existingSale = await Sales.findOne({ product: productId, isDeleted: { $ne: true } });
+    if (existingSale) {
+      return next(new ApiError(409, "Cannot delete product: It is linked to existing sales records."));
+    }
+
+    // Ensure the product exists and is in the specified warehouse
     const product = await Product.findOne({
       _id: productId,
       warehouse: warehouseId,
@@ -674,19 +680,17 @@ async function deleteProductInWarehouse(req, res, next) {
     if (!product) {
       return next(new ApiError(404, "Product not found in this warehouse"));
     }
+    if (product.isDeleted) {
+        return next(new ApiError(400, "Product is already in the trash."));
+    }
 
-    // Remove the product reference from the warehouse's product array
-    // await Warehouse.findByIdAndUpdate(warehouseId, {
-    //   $pull: { product: productId },
-    // });
-
-    // Then, delete the product
-    // const deleted = await Product.findByIdAndDelete(productId);
+    // Then, soft-delete the product
     const deleted = await Product.findByIdAndUpdate(productId, {
       isDeleted: true,
     });
 
     if (!deleted) {
+      // This case should ideally not be hit if the findOne check passes, but it's good for safety
       return next(new ApiError(404, "Product not found"));
     }
 
@@ -695,6 +699,7 @@ async function deleteProductInWarehouse(req, res, next) {
       docId: productId,
       model: "Product",
       deletedBy: req.cookies?.userId || req.user?._id || null,
+      metadata: { warehouseId: product.warehouse } // Store warehouseId in metadata
     });
 
     return res

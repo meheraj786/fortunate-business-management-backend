@@ -280,11 +280,16 @@ const getAllTrash = async (req, res) => {
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const { module: moduleFilter } = req.query;
+    const { module: moduleFilter, warehouseId } = req.query;
 
     const filter = {};
     if (moduleFilter && moduleFilter !== "undefined" && moduleFilter !== "") {
       filter.model = moduleFilter;
+    }
+
+    // Add specific filtering for Product module by warehouseId
+    if (moduleFilter === "Product" && warehouseId) {
+        filter["metadata.warehouseId"] = new mongoose.Types.ObjectId(warehouseId);
     }
 
     const [trash, total] = await Promise.all([

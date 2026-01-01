@@ -46,148 +46,132 @@ const createWarehouse = async (req, res, next) => {
 
 const getAllWarehouses = async (_, res, next) => {
   try {
-    const results = await Warehouse.aggregate([
+    // Pipeline for fetching warehouses and their individual stats
+    const warehousePipeline = [
       {
         $match: {
           isDeleted: false,
         },
       },
       {
-        $facet: {
-          warehouses: [
+        $lookup: {
+          from: "products",
+          let: { warehouseId: "$_id" },
+          pipeline: [
             {
-              $lookup: {
-                from: "products",
-                let: { warehouseId: "$_id" },
-                pipeline: [
-                  {
-                    $match: {
-                      $expr: {
-                        $and: [
-                          { $eq: ["$warehouse", "$$warehouseId"] },
-                          { $eq: ["$isDeleted", false] },
-                        ],
-                      },
-                    },
-                  },
-                ],
-                as: "products",
-              },
-            },
-            // {
-            //   $lookup: {
-            //     from: "products",
-            //     localField: "_id",
-            //     foreignField: "warehouse",
-            //     as: "products",
-            //   },
-            // },
-            {
-              $lookup: {
-                from: "users",
-                localField: "manager",
-                foreignField: "_id",
-                as: "manager",
-              },
-            },
-            {
-              $addFields: {
-                stats: {
-                  totalProducts: { $size: "$products" },
-                  totalInStock: {
-                    $size: {
-                      $filter: {
-                        input: "$products",
-                        as: "product",
-                        cond: { $gt: ["$$product.quantity", 0] },
-                      },
-                    },
-                  },
-                  totalLowStock: {
-                    $size: {
-                      $filter: {
-                        input: "$products",
-                        as: "product",
-                        cond: {
-                          $and: [
-                            { $gt: ["$$product.quantity", 0] },
-                            { $lt: ["$$product.quantity", 20] },
-                          ],
-                        },
-                      },
-                    },
-                  },
-                  totalStockOut: {
-                    $size: {
-                      $filter: {
-                        input: "$products",
-                        as: "product",
-                        cond: { $eq: ["$$product.quantity", 0] },
-                      },
-                    },
-                  },
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$warehouse", "$$warehouseId"] },
+                    { $eq: ["$isDeleted", false] },
+                  ],
                 },
-              },
-            },
-            {
-              $project: {
-                products: 0,
               },
             },
           ],
-          globalStats: [
-            {
-              $lookup: {
-                from: "products",
-                localField: "_id",
-                foreignField: "warehouse",
-                as: "products",
+          as: "products",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "manager",
+          foreignField: "_id",
+          as: "manager",
+        },
+      },
+      {
+        $addFields: {
+          stats: {
+            totalProducts: { $size: "$products" },
+            totalInStock: {
+              $size: {
+                $filter: {
+                  input: "$products",
+                  as: "product",
+                  cond: { $gt: ["$$product.quantity", 0] },
+                },
               },
             },
-            { $unwind: "$products" },
-            {
-              $group: {
-                _id: null,
-                totalproducts: { $sum: 1 },
-                "Total In-stock": {
-                  $sum: {
-                    $cond: [{ $gt: ["$products.quantity", 0] }, 1, 0],
-                  },
-                },
-                "total lowstock": {
-                  $sum: {
-                    $cond: [
-                      {
-                        $and: [
-                          { $gt: ["$products.quantity", 0] },
-                          { $lt: ["$products.quantity", 20] },
-                        ],
-                      },
-                      1,
-                      0,
+            totalLowStock: {
+              $size: {
+                $filter: {
+                  input: "$products",
+                  as: "product",
+                  cond: {
+                    $and: [
+                      { $gt: ["$$product.quantity", 0] },
+                      { $lt: ["$$product.quantity", 20] },
                     ],
                   },
                 },
-                "Total outofstock": {
-                  $sum: {
-                    $cond: [{ $eq: ["$products.quantity", 0] }, 1, 0],
-                  },
+              },
+            },
+            totalOutOfStock: {
+              $size: {
+                $filter: {
+                  input: "$products",
+                  as: "product",
+                  cond: { $eq: ["$$product.quantity", 0] },
                 },
               },
             },
-            { $project: { _id: 0 } },
-          ],
+          },
         },
       },
+      {
+        $project: {
+          products: 0, // Exclude the full products array from the final warehouse object
+        },
+      },
+    ];
+
+    // Separate, efficient pipeline for calculating global stats across all products
+    const globalStatsPipeline = [
+      { $match: { isDeleted: false } },
+      {
+        $group: {
+          _id: null,
+          totalProducts: { $sum: 1 },
+          totalInStock: {
+            $sum: { $cond: [{ $gt: ["$quantity", 0] }, 1, 0] },
+          },
+          totalLowStock: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $gt: ["$quantity", 0] },
+                    { $lt: ["$quantity", 20] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          totalOutOfStock: {
+            $sum: { $cond: [{ $eq: ["$quantity", 0] }, 1, 0] },
+          },
+        },
+      },
+      { $project: { _id: 0 } },
+    ];
+
+    // Run both aggregations concurrently for better performance
+    const [warehouses, globalStatsResult] = await Promise.all([
+      Warehouse.aggregate(warehousePipeline),
+      Product.aggregate(globalStatsPipeline),
     ]);
 
+    // Combine the results into a single response
     const response = {
-      warehouses: results[0].warehouses,
-      stats: results[0].globalStats[0] || {
-        totalproducts: 0,
-        "Total In-stock": 0,
-        "total lowstock": 0,
-        "Total outofstock": 0,
+      warehouses: warehouses,
+      stats: globalStatsResult[0] || {
+        totalProducts: 0,
+        totalInStock: 0,
+        totalLowStock: 0,
+        totalOutOfStock: 0,
       },
     };
 
@@ -247,8 +231,19 @@ const getWarehouseById = async (req, res, next) => {
       {
         $lookup: {
           from: "products",
-          localField: "_id",
-          foreignField: "warehouse",
+          let: { warehouseId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$warehouse", "$$warehouseId"] },
+                    { $eq: ["$isDeleted", false] }, // Filter for active products
+                  ],
+                },
+              },
+            },
+          ],
           as: "products",
         },
       },

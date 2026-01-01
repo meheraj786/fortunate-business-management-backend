@@ -39,6 +39,11 @@ const trashSchema = new mongoose.Schema(
       default: Date.now,
       index: true,
     },
+    metadata: { // New field for additional data
+      type: mongoose.Schema.Types.Mixed,
+      required: false, // Make it optional
+      index: true, // Index for querying
+    },
   },
   { timestamps: true }
 );
