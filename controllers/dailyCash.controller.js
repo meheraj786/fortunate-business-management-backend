@@ -614,7 +614,7 @@ async function addExpense(req, res, next) {
       const sale = await Sale.findById(salesId).session(session);
       if (!sale) throw new ApiError(404, "Sale not found.");
 
-      sale.otherCharges.push({ name: name, amount });
+      sale.costs.push({ name: name, amount, accountId, paymentMethod });
       await sale.save({ session }); // Let pre-save hook handle paymentStatus
 
       finalDescription = `Expense for Sale: ${sale.saleId}, Cost: ${name}.`;

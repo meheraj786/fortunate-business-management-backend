@@ -13,6 +13,20 @@ const costSchema = new mongoose.Schema({
     ref: "Account",
     required: true,
   },
+  paymentMethod: {
+    type: String,
+    required: true,
+    enum: ["Cash", "Bank", "Mobile Banking"],
+  },
+});
+
+/*
+ * Charge Sub-schema
+ * Represents additional charges to the customer for a sale, like service fees, that aren't direct business costs.
+ */
+const chargeSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  amount: { type: Number, required: true },
 });
 
 /*
@@ -77,7 +91,8 @@ const salesSchema = new mongoose.Schema(
     unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
     pricePerUnit: { type: Number, required: true, min: 0 },
     totalAmount: { type: Number, required: true },
-    costs: [costSchema], 
+    costs: [costSchema],
+    charges: [chargeSchema],
     discount: { type: Number, default: 0 },
     totalAmountToBePaid: { type: Number, required: true },
     invoiceStatus: {
@@ -108,7 +123,7 @@ salesSchema.plugin(mongoosePaginate);
  * Pre-save hook for amount calculations.
  *
  * 1. `totalAmount` is calculated as `quantity * pricePerUnit`.
- * 2. `totalAmountToBePaid` is calculated based on totalAmount, costs, and discount.
+ * 2. `totalAmountToBePaid` is calculated based on totalAmount, charges, costs, and discount.
  */
 salesSchema.pre("validate", function (next) {
   this.totalAmount = this.quantity * this.pricePerUnit;
@@ -116,8 +131,12 @@ salesSchema.pre("validate", function (next) {
     (acc, cost) => acc + cost.amount,
     0
   );
+  const chargesTotal = this.charges.reduce(
+    (acc, charge) => acc + charge.amount,
+    0
+  );
   this.totalAmountToBePaid =
-    this.totalAmount + costsTotal - this.discount;
+    this.totalAmount + chargesTotal + costsTotal - this.discount;
 
   next();
 });

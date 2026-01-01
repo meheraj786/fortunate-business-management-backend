@@ -47,6 +47,7 @@ async function createSale(req, res, next) {
       unit,
       pricePerUnit,
       costs = [], // Replaces deliveryCharge and otherCharges
+      charges = [], // User-facing charges like service fees
       discount = 0,
       invoiceStatus,
       paymentStatus,
@@ -176,7 +177,8 @@ async function createSale(req, res, next) {
       quantity,
       unit,
       pricePerUnit,
-      costs, 
+      costs,
+      charges,
       discount,
       invoiceStatus,
       paymentStatus,
@@ -268,6 +270,16 @@ async function createSale(req, res, next) {
           throw new ApiError(404, `Account for cost '${cost.name}' not found.`);
         }
 
+        // Validate that the account type matches the payment method for the cost
+        const expectedAccountType =
+          cost.paymentMethod === "Mobile Banking" ? "Mobile Banking" : cost.paymentMethod;
+        if (costAccount.accountType !== expectedAccountType) {
+          throw new ApiError(
+            400,
+            `For cost '${cost.name}', payment method '${cost.paymentMethod}' requires a '${expectedAccountType}' account, but a '${costAccount.accountType}' account was provided.`
+          );
+        }
+
         // DailyCash check for the cost transaction date
         const saleDateNormalized = new Date(sale.saleDate);
         saleDateNormalized.setHours(0, 0, 0, 0);
@@ -294,6 +306,7 @@ async function createSale(req, res, next) {
               name: `Sale Cost - ${cost.name}`,
               source: "Auto",
               category: "Sales Expense",
+              paymentMethod: cost.paymentMethod,
               reference: sale._id,
               referenceModel: "Sale",
               miscReference: {
@@ -714,21 +727,27 @@ async function updateSale(req, res, next) {
       });
     }
 
-    // Ensure paymentStatus is not manually updated
-    if (updateData.paymentStatus) {
-      delete updateData.paymentStatus;
-    }
-
-    // Prevent changing the product, warehouse, or category
-    if (updateData.product) {
-      delete updateData.product;
-    }
-    if (updateData.warehouse) {
-      delete updateData.warehouse;
-    }
-    if (updateData.category) {
-      delete updateData.category;
-    }
+    // Prevent updates to sensitive or immutable fields to ensure data integrity.
+    // 'charges' are an exception and can be updated directly on the sale.
+    // Financial arrays like 'costs' and 'payments' must be managed via dedicated endpoints.
+    const immutableFields = [
+      'paymentStatus', 
+      'product', 
+      'warehouse', 
+      'category', 
+      'customer', 
+      'costs', 
+      'payments',
+      'saleId',
+      'totalAmount',
+      'totalAmountToBePaid'
+    ];
+    
+    immutableFields.forEach(field => {
+      if (updateData.hasOwnProperty(field)) {
+        delete updateData[field];
+      }
+    });
 
     Object.assign(sale, updateData);
 
