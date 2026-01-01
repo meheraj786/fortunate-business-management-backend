@@ -11,6 +11,7 @@ const Unit = require("../models/unit.model"); // Import Unit model
 const Account = require("../models/account.model"); // Import Account model explicitly
 const DailyCash = require("../models/dailyCash.model"); // Added
 const Transaction = require("../models/transaction.model");
+const Product = require("../models/product.model"); // Import Product model
 require("../models/account.model"); // Ensure Account model is registered for population
 const mongoose = require("mongoose"); // Added
 const Trash = require("../models/trash.model");
@@ -173,57 +174,12 @@ async function createLC(req, res, next) {
       }
     }
 
-    // After LC is saved, create transactions for costs
+    // After LC is saved, create transactions for costs by calling the helper function
     for (const section of sectionsWithCosts) {
       if (lcData[section] && lcData[section].costs) {
         for (const cost of lcData[section].costs) {
-          if (cost.accountId && cost.amount > 0) { // Only create transaction if accountId is present and amount > 0
-            // DailyCash Gatekeeper Check
-            const costDateNormalized = new Date(cost.date);
-            costDateNormalized.setHours(0, 0, 0, 0);
-            const dailyCash = await DailyCash.findOne({ date: costDateNormalized }).session(session);
-
-            if (!dailyCash || dailyCash.status === "Closed") {
-              throw new ApiError(
-                400,
-                `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost transaction.`
-              );
-            }
-
-            const account = await Account.findById(cost.accountId).session(session);
-            if (!account) {
-                throw new ApiError(404, `Account with ID ${cost.accountId} not found for cost ${cost.name}.`);
-            }
-            if (account.balance < cost.amount) {
-                throw new ApiError(400, `Insufficient balance in ${account.accountName} (${account.accountType}) account for cost ${cost.name}.`);
-            }
-
-            // Decrease account balance
-            account.balance -= cost.amount;
-            await account.save({ session });
-
-            // Create Transaction for LC cost
-            await Transaction.create([{
-                accountId: cost.accountId,
-                date: cost.date,
-                description: `LC Cost: ${cost.name} for LC Number: ${lc.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
-                transactionType: "Expense",
-                amount: cost.amount,
-                name: `LC Cost: ${cost.name}`,
-                source: "Auto",
-                category: "LC",
-                paymentMethod: cost.paymentMethod,
-                reference: lc._id,
-                referenceModel: "LC",
-                miscReference: {
-                    lcNumber: lc.basicInfo.lcNumber,
-                    costName: cost.name,
-                    costAmount: cost.amount,
-                    paymentMethod: cost.paymentMethod,
-                    accountId: cost.accountId,
-                },
-            }], { session });
-          }
+          // The helper function handles the logic for creating transactions
+          await _handleLCCostTransaction(cost, lc, session);
         }
       }
     }
@@ -425,6 +381,8 @@ async function getLCById(req, res, next) {
 async function updateLC(req, res, next) {
   try {
     const { id } = req.params;
+    const updateData = req.body;
+
     const lc = await LC.findById(id);
 
     if (!lc) {
@@ -434,8 +392,37 @@ async function updateLC(req, res, next) {
       return next(new ApiError(400, "Cannot update a deleted LC."));
     }
 
-    // Update fields from req.body
-    Object.assign(lc, req.body);
+    // Prevent updates to sensitive or immutable fields to ensure data integrity.
+    // New costs must be added via the dedicated add-expense endpoint.
+    const immutablePaths = [
+      'basicInfo.lcNumber',
+      'financialInfo',
+      'shippingCustomsInfo',
+      'agentTransportInfo',
+      'otherExpenses',
+      'documentsNotes.uploadedDocuments', // Prevent direct manipulation of uploaded files array
+      'totalCost',
+      'totalQuantity'
+    ];
+    
+    immutablePaths.forEach(path => {
+        // Simple deletion for top-level keys
+        if (path.indexOf('.') === -1 && updateData.hasOwnProperty(path)) {
+            delete updateData[path];
+        }
+        // Handle nested objects - for now, we simply block the entire top-level object
+        else if (path.indexOf('.') > -1) {
+            const topLevelKey = path.split('.')[0];
+            if (updateData.hasOwnProperty(topLevelKey)) {
+                // To be safe, if an attempt is made to update a parent of a locked field,
+                // we block the update on that whole parent object.
+                delete updateData[topLevelKey];
+            }
+        }
+    });
+
+    // Update fields from the sanitized updateData
+    Object.assign(lc, updateData);
 
     const updated = await lc.save(); // This will trigger the pre-save hook
 
@@ -471,6 +458,16 @@ async function deleteLC(req, res, next) {
   session.startTransaction();
   try {
     const { id } = req.params;
+
+    // Check if any products are linked to this LC before deleting
+    const linkedProduct = await Product.findOne({ LC: id, isDeleted: { $ne: true } }).session(session);
+    if (linkedProduct) {
+      throw new ApiError(
+        409, // Conflict
+        `Cannot delete this LC because it is linked to product "${linkedProduct.name}" (and possibly others). You must delete or unlink the associated products first.`
+      );
+    }
+
     const deletedLC = await LC.findByIdAndUpdate(id, { isDeleted: true }, { session, new: true });
 
     if (!deletedLC) {
