@@ -229,7 +229,7 @@ async function createSale(req, res, next) {
         // 1. DailyCash Gatekeeper Check
         const paymentDateNormalized = new Date(payment.date);
         paymentDateNormalized.setHours(0, 0, 0, 0);
-        const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).session(session);
+        const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).sort({ createdAt: -1 }).session(session);
 
         if (!dailyCash || dailyCash.status === "Closed") {
           throw new ApiError(
@@ -278,7 +278,7 @@ async function createSale(req, res, next) {
         // DailyCash check for the cost transaction date
         const saleDateNormalized = new Date(sale.saleDate);
         saleDateNormalized.setHours(0, 0, 0, 0);
-        const dailyCash = await DailyCash.findOne({ date: saleDateNormalized }).session(session);
+        const dailyCash = await DailyCash.findOne({ date: saleDateNormalized }).sort({ createdAt: -1 }).session(session);
 
         if (!dailyCash || dailyCash.status === "Closed") {
           throw new ApiError(
@@ -333,6 +333,8 @@ async function createSale(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    return res.status(201).json(new ApiResponse(201, sale, "Sale created successfully"));
 
   } catch (error) {
     await session.abortTransaction();
@@ -804,7 +806,7 @@ async function deleteSale(req, res, next) {
     // Reverse financial transactions by creating counter-transactions
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const dailyCash = await DailyCash.findOne({ date: today }).session(session);
+    const dailyCash = await DailyCash.findOne({ date: today }).sort({ createdAt: -1 }).session(session);
 
     if (!dailyCash || dailyCash.status === "Closed") {
         throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse sales payments.`);
@@ -1114,7 +1116,7 @@ async function addPartialPayment(req, res, next) {
         // 1. DailyCash Gatekeeper Check
         const paymentDateNormalized = new Date(date);
         paymentDateNormalized.setHours(0, 0, 0, 0);
-        const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).session(session);
+        const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).sort({ createdAt: -1 }).session(session);
 
         if (!dailyCash || dailyCash.status === "Closed") {
           throw new ApiError(
@@ -1365,7 +1367,7 @@ async function cancelSale(req, res, next) {
     // DailyCash Gatekeeper Check for reversal transactions
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const dailyCash = await DailyCash.findOne({ date: today }).session(session);
+    const dailyCash = await DailyCash.findOne({ date: today }).sort({ createdAt: -1 }).session(session);
 
     if (!dailyCash || dailyCash.status === "Closed") {
         throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot cancel sales payments.`);

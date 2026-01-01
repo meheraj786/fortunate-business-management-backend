@@ -84,6 +84,11 @@ async function generateInvoice(req, res, next) {
       }
     }
 
+    const transformedPayments = sale.payments.map(payment => ({
+      ...payment,
+      method: payment.method.toLowerCase(),
+    }));
+
     const invoice = await Invoice.create({
       invoiceId: newInvoiceId,
       salesId: sale._id,
@@ -104,7 +109,7 @@ async function generateInvoice(req, res, next) {
         discount: sale.discount,
         totalAmountToBePaid: sale.totalAmountToBePaid,
         paymentStatus: sale.paymentStatus,
-        payments: sale.payments,
+        payments: transformedPayments,
       },
       notes: sale.notes,
     });
