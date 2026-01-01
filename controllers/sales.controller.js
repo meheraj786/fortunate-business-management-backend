@@ -11,13 +11,6 @@ const mongoose = require("mongoose");
 const Transaction = require("../models/transaction.model");
 const Trash = require("../models/trash.model");
 
-// Helper mapping for Account Types (DB values vs Method values)
-const paymentMethodToAccountType = {
-  "cash": "Cash",
-  "bank": "Bank",
-  "mobile-banking": "Mobile Banking"
-};
-
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -183,11 +176,11 @@ async function createSale(req, res, next) {
       quantity,
       unit,
       pricePerUnit,
-      costs, // Use the new costs field
+      costs, 
       discount,
       invoiceStatus,
       paymentStatus,
-      payments: transformedPayments, // Use transformed payments
+      payments: transformedPayments, 
       notes,
       saleDate,
     });
@@ -199,11 +192,11 @@ async function createSale(req, res, next) {
     // Handle payments and update account balances
     for (const payment of transformedPayments) { // Iterate over transformed payments
       // For any account-based payment, we need an account ID
-      if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+      if (["Bank", "Mobile Banking", "Cash"].includes(payment.paymentMethod)) {
         if (!payment.accountId) { // Check for accountId
           throw new ApiError(
             400,
-            `Account ID is required for ${payment.method} payment.`
+            `Account ID is required for ${payment.paymentMethod} payment.`
           );
         }
         const account = await Account.findById(payment.accountId).session(session); // Use payment.accountId
@@ -213,11 +206,11 @@ async function createSale(req, res, next) {
 
         // Validate that the account type matches the payment method
         const expectedAccountType =
-          payment.method === "Mobile Banking" ? "Mobile Banking" : payment.method;
+          payment.paymentMethod === "Mobile Banking" ? "Mobile Banking" : payment.paymentMethod;
         if (account.accountType !== expectedAccountType) {
           throw new ApiError(
             400,
-            `Payment method '${payment.method}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`
+            `Payment method '${payment.paymentMethod}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`
           );
         }
 
@@ -243,20 +236,20 @@ async function createSale(req, res, next) {
             {
               accountId: account._id,
               date: payment.date,
-              description: `Payment received for Sale ID: ${req.body.saleId} from ${finalCustomerInfo.name} via ${payment.method}.`,
+              description: `Payment received for Sale ID: ${req.body.saleId} from ${finalCustomerInfo.name} via ${payment.paymentMethod}.`,
               transactionType: "Income",
               amount: payment.amount,
               name: "Sales Payment",
               source: "Auto",
               category: "Sales",
-              paymentMethod: payment.method,
+              paymentMethod: payment.paymentMethod,
               reference: sale._id,
               referenceModel: "Sale",
               miscReference: {
                 saleId: req.body.saleId,
                 customerName: finalCustomerInfo.name,
                 paymentAmount: payment.amount,
-                paymentMethod: payment.method,
+                paymentMethod: payment.paymentMethod,
               },
             },
           ],
@@ -368,6 +361,11 @@ async function createSale(req, res, next) {
 async function getAllSales(_, res, next) {
   try {
     const sales = await Sales.aggregate([
+      {
+        $match: {
+          isDeleted: { $ne: true },
+        },
+      },
       // Populate product
       {
         $lookup: {
@@ -511,7 +509,7 @@ async function getSaleById(req, res, next) {
     const { id } = req.params;
 
     const results = await Sales.aggregate([
-      { $match: { _id: new mongoose.Types.ObjectId(id) } },
+      { $match: { _id: new mongoose.Types.ObjectId(id), isDeleted: { $ne: true } } },
       // Populate product
       {
         $lookup: {
@@ -671,6 +669,9 @@ async function updateSale(req, res, next) {
     if (!sale) {
       return next(new ApiError(404, "Sale not found"));
     }
+    if (sale.isDeleted) {
+      return next(new ApiError(400, "Cannot update a sale that is in the trash."));
+    }
 
     // Adjust product stock if quantity changes
     if (updateData.quantity && updateData.quantity !== sale.quantity) {
@@ -761,166 +762,146 @@ async function updateSale(req, res, next) {
   }
 }
 
+const { moveToTrash } = require("../controllers/trash.controller");
+
+// ... (other functions remain the same) ...
+
 async function deleteSale(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
     const { id } = req.params;
+    const { user } = req; // Assuming user is available in the request
 
-    const deletedSale = await Sales.findByIdAndDelete(id, { session })
-      .populate('unit')
+    const saleToDelete = await Sales.findById(id)
+      .session(session)
+      .populate("unit")
       .populate({
-        path: 'product',
+        path: "product",
         populate: {
-          path: 'unit'
-        }
+          path: "unit",
+        },
       });
 
-    if (!deletedSale) {
+    if (!saleToDelete) {
       throw new ApiError(404, "Sale not found");
     }
 
+    if (saleToDelete.isDeleted) {
+      throw new ApiError(400, "Sale is already in the trash");
+    }
+
     // Restore product quantity with unit conversion
-    if (deletedSale.product && deletedSale.unit) {
-      const product = deletedSale.product; // Product is already populated
-      const saleUnit = deletedSale.unit; // Sale unit is already populated
+    if (saleToDelete.product && saleToDelete.unit) {
+      const product = saleToDelete.product;
+      const saleUnit = saleToDelete.unit;
 
-      // Check if units are compatible (same type)
-      if (product.unit.type !== saleUnit.type) {
-        console.error(
-          `Data inconsistency: Product unit type (${product.unit.type}) does not match sale unit type (${saleUnit.type}) during sale deletion.`
+      if (product.unit.type === saleUnit.type) {
+        const deletedSaleQuantityInBaseUnit =
+          saleToDelete.quantity * saleUnit.conversionFactor;
+        const quantityToRestoreToProduct =
+          deletedSaleQuantityInBaseUnit / product.unit.conversionFactor;
+
+        await Product.findByIdAndUpdate(
+          product._id,
+          { $inc: { quantity: quantityToRestoreToProduct } },
+          { session }
         );
-        await Product.findByIdAndUpdate(product._id, {
-          $inc: { quantity: deletedSale.quantity },
-        }, { session });
-      } else {
-        const deletedSaleQuantityInBaseUnit = deletedSale.quantity * saleUnit.conversionFactor;
-        const quantityToRestoreToProduct = deletedSaleQuantityInBaseUnit / product.unit.conversionFactor;
-
-        await Product.findByIdAndUpdate(product._id, {
-          $inc: { quantity: quantityToRestoreToProduct },
-        }, { session });
       }
     }
 
-    // Reverse financial transactions by creating counter-transactions
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const dailyCash = await DailyCash.findOne({ date: today }).sort({ createdAt: -1 }).session(session);
 
-    if (!dailyCash || dailyCash.status === "Closed") {
-        throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse sales payments.`);
-    }
+    // Only reverse financial transactions if there were actual payments made.
+    // This also implies that the DailyCash check is only needed in this case
+    // since reversals create new transactions affecting daily cash.
+    if (saleToDelete.payments.length > 0) {
+      // DailyCash Gatekeeper Check (only for sales with payments that need reversal)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dailyCash = await DailyCash.findOne({ date: today })
+        .sort({ createdAt: -1 })
+        .session(session);
 
-    // Reverse financial transactions for payments
-    for (const payment of deletedSale.payments) {
-      if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
-        const account = await Account.findById(payment.accountId).session(session);
-        if (account) {
-          account.balance -= payment.amount;
-          await account.save({ session });
-
-          await Transaction.create([{
-            accountId: payment.accountId,
-            date: new Date(), // Reversal transaction date is today
-            description: `Reversal of payment for Sale ID: ${deletedSale.saleId} (Customer: ${deletedSale.customer.name}) via ${payment.method}.`,
-            transactionType: "Expense", // To reverse the Income
-            amount: payment.amount,
-            source: "Auto", // Auto generated reversal
-            category: "Sales Reversal",
-            reference: deletedSale._id,
-            referenceModel: "Sale",
-miscReference: {
-              saleId: deletedSale.saleId,
-              customerName: deletedSale.customer.name,
-              originalPaymentAmount: payment.amount,
-              originalPaymentMethod: payment.method,
-            },
-          }], { session });
-        }
+      if (!dailyCash || dailyCash.status === "Closed") {
+        throw new ApiError(
+          400,
+          `Daily cash is closed for ${today.toDateString()}. Cannot delete sale with existing payments, as reversals cannot be processed.`
+        );
       }
-    }
-    
-    // Reverse expense transactions for costs
-    for (const cost of deletedSale.costs) {
-      if (cost.accountId) {
-        const account = await Account.findById(cost.accountId).session(session);
-        if (account) {
-          account.balance += cost.amount;
-          await account.save({ session });
-
-          await Transaction.create(
-            [
-              {
-                accountId: cost.accountId,
-                date: new Date(),
-                description: `Reversal of cost for deleted Sale ID: ${deletedSale.saleId} - ${cost.name}`,
-                transactionType: "Income", // To reverse the Expense
-                amount: cost.amount,
-                source: "Auto",
-                category: "Sales Expense Reversal",
-                reference: deletedSale._id,
-                referenceModel: "Sale",
-                miscReference: {
-                  saleId: deletedSale.saleId,
-                  costName: cost.name,
-                  costAmount: cost.amount,
-                },
-              },
-            ],
-            { session }
+      // Reverse financial transactions for payments
+      for (const payment of saleToDelete.payments) {
+        if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+          const account = await Account.findById(payment.accountId).session(
+            session
           );
+          if (account) {
+            account.balance -= payment.amount;
+            await account.save({ session });
+
+            await Transaction.create(
+              [
+                {
+                  name: "Sales Deletion Reversal",
+                  accountId: payment.accountId,
+                  date: new Date(),
+                  description: `Reversal for Deleted Sale ID: ${saleToDelete.saleId}`,
+                  transactionType: "Expense",
+                  amount: payment.amount,
+                  source: "Auto",
+                  category: "Sales Reversal",
+                  paymentMethod: payment.method,
+                  reference: saleToDelete._id,
+                  referenceModel: "Sale",
+                },
+              ],
+              { session }
+            );
+          }
         }
       }
+
+
     }
-    
-    // Remove sale from customer's transactions if it's a registered customer
-    if (deletedSale.customer && deletedSale.customer.customerId) {
-      await Customer.findByIdAndUpdate(
-        deletedSale.customer.customerId,
-        {
-          $pull: { transactions: deletedSale._id },
-        },
-        { session }
-      );
-    }
+
+    // Mark the sale as deleted
+    saleToDelete.isDeleted = true;
+    saleToDelete.status = "Deleted";
+    await saleToDelete.save({ session });
+
+    // Move to trash
+    await moveToTrash({
+      docId: saleToDelete._id,
+      modelName: "Sale",
+      deletedBy: user?._id, // Pass the user's ID
+    });
 
     await session.commitTransaction();
     session.endSession();
 
     return res
       .status(200)
-      .json(new ApiResponse(200, deletedSale, "Sale deleted successfully"));
+      .json(
+        new ApiResponse(200, null, "Sale moved to trash successfully")
+      );
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
     if (error instanceof ApiError) {
       return next(error);
     }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Generic message for sales
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-        logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    logger.error("DeleteSale Error:", error);
+    next(new ApiError(500, "Failed to move sale to trash. Please try again."));
   }
 }
 
 async function getSalesSummary(_, res, next) {
   try {
     const summary = await Sales.aggregate([
+      {
+        $match: {
+          isDeleted: { $ne: true },
+        },
+      },
       {
         $group: {
           _id: null,
@@ -1012,6 +993,11 @@ async function getAll_invoices_status_count(req, res, next) {
   try {
     const stats = await Sales.aggregate([
       {
+        $match: {
+          isDeleted: { $ne: true },
+        },
+      },
+      {
         $group: {
           _id: {
             invoiceStatus: "$invoiceStatus",
@@ -1082,20 +1068,20 @@ async function addPartialPayment(req, res, next) {
   session.startTransaction();
   try {
     const { id } = req.params;
-    const { amount, date, method, account: accountId } = req.body;
+    const { amount, date, paymentMethod, accountId } = req.body;
 
     const validationErrors = [];
     if (!amount)
       validationErrors.push({ field: "amount", message: "Amount is required" });
     if (!date)
       validationErrors.push({ field: "date", message: "Date is required" });
-    if (!method)
-      validationErrors.push({ field: "method", message: "Method is required" });
+    if (!paymentMethod)
+      validationErrors.push({ field: "paymentMethod", message: "Payment method is required" });
     
     // Account is required for all payment methods now as per new schema
     if (!accountId) {
       validationErrors.push({
-        field: "account",
+        field: "accountId",
         message: "Account is required for the payment",
       });
     }
@@ -1108,11 +1094,14 @@ async function addPartialPayment(req, res, next) {
     if (!sale) {
       throw new ApiError(404, "Sale not found");
     }
+    if (sale.isDeleted) {
+      throw new ApiError(400, "Cannot add payment to a sale that is in the trash.");
+    }
 
-    const payment = { amount, date, method, accountId: accountId };
+    const payment = { amount, date,  method: paymentMethod, accountId: accountId };
 
     // For any account-based payment, we need an account ID
-    if (["Bank", "Mobile Banking", "Cash"].includes(method)) {
+    if (["Bank", "Mobile Banking", "Cash"].includes(paymentMethod)) {
         // 1. DailyCash Gatekeeper Check
         const paymentDateNormalized = new Date(date);
         paymentDateNormalized.setHours(0, 0, 0, 0);
@@ -1132,11 +1121,11 @@ async function addPartialPayment(req, res, next) {
 
         // Validate that the account type matches the payment method
         const expectedAccountType =
-            method === "Mobile Banking" ? "Mobile Banking" : method;
+            paymentMethod === "Mobile Banking" ? "Mobile Banking" : paymentMethod;
         if (account.accountType !== expectedAccountType) {
-            throw new new ApiError(
+            throw new ApiError(
                 400,
-                `Payment method '${method}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`
+                `Payment method '${paymentMethod}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`
             );
         }
 
@@ -1148,18 +1137,20 @@ async function addPartialPayment(req, res, next) {
                 {
                     accountId: accountId,
                     date,
-                    description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${method}.`,
+                    description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${paymentMethod}.`,
                     transactionType: "Income",
                     amount,
+                    name: "Sales Partial Payment",
                     source: "Auto",
                     category: "Sales",
+                    paymentMethod: paymentMethod,
                     reference: sale._id,
                     referenceModel: "Sale",
                     miscReference: {
                         saleId: sale.saleId,
                         customerName: sale.customer.name,
                         paymentAmount: amount,
-                        paymentMethod: method,
+                        paymentMethod: paymentMethod,
                     },
                 },
             ],
@@ -1227,7 +1218,10 @@ async function getSalesByCustomerId(req, res, next) {
     const pipeline = [];
 
     // Stage 1: Match by customer and other filters
-    const matchQuery = { "customer.customerId": new mongoose.Types.ObjectId(customerId) };
+    const matchQuery = { 
+      "customer.customerId": new mongoose.Types.ObjectId(customerId),
+      isDeleted: { $ne: true } 
+    };
     if (invoiceStatus) matchQuery.invoiceStatus = invoiceStatus;
     if (paymentStatus) matchQuery.paymentStatus = paymentStatus;
     pipeline.push({ $match: matchQuery });
@@ -1360,6 +1354,10 @@ async function cancelSale(req, res, next) {
       throw new ApiError(404, "Sale not found");
     }
 
+    if (saleToCancel.isDeleted) {
+      throw new ApiError(400, "Cannot cancel a sale that is already in the trash.");
+    }
+
     if (saleToCancel.invoiceStatus === "Cancelled") {
       throw new ApiError(400, "Sale is already cancelled");
     }
@@ -1382,6 +1380,7 @@ async function cancelSale(req, res, next) {
           await account.save({ session });
 
           await Transaction.create([{
+            name: "Sales Cancellation Reversal",
             accountId: payment.accountId,
             date: new Date(), // Reversal transaction date is today
             description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}.`,
@@ -1389,6 +1388,7 @@ async function cancelSale(req, res, next) {
             amount: payment.amount,
             source: "Auto", // Auto generated reversal
             category: "Sales Reversal (Cancelled)",
+            paymentMethod: payment.method,
             reference: saleToCancel._id,
             referenceModel: "Sale",
             miscReference: {
@@ -1569,7 +1569,9 @@ async function getPaginatedSalesSummary(req, res, next) {
     });
 
     // Stage 2: Filtering
-    const matchConditions = {};
+    const matchConditions = {
+      isDeleted: { $ne: true }
+    };
     if (invoiceStatus) {
       matchConditions.invoiceStatus = invoiceStatus;
     }

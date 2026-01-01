@@ -10,7 +10,7 @@ const paymentSchema = new mongoose.Schema({
   date: { type: Date, required: true },
   method: {
     type: String,
-    enum: ["cash", "bank", "mobile-banking"],
+    enum: ["Cash", "Bank", "Mobile Banking"],
     required: true,
   },
 });

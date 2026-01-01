@@ -35,12 +35,12 @@ transactionRoutes.get(
   authorize("TRANSACTION", "GET"),
   getAllTransactions
 );
-// transactionRoutes.delete(
-//   "/delete/:id",
-//   authenticate,
-//   authorize("TRANSACTION", "DELETE"),
-//   deleteTransaction
-// );
+transactionRoutes.delete(
+  "/delete/:id",
+  authenticate,
+  authorize("TRANSACTION", "DELETE"),
+  deleteTransaction
+);
 
 
 module.exports = transactionRoutes;

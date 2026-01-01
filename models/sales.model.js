@@ -77,7 +77,7 @@ const salesSchema = new mongoose.Schema(
     unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
     pricePerUnit: { type: Number, required: true, min: 0 },
     totalAmount: { type: Number, required: true },
-    costs: [costSchema], // Replaces deliveryCharge and otherCharges
+    costs: [costSchema], 
     discount: { type: Number, default: 0 },
     totalAmountToBePaid: { type: Number, required: true },
     invoiceStatus: {

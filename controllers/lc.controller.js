@@ -430,6 +430,9 @@ async function updateLC(req, res, next) {
     if (!lc) {
       return next(new ApiError(404, "LC not found"));
     }
+    if (lc.isDeleted) {
+      return next(new ApiError(400, "Cannot update a deleted LC."));
+    }
 
     // Update fields from req.body
     Object.assign(lc, req.body);
@@ -1009,6 +1012,9 @@ async function addExpenseToLC(req, res, next) {
     const lc = await LC.findById(lcId).session(session);
     if (!lc) {
       throw new ApiError(404, "LC not found");
+    }
+    if (lc.isDeleted) {
+      throw new ApiError(400, "Cannot add expense to a deleted LC.");
     }
 
     // 3. Add the expense to the correct category
