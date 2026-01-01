@@ -1,5 +1,7 @@
 const Unit = require("../models/unit.model");
-const Trash = require("../models/trash.model"); 
+const Trash = require("../models/trash.model");
+const Product = require("../models/product.model");
+const Sales = require("../models/sales.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
@@ -107,6 +109,19 @@ exports.updateUnit = async (req, res, next) => {
 exports.deleteUnit = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Check if the unit is being used by any active products
+    const productInUse = await Product.findOne({ unit: id, isDeleted: { $ne: true } });
+    if (productInUse) {
+      return next(new ApiError(400, `Cannot delete unit: it is in use by product "${productInUse.name}".`));
+    }
+
+    // Check if the unit is being used by any active sales
+    const saleInUse = await Sales.findOne({ unit: id, isDeleted: { $ne: true } });
+    if (saleInUse) {
+      return next(new ApiError(400, `Cannot delete unit: it is in use by sale "${saleInUse.saleId}".`));
+    }
+
     const deletedBy = req.cookies?.userId || req.user?._id || null;
 
     const unit = await Unit.findOneAndUpdate(
