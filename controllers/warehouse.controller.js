@@ -392,11 +392,13 @@ const deleteWarehouse = async (req, res, next) => {
       return next(new ApiError(404, "Warehouse not found"));
     }
 
-    if (warehouse.product && warehouse.product.length > 0) {
+    // Check if any ACTIVE products are still in this warehouse
+    const activeProduct = await Product.findOne({ warehouse: id, isDeleted: { $ne: true } });
+    if (activeProduct) {
       return next(
         new ApiError(
           400,
-          "Cannot delete warehouse with associated products. Please move or delete them first."
+          `Cannot delete warehouse: it still contains active products like "${activeProduct.name}". Please move or delete them first.`
         )
       );
     }
