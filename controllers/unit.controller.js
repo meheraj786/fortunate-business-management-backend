@@ -2,6 +2,7 @@ const Unit = require("../models/unit.model");
 const Trash = require("../models/trash.model");
 const Product = require("../models/product.model");
 const Sales = require("../models/sales.model");
+const LC = require("../models/lc.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
@@ -120,6 +121,12 @@ exports.deleteUnit = async (req, res, next) => {
     const saleInUse = await Sales.findOne({ unit: id, isDeleted: { $ne: true } });
     if (saleInUse) {
       return next(new ApiError(400, `Cannot delete unit: it is in use by sale "${saleInUse.saleId}".`));
+    }
+
+    // Check if the unit is being used by any active LCs
+    const lcInUse = await LC.findOne({ "productInfo.quantityUnit": id, isDeleted: { $ne: true } });
+    if (lcInUse) {
+      return next(new ApiError(400, `Cannot delete unit: it is in use by LC "${lcInUse.basicInfo.lcNumber}".`));
     }
 
     const deletedBy = req.cookies?.userId || req.user?._id || null;
