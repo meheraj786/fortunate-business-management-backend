@@ -166,6 +166,58 @@ async function createSale(req, res, next) {
       finalCustomerInfo.name = existingCustomer.name;
       finalCustomerInfo.phone = existingCustomer.phone;
       finalCustomerInfo.address = existingCustomer.location;
+
+      // Credit Limit Check
+      if (existingCustomer.creditLimit > 0) {
+        // Manually calculate what the new sale's due amount will be
+        const totalAmount = quantity * pricePerUnit;
+        const costsTotal = costs.reduce((acc, cost) => acc + cost.amount, 0);
+        const chargesTotal = charges.reduce(
+          (acc, charge) => acc + charge.amount,
+          0
+        );
+        const prospectiveTotal = totalAmount + costsTotal + chargesTotal - discount;
+        const totalPaidInThisTransaction = transformedPayments.reduce(
+          (acc, p) => acc + p.amount,
+          0
+        );
+        const newSaleDueAmount = prospectiveTotal - totalPaidInThisTransaction;
+
+        if (newSaleDueAmount > 0) {
+          const salesPipeline = [
+            {
+              $match: {
+                "customer.customerId": existingCustomer._id,
+                isDeleted: { $ne: true },
+                paymentStatus: "Due payment",
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                totalDue: {
+                  $sum: {
+                    $subtract: [
+                      "$totalAmountToBePaid",
+                      { $sum: "$payments.amount" },
+                    ],
+                  },
+                },
+              },
+            },
+          ];
+
+          const result = await Sales.aggregate(salesPipeline).session(session);
+          const currentDues = result.length > 0 ? result[0].totalDue : 0;
+
+          if (currentDues + newSaleDueAmount > existingCustomer.creditLimit) {
+            throw new ApiError(
+              409, // Conflict
+              `Cannot create sale. This transaction exceeds the customer's credit limit of ${existingCustomer.creditLimit}. Current outstanding due is ${currentDues}.`
+            );
+          }
+        }
+      }
     }
 
     const sale = new Sales({

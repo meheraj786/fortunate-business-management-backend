@@ -58,7 +58,7 @@ async function createCustomer(req, res, next) {
 
 async function getAllCustomers(_, res, next) {
   try {
-    const customers = await Customer.find();
+    const customers = await Customer.find({ isDeleted: { $ne: true } });
 
     return res
       .status(200)
@@ -101,8 +101,19 @@ async function getCustomerById(req, res, next) {
       {
         $lookup: {
           from: "sales",
-          localField: "_id",
-          foreignField: "customer.customerId",
+          let: { customerId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$customer.customerId", "$$customerId"] },
+                    { $ne: ["$isDeleted", true] },
+                  ],
+                },
+              },
+            },
+          ],
           as: "sales",
         },
       },
@@ -370,7 +381,7 @@ async function getCustomersSummary(req, res, next) {
     const pipeline = [];
 
     // Stage 1: Initial Filtering & Searching
-    const matchConditions = {};
+    const matchConditions = { isDeleted: { $ne: true } };
     if (status) {
       matchConditions.customerStatus = status;
     }
@@ -393,8 +404,19 @@ async function getCustomersSummary(req, res, next) {
     pipeline.push({
       $lookup: {
         from: "sales",
-        localField: "_id",
-        foreignField: "customer.customerId",
+        let: { customerId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$customer.customerId", "$$customerId"] },
+                  { $ne: ["$isDeleted", true] },
+                ],
+              },
+            },
+          },
+        ],
         as: "sales",
       },
     });
