@@ -329,6 +329,16 @@ async function _calculateDailyCashMetrics(dateString) {
             $cond: [{ $eq: ["$transactionType", "Expense"] }, "$amount", 0],
           },
         },
+        totalIncomeTransactionsCount: {
+          $sum: {
+            $cond: [{ $eq: ["$transactionType", "Income"] }, 1, 0],
+          },
+        },
+        totalExpenseTransactionsCount: {
+          $sum: {
+            $cond: [{ $eq: ["$transactionType", "Expense"] }, 1, 0],
+          },
+        },
         transactions: { $push: "$$ROOT" },
       },
     },
@@ -339,11 +349,15 @@ async function _calculateDailyCashMetrics(dateString) {
   let totalIncome = 0;
   let totalExpenses = 0;
   let transactions = [];
+  let totalIncomeTransactionsCount = 0;
+  let totalExpenseTransactionsCount = 0;
 
   if (transactionResults.length > 0) {
     totalIncome = transactionResults[0].totalIncome;
     totalExpenses = transactionResults[0].totalExpenses;
     transactions = transactionResults[0].transactions;
+    totalIncomeTransactionsCount = transactionResults[0].totalIncomeTransactionsCount;
+    totalExpenseTransactionsCount = transactionResults[0].totalExpenseTransactionsCount;
   }
   // --- End of Optimization ---
 
@@ -356,6 +370,8 @@ async function _calculateDailyCashMetrics(dateString) {
     openingBalance, // Opening balance of the first session
     totalIncome,
     totalExpenses,
+    totalIncomeTransactionsCount,
+    totalExpenseTransactionsCount,
     runningBalance,
     transactions,
     dailyCashSessions: sessions, // Return all session documents for the day
