@@ -1,6 +1,29 @@
 const mongoose = require("mongoose");
 
-const otherChargeSchema = new mongoose.Schema({
+/*
+ * Cost Sub-schema
+ * Represents additional costs associated with a sale, such as loading or delivery charges.
+ */
+const costSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  amount: { type: Number, required: true },
+  accountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Account",
+    required: true,
+  },
+  paymentMethod: {
+    type: String,
+    required: true,
+    enum: ["Cash", "Bank", "Mobile Banking"],
+  },
+});
+
+/*
+ * Charge Sub-schema
+ * Represents additional charges to the customer for a sale, like service fees, that aren't direct business costs.
+ */
+const chargeSchema = new mongoose.Schema({
   name: { type: String, required: true },
   amount: { type: Number, required: true },
 });
@@ -13,6 +36,13 @@ const paymentSchema = new mongoose.Schema({
     enum: ["Cash", "Bank", "Mobile Banking"],
     required: true,
   },
+  accountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Account",
+    required: function () {
+      return ["Bank", "Mobile Banking", "Cash"].includes(this.method);
+    },
+  },
 });
 
 const invoiceSchema = new mongoose.Schema(
@@ -23,7 +53,7 @@ const invoiceSchema = new mongoose.Schema(
       unique: true,
     },
     salesId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "Sales",
       required: true,
     },
@@ -59,8 +89,8 @@ const invoiceSchema = new mongoose.Schema(
     },
     paymentAndAmountInfo: {
       totalAmount: { type: Number, required: true },
-      deliveryCharge: { type: Number, default: 0 },
-      otherCharges: [otherChargeSchema],
+      costs: [costSchema],
+      charges: [chargeSchema],
       discount: { type: Number, default: 0 },
       totalAmountToBePaid: { type: Number, required: true },
       paymentStatus: {
@@ -68,6 +98,9 @@ const invoiceSchema = new mongoose.Schema(
         enum: ["Paid payment", "Due payment"],
       },
       payments: [paymentSchema],
+      paymentsMade: { type: Number, required: true },
+      balanceDue: { type: Number, required: true },
+      overPayment: { type: Number, required: true },
     },
     notes: { type: String, trim: true },
   },

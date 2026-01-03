@@ -534,12 +534,45 @@ async function getProductInWarehouse(req, res, next) {
           },
         },
       },
-      // Final cleanup
+      // Final cleanup & projection
       {
         $project: {
-          sales: 0, // remove the sales array
-          totalInGrams: 0,
-          "unit.conversionFactor": 0, // remove conversion factor from the final output
+          name: 1,
+          productDescription: 1,
+          thickness: 1,
+          width: 1,
+          length: 1,
+          color: 1,
+          grade: 1,
+          quantity: 1,
+          unitPrice: 1,
+          supplierName: "$LC.basicInfo.supplierName",
+          totalUnitsSold: 1,
+          totalRevenue: 1,
+          totalDueInvoices: 1,
+          totalNotInvoiced: 1,
+          stockStatus: 1,
+          category: {
+            id: "$category._id",
+            name: "$category.name",
+          },
+          LC: {
+            basicInfo: {
+              lcNumber: "$LC.basicInfo.lcNumber",
+              status: "$LC.status",
+              supplierName: "$LC.basicInfo.supplierName",
+              country: "$LC.basicInfo.country",
+            },
+          },
+          unit: {
+            name: "$unit.name",
+            type: "$unit.type",
+          },
+          warehouse: {
+            name: "$warehouse.name",
+            location: "$warehouse.location",
+            manager: "$warehouse.manager",
+          },
         },
       },
     ];

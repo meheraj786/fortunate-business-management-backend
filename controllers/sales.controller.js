@@ -575,7 +575,55 @@ async function getSaleById(req, res, next) {
 
     const results = await Sales.aggregate([
       { $match: { _id: new mongoose.Types.ObjectId(id), isDeleted: { $ne: true } } },
-      // Populate product
+
+      // Unwind payments to process them
+      { $unwind: { path: "$payments", preserveNullAndEmptyArrays: true } },
+      
+      // Populate accountId in payments
+      {
+        $lookup: {
+          from: "accounts",
+          localField: "payments.accountId",
+          foreignField: "_id",
+          as: "payments.accountId",
+        },
+      },
+      {
+        $unwind: {
+          path: "$payments.accountId",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      
+      // Group back to reconstruct the sales document with populated payments
+      {
+        $group: {
+          _id: "$_id",
+          doc: { $first: "$$ROOT" },
+          payments: { $push: "$payments" },
+        },
+      },
+      {
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: [
+              "$doc",
+              {
+                payments: {
+                  // Filter out empty payment objects if no payments existed
+                  $filter: {
+                    input: "$payments",
+                    as: "payment",
+                    cond: { $ifNull: ["$$payment._id", false] }
+                  }
+                }
+              },
+            ],
+          },
+        },
+      },
+
+      // Now populate the other fields
       {
         $lookup: {
           from: "products",
@@ -586,7 +634,6 @@ async function getSaleById(req, res, next) {
       },
       { $unwind: { path: "$product", preserveNullAndEmptyArrays: true } },
 
-      // Nested populate product.LC
       {
         $lookup: {
           from: "lcs",
@@ -597,18 +644,16 @@ async function getSaleById(req, res, next) {
       },
       { $unwind: { path: "$product.LC", preserveNullAndEmptyArrays: true } },
 
-      // Nested populate product.unit
       {
         $lookup: {
           from: "units",
-          localField: "product.unit",
+          localField: "unit",
           foreignField: "_id",
-          as: "product.unit",
+          as: "unit",
         },
       },
-      { $unwind: { path: "$product.unit", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
 
-      // Populate customer.customerId
       {
         $lookup: {
           from: "customers",
@@ -624,7 +669,6 @@ async function getSaleById(req, res, next) {
         },
       },
 
-      // Populate warehouse
       {
         $lookup: {
           from: "warehouses",
@@ -635,7 +679,6 @@ async function getSaleById(req, res, next) {
       },
       { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
 
-      // Populate category
       {
         $lookup: {
           from: "categories",
@@ -646,41 +689,87 @@ async function getSaleById(req, res, next) {
       },
       { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
 
-      // Populate payments.accountId
-      { $unwind: { path: "$payments", preserveNullAndEmptyArrays: true } },
+      // Add calculated fields
       {
-        $lookup: {
-          from: "accounts",
-          localField: "payments.accountId",
-          foreignField: "_id",
-          as: "payments.accountId",
+        $addFields: {
+          paymentsMade: { $sum: "$payments.amount" },
         },
       },
       {
-        $unwind: {
-          path: "$payments.accountId",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-
-      // Group back to reconstruct the sales document
-      {
-        $group: {
-          _id: "$_id",
-          doc: { $first: "$$ROOT" },
-          payments: { $push: "$payments" },
-        },
-      },
-      {
-        $replaceRoot: {
-          newRoot: {
-            $mergeObjects: [
-              "$doc",
-              {
-                payments: "$payments",
-              },
+        $addFields: {
+          balanceDue: {
+            $max: [
+              0,
+              { $subtract: ["$totalAmountToBePaid", "$paymentsMade"] },
             ],
           },
+          overPayment: {
+            $max: [
+              0,
+              { $subtract: ["$paymentsMade", "$totalAmountToBePaid"] },
+            ],
+          },
+        },
+      },
+      // Project the final fields
+      {
+        $project: {
+          _id: 1,
+          saleId: 1,
+          product: {
+            id: "$product._id",
+            name: "$product.name",
+            category: {
+              name: "$category.name",
+              id: "$category._id",
+            },
+            LC: {
+              id: "$product.LC._id",
+              basicInfo: {
+                lcNumber: "$product.LC.basicInfo.lcNumber",
+                status: "$product.LC.status",
+                supplierName: "$product.LC.basicInfo.supplierName",
+                country: "$product.LC.basicInfo.country",
+              },
+            },
+            thickness: "$product.thickness",
+            width: "$product.width",
+            length: "$product.length",
+            color: "$product.color",
+            grade: "$product.grade",
+          },
+          customer: {
+            id: "$customer.customerId._id",
+            name: "$customer.name",
+            phone: "$customer.phone",
+            address: "$customer.address",
+          },
+          warehouse: {
+            id: "$warehouse._id",
+            name: "$warehouse.name",
+            location: "$warehouse.location",
+            manager: "$warehouse.manager",
+          },
+          quantity: 1,
+          unit: {
+            name: "$unit.name",
+            id: "$unit._id",
+            type: "$unit.type",
+          },
+          pricePerUnit: 1,
+          costs: 1,
+          charges: 1,
+          discount: 1,
+          invoiceStatus: 1,
+          paymentStatus: 1,
+          payments: 1,
+          notes: 1,
+          saleDate: 1,
+          totalAmount: 1,
+          totalAmountToBePaid: 1,
+          paymentsMade: 1,
+          balanceDue: 1,
+          overPayment: 1,
         },
       },
     ]);

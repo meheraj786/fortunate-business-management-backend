@@ -23,6 +23,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
     "express-validator": "^7.2.1",
+    "handlebars": "^4.7.8",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.0",
@@ -33,6 +34,7 @@
     "nodemailer": "^7.0.6",
     "pdfkit": "^0.17.2",
     "pm2": "^5.4.2",
+    "puppeteer": "^24.34.0",
     "uuid": "^13.0.0",
     "winston": "^3.13.1"
   },

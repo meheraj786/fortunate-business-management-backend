@@ -13,6 +13,10 @@ const {
   getPaginatedSalesSummary, // New import
 } = require("../../controllers/sales.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
+const {
+  getInvoiceAsPdf,
+  getInvoiceAsPng,
+} = require("../../controllers/generatedInvoice.controller");
 const authorize = require("../../middleware/authorize.middleware"); 
 const salesRoutes = express.Router();
 
@@ -30,5 +34,9 @@ salesRoutes.post("/:id/payments", addPartialPayment);
 
 // New comprehensive sales summary route
 salesRoutes.get("/sales-summary-table", authenticate, authorize("SALE", "GET"), getPaginatedSalesSummary);
+
+// Routes for generating invoice files
+salesRoutes.get("/invoice/:invoiceId/pdf", authenticate, getInvoiceAsPdf);
+salesRoutes.get("/invoice/:invoiceId/png", authenticate, getInvoiceAsPng);
 
 module.exports = salesRoutes;
