@@ -75,7 +75,6 @@ const lcSchema = new mongoose.Schema(
           storedName: { type: String, trim: true },
           mimeType: { type: String, trim: true },
           sizeBytes: { type: Number },
-          hashSha256: { type: String, trim:true },
         },
       ],
       note: { type: String, trim: true, default: "No notes given" },

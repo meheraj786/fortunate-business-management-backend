@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs").promises;
 const path = require("path");
 const multer = require("multer");
+const { v4: uuidv4 } = require("uuid");
 const { generateLCPDF } = require("../utils/LC_pdfGenerator");
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
@@ -16,9 +17,10 @@ require("../models/account.model"); // Ensure Account model is registered for po
 const mongoose = require("mongoose"); // Added
 const Trash = require("../models/trash.model");
 
-// Ensure the uploads directory exists
-const uploadDir = path.join(__dirname, "../uploads");
-const tempDir = path.join(uploadDir, "temp");
+//- Ensure the uploads directory exists
+const uploadsBaseDir = path.join(__dirname, "../uploads");
+const lcDocumentsDir = path.join(uploadsBaseDir, "lc_documents");
+const tempDir = path.join(uploadsBaseDir, "temp");
 
 async function ensureDir(dirPath) {
   try {
@@ -30,15 +32,18 @@ async function ensureDir(dirPath) {
   }
 }
 
-ensureDir(uploadDir);
+ensureDir(uploadsBaseDir);
+ensureDir(lcDocumentsDir);
 ensureDir(tempDir);
+
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, tempDir);
   },
   filename: function (req, file, cb) {
-    cb(null, `${Date.now()}-${file.originalname}`);
+    // Use a temporary unique name
+    cb(null, `${uuidv4()}-${file.originalname}`);
   },
 });
 
@@ -47,6 +52,8 @@ const upload = multer({ storage: storage });
 async function createLC(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
+  const tempFiles = req.files ? req.files.map(f => f.path) : [];
+
   try {
     let lcData;
     // Handle data sent as a stringified field in multipart/form-data
@@ -59,7 +66,8 @@ async function createLC(req, res, next) {
       lcData = req.body;
     }
 
-    const sectionsWithCosts = [
+    // --- Validation (Copied from your existing logic) ---
+     const sectionsWithCosts = [
       "financialInfo",
       "shippingCustomsInfo",
       "agentTransportInfo",
@@ -68,12 +76,9 @@ async function createLC(req, res, next) {
     for (const section of sectionsWithCosts) {
       if (lcData[section] && lcData[section].costs) {
         for (const cost of lcData[section].costs) {
-          // Clean up empty accountId in costs to prevent CastError
           if (!cost.accountId) {
             cost.accountId = null;
           }
-
-          // Validate that accountId is present for account-based payments
           if (
             ["Bank", "Mobile Banking", "Cash"].includes(cost.paymentMethod) &&
             !cost.accountId
@@ -84,101 +89,82 @@ async function createLC(req, res, next) {
             };
             throw new ApiError(400, validationError.message, [validationError]);
           }
-
-          // If accountId is provided, validate it
           if (cost.accountId) {
             const existingAccount = await Account.findById(cost.accountId).session(session);
             if (!existingAccount) {
-              const validationError = {
-              field: `${section}.costs.accountId`,
-              message: `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
-            };
-            throw new ApiError(400, validationError.message, [validationError]);
+               const validationError = {
+                field: `${section}.costs.accountId`,
+                message: `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
+              };
+              throw new ApiError(400, validationError.message, [validationError]);
             }
-            // Validate that the account type matches the payment method
             if (existingAccount.accountType !== cost.paymentMethod) {
               const validationError = {
-              field: `${section}.costs.accountId`,
-              message: `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`,
-            };
-            throw new ApiError(400, validationError.message, [validationError]);
+                field: `${section}.costs.accountId`,
+                message: `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`,
+              };
+              throw new ApiError(400, validationError.message, [validationError]);
             }
           }
         }
       }
     }
-
-    // Add validation for productInfo.quantityUnit
-    if (lcData.productInfo && Array.isArray(lcData.productInfo)) { // Fixed Array.isArray typo
+     if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
       for (const product of lcData.productInfo) {
         if (product.quantityUnit) {
-          // If product.quantityUnit is an object, extract the ID
           if (typeof product.quantityUnit === "object" && product.quantityUnit.id) {
             product.quantityUnit = product.quantityUnit.id;
           }
-          const existingUnit = await Unit.findById(product.quantityUnit).session(session); // Ensure session is used
+          const existingUnit = await Unit.findById(product.quantityUnit).session(session);
           if (!existingUnit) {
-          const validationError = {
-            field: "quantityUnit",
-            message: `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
-          };
-          throw new ApiError(400, validationError.message, [validationError]);
+            const validationError = {
+              field: "quantityUnit",
+              message: `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
+            };
+            throw new ApiError(400, validationError.message, [validationError]);
           }
         }
       }
     }
+    // --- End Validation ---
 
-    const lc = new LC(lcData);
+    // 1. Pre-generate a new ID for the LC
+    const newLcId = new mongoose.Types.ObjectId();
+    const newLcDir = path.join(lcDocumentsDir, newLcId.toString());
+    await ensureDir(newLcDir);
 
+    // 2. Move files and prepare document data
+    const uploadedDocumentsData = [];
     if (req.files && req.files.length > 0) {
-      const uploadedDocuments = [];
-      for (const file of req.files) {
-        const fileBuffer = await fs.readFile(file.path);
-        const hash = crypto
-          .createHash("sha256")
-          .update(fileBuffer)
-          .digest("hex");
-
-        const sanitizedOriginalName = file.originalname.replace(
-          /[^a-zA-Z0-9.-]/g,
-          "_"
-        );
-        const storedName = `${Date.now()}-${sanitizedOriginalName}`;
-
-        const documentData = {
-          originalName: file.originalname,
-          storedName: storedName,
-          mimeType: file.mimetype,
-          sizeBytes: file.size,
-          hashSha256: hash,
-        };
-        uploadedDocuments.push(documentData);
-      }
-
-      if (!lc.documentsNotes) {
-        lc.documentsNotes = {};
-      }
-      lc.documentsNotes.uploadedDocuments = uploadedDocuments;
-    }
-
-    await lc.save({ session }); // Save LC within the session
-
-    if (req.files && req.files.length > 0) {
-      const newLcDir = path.join(uploadDir, lc._id.toString());
-      await ensureDir(newLcDir);
-
       for (const file of req.files) {
         const oldPath = file.path;
-        const newPath = path.join(newLcDir, file.filename);
+        const newPath = path.join(newLcDir, file.filename); // file.filename has the unique name
         await fs.rename(oldPath, newPath);
+
+        uploadedDocumentsData.push({
+          originalName: file.originalname,
+          storedName: file.filename,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+        });
       }
     }
 
-    // After LC is saved, create transactions for costs by calling the helper function
+    // 3. Prepare the final LC data for a single save operation
+    if (!lcData.documentsNotes) {
+      lcData.documentsNotes = {};
+    }
+    lcData.documentsNotes.uploadedDocuments = uploadedDocumentsData;
+    lcData._id = newLcId; // Assign the pre-generated ID
+
+    // 4. Create and save the LC in a single atomic operation
+    const lc = new LC(lcData);
+    await lc.save({ session });
+
+    // 5. Handle post-save operations like transactions
     for (const section of sectionsWithCosts) {
       if (lcData[section] && lcData[section].costs) {
         for (const cost of lcData[section].costs) {
-          // The helper function handles the logic for creating transactions
           await _handleLCCostTransaction(cost, lc, session);
         }
       }
@@ -194,58 +180,35 @@ async function createLC(req, res, next) {
     await session.abortTransaction();
     session.endSession();
 
-    if (error instanceof ApiError) {
-      // Cleanup uploaded files if an ApiError is thrown after they are created
-      if (req.files) {
-        for (const file of req.files) {
-          try {
-            await fs.unlink(file.path);
-          } catch (unlinkError) {
-            console.error(
-              `Failed to delete temporary file on ApiError: ${file.path}`,
-              unlinkError
-            );
-          }
+    // Cleanup temporary files and any moved files on error
+    for (const filePath of tempFiles) {
+      try {
+        await fs.unlink(filePath);
+      } catch (unlinkError) {
+        if (unlinkError.code !== 'ENOENT') {
+          logger.error(`Failed to delete temporary file on error: ${filePath}`, unlinkError);
         }
       }
+    }
+
+    if (error instanceof ApiError) {
       return next(error);
     }
-
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+    if (error.code === 11000) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `An LC with the same ${field} '${value}' already exists.`)); // Specific message for LC
+      return next(new ApiError(409, `An LC with the same ${field} '${value}' already exists.`));
     }
-
-    // Handle Mongoose validation errors
     if (error.name === 'ValidationError') {
       const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
+      const userFriendlyMessage = `Validation failed: ${error.errors[firstErrorField].message}`;
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
 
-    // Cleanup uploaded files on any other error
-    if (req.files) {
-      for (const file of req.files) {
-        try {
-          await fs.unlink(file.path);
-        } catch (unlinkError) {
-          console.error(
-            `Failed to delete temporary file: ${file.path}`,
-            unlinkError
-          );
-        }
-      }
-    }
-    // Pass other errors to the generic error handler
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message || "Something went wrong creating LC."));
   }
 }
+
 
 /**
  * @param {object} cost The cost object from the LC
@@ -379,79 +342,184 @@ async function getLCById(req, res, next) {
 }
 
 async function updateLC(req, res, next) {
-  try {
-    const { id } = req.params;
-    const updateData = req.body;
+  const { id } = req.params;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  const tempFiles = req.files ? req.files.map(f => f.path) : [];
 
-    const lc = await LC.findById(id);
+  try {
+    let updateData;
+    if (req.body.lcData) {
+      updateData = JSON.parse(req.body.lcData);
+    } else if (req.body.lc_data) {
+      // Also check for snake_case
+      updateData = JSON.parse(req.body.lc_data);
+    } else {
+      updateData = req.body;
+    }
+
+    const lc = await LC.findById(id).session(session);
 
     if (!lc) {
-      return next(new ApiError(404, "LC not found"));
+      throw new ApiError(404, "LC not found");
     }
     if (lc.isDeleted) {
-      return next(new ApiError(400, "Cannot update a deleted LC."));
+      throw new ApiError(400, "Cannot update a deleted LC.");
+    }
+    
+    // --- Document Management ---
+    const lcSpecificDir = path.join(lcDocumentsDir, lc._id.toString());
+    await ensureDir(lcSpecificDir);
+
+    const existingDocs = lc.documentsNotes.uploadedDocuments || [];
+    const incomingDocs = updateData.documentsNotes?.uploadedDocuments || [];
+    const finalDocs = [];
+
+    // 1. Identify and delete documents that were removed by the user
+    const docsToDelete = existingDocs.filter(
+      (doc) => !incomingDocs.some((inDoc) => inDoc._id.toString() === doc._id.toString())
+    );
+
+    for (const doc of docsToDelete) {
+      const filePath = path.join(lcSpecificDir, doc.storedName);
+      try {
+        await fs.unlink(filePath);
+      } catch (err) {
+        if (err.code !== 'ENOENT') {
+          logger.error(`Failed to delete document file: ${filePath}`, err);
+        }
+      }
     }
 
-    // Prevent updates to sensitive or immutable fields to ensure data integrity.
-    // New costs must be added via the dedicated add-expense endpoint.
-    const immutablePaths = [
-      'basicInfo.lcNumber',
-      'financialInfo',
-      'shippingCustomsInfo',
-      'agentTransportInfo',
-      'otherExpenses',
-      'documentsNotes.uploadedDocuments', // Prevent direct manipulation of uploaded files array
-      'totalCost',
-      'totalQuantity'
-    ];
+    // 2. Keep the documents that were not removed
+    for (const inDoc of incomingDocs) {
+        const existingDoc = existingDocs.find(d => d._id.toString() === inDoc._id.toString());
+        if(existingDoc){
+            finalDocs.push(existingDoc);
+        }
+    }
     
-    immutablePaths.forEach(path => {
-        // Simple deletion for top-level keys
-        if (path.indexOf('.') === -1 && updateData.hasOwnProperty(path)) {
-            delete updateData[path];
-        }
-        // Handle nested objects - for now, we simply block the entire top-level object
-        else if (path.indexOf('.') > -1) {
-            const topLevelKey = path.split('.')[0];
-            if (updateData.hasOwnProperty(topLevelKey)) {
-                // To be safe, if an attempt is made to update a parent of a locked field,
-                // we block the update on that whole parent object.
-                delete updateData[topLevelKey];
-            }
-        }
-    });
+    // 3. Process and add new documents
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        const newPath = path.join(lcSpecificDir, file.filename);
+        await fs.rename(file.path, newPath); // Move from temp to permanent
 
-    // Update fields from the sanitized updateData
+        finalDocs.push({
+          originalName: file.originalname,
+          storedName: file.filename,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+        });
+      }
+    }
+
+    // Create the documentsNotes object if it doesn't exist
+    if (!lc.documentsNotes) {
+      lc.documentsNotes = {};
+    }
+    
+    // Update the document array and note
+    lc.documentsNotes.uploadedDocuments = finalDocs;
+    if(updateData.documentsNotes?.note !== undefined) {
+      lc.documentsNotes.note = updateData.documentsNotes.note;
+    }
+
+    // --- Other Field Updates ---
+    // Prevent direct updates to sensitive fields that are managed by other endpoints
+    delete updateData.financialInfo;
+    delete updateData.shippingCustomsInfo;
+    delete updateData.agentTransportInfo;
+    delete updateData.otherExpenses;
+    delete updateData.totalCost;
+    delete updateData.documentsNotes; // We've handled this manually
+
+    // Apply the rest of the updates
     Object.assign(lc, updateData);
+    
+    const updatedLC = await lc.save({ session });
+    
+    await session.commitTransaction();
+    session.endSession();
 
-    const updated = await lc.save(); // This will trigger the pre-save hook
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, updated, "LC updated successfully"));
+    return res.status(200).json(new ApiResponse(200, updatedLC, "LC updated successfully"));
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
+    // Cleanup temporary files on any error
+    for (const filePath of tempFiles) {
+      try {
+        await fs.unlink(filePath);
+      } catch (unlinkError) {
+         if (unlinkError.code !== 'ENOENT') {
+            logger.error(`Failed to delete temporary file on error: ${filePath}`, unlinkError);
+         }
+      }
+    }
+
     if (error instanceof ApiError) {
       return next(error);
     }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+    if (error.code === 11000) {
+      return next(new ApiError(409, "An LC with the same details already exists."));
     }
-    // Handle Mongoose validation errors
     if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
+      return next(new ApiError(400, "Validation failed.", error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message || "Something went wrong while updating the LC."));
   }
 }
+
+async function deleteDocument(req, res, next) {
+  const { lcId, docId } = req.params;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const lc = await LC.findById(lcId).session(session);
+    if (!lc) {
+      throw new ApiError(404, "LC not found");
+    }
+
+    const doc = lc.documentsNotes.uploadedDocuments.id(docId);
+    if (!doc) {
+      throw new ApiError(404, "Document not found in this LC");
+    }
+
+    // 1. Delete the physical file
+    const filePath = path.join(lcDocumentsDir, lcId, doc.storedName);
+    try {
+      await fs.unlink(filePath);
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        logger.error(`Failed to delete document file that should exist: ${filePath}`, err);
+        throw new ApiError(500, "Could not delete the document file from storage.");
+      }
+      // If file doesn't exist, we can still proceed to remove the DB record
+      logger.warn(`Document file not found, but proceeding with DB record removal: ${filePath}`);
+    }
+
+    // 2. Remove the document sub-document from the array
+    doc.remove();
+    await lc.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(200).json(new ApiResponse(200, lc, "Document deleted successfully."));
+
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(500, error.message || "Something went wrong while deleting the document."));
+  }
+}
+
 
 async function deleteLC(req, res, next) {
   const session = await mongoose.startSession();
@@ -695,38 +763,37 @@ async function getTotalLCCount(req, res, next) {
 
 async function downloadDocument(req, res, next) {
   try {
-    const { lcId, filename } = req.params;
+    const { lcId, storedName } = req.params;
 
-    // TODO: Add user authorization check here
-    // For example, check if the logged-in user has access to this LC
-    // const lc = await LC.findById(lcId);
-    // if (!lc || !userHasAccess(req.user, lc)) {
-    //   return next(new ApiError(403, "Unauthorized access to document"));
-    // }
+    // We need to find the LC to get the document's originalName
+    const lc = await LC.findById(lcId);
+    if (!lc || lc.isDeleted) {
+      throw new ApiError(404, "LC not found");
+    }
 
-    const filePath = path.join(uploadDir, lcId, filename);
+    const doc = lc.documentsNotes.uploadedDocuments.find(d => d.storedName === storedName);
+    if (!doc) {
+      throw new ApiError(404, "Document not found in this LC");
+    }
 
+    const filePath = path.join(lcDocumentsDir, lcId, storedName);
+
+    // Check if file exists before sending
     await fs.access(filePath, fs.constants.F_OK);
 
-    const mimeType = path.extname(filename).toLowerCase();
-    let contentType = 'application/octet-stream'; // Default for unknown types
-
-    // Basic MIME type detection (can be expanded)
-    if (mimeType === '.pdf') contentType = 'application/pdf';
-    else if (mimeType === '.jpg' || mimeType === '.jpeg') contentType = 'image/jpeg';
-    else if (mimeType === '.png') contentType = 'image/png';
-    else if (mimeType === '.gif') contentType = 'image/gif';
-    // else if (mimeType === '.html') contentType = 'text/html';
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    // Set headers for inline display (viewing in browser) and correct filename for download
+    res.setHeader('Content-Type', doc.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${doc.originalName}"`);
 
     res.sendFile(filePath, (err) => {
       if (err) {
+        // The initial check with fs.access should prevent most 'ENOENT' errors here
+        // but we handle it just in case of a race condition.
         if (err.code === 'ENOENT') {
-          return next(new ApiError(404, "File not found"));
+          return next(new ApiError(404, "File not found on server."));
         } else {
-          return next(new ApiError(500, "Could not download file"));
+          logger.error(`Failed to send file: ${filePath}`, err);
+          return next(new ApiError(500, "Could not send the file."));
         }
       }
     });
@@ -736,27 +803,12 @@ async function downloadDocument(req, res, next) {
       return next(error);
     }
     if (error.code === 'ENOENT') {
-      return next(new ApiError(404, "File not found"));
+      return next(new ApiError(404, "File not found."));
     }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
+    next(new ApiError(500, error.message || "Something went wrong while downloading the document."));
   }
 }
+
 
 async function exportLCAsPDF(req, res, next) {
   try {
@@ -1203,4 +1255,5 @@ module.exports = {
   getActiveLcs,
   addExpenseToLC,
   searchLCSummary,
+  deleteDocument,
 };
