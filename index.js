@@ -5,6 +5,7 @@ const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const { dbConnect } = require("./database/db.config");
+const { getBrowser } = require("./utils/browserManager"); // Import browser manager
 const { ApiError } = require("./utils/ApiError");
 const routers = require("./routes");
 const cookieParser = require("cookie-parser");
@@ -53,6 +54,7 @@ app.use(limiter);
   try {
     app.use(cookieParser());
     await dbConnect();
+    await getBrowser(); // Initialize the browser instance on startup
     await closeMissedDailyCashEntries(); // Run the catch-up mechanism on startup
     app.use(routers);
 

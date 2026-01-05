@@ -31,7 +31,7 @@ async function generateInvoice(req, res, next) {
     }
 
     // Find the most recent invoice for this sale to check for changes.
-    const latestInvoice = await Invoice.findOne({ salesId: sale._id }).sort({
+    const latestInvoice = await Invoice.findOne({ salesId: sale.saleId }).sort({
       createdAt: -1,
     });
 

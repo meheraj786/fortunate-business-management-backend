@@ -1,9 +1,26 @@
 const fs = require("fs").promises;
 const path = require("path");
-const puppeteer = require("puppeteer");
 const handlebars = require("handlebars");
 const Invoice = require("../models/invoice.model"); // Assuming the path to your model
 const { ApiError } = require("./ApiError");
+const { getBrowser } = require("./browserManager"); // Import the shared browser manager
+
+// --- Template Caching ---
+// Read and compile the template once when the module is loaded.
+const templatePath = path.resolve(__dirname, "./invoiceTemplate.html");
+let compiledTemplate;
+// Immediately-invoked function to load and compile the template
+(async () => {
+    try {
+        const templateHtml = await fs.readFile(templatePath, "utf-8");
+        compiledTemplate = handlebars.compile(templateHtml);
+        console.log("Invoice template successfully compiled and cached.");
+    } catch (error) {
+        console.error("Failed to load and compile invoice template:", error);
+        process.exit(1); // Exit if the template cannot be loaded, as it's critical
+    }
+})();
+// --- End Template Caching ---
 
 /**
  * Helper to format a number with commas.
@@ -89,15 +106,15 @@ async function getPreparedInvoiceData(invoiceId) {
 
 
 /**
- * Generates HTML from the Handlebars template and invoice data.
+ * Generates HTML from the cached Handlebars template and invoice data.
  * @param {object} data - The prepared invoice data.
  * @returns {string} - The compiled HTML string.
  */
-async function compileTemplate(data) {
-    const templatePath = path.resolve(__dirname, "./invoiceTemplate.html");
-    const templateHtml = await fs.readFile(templatePath, "utf-8");
-    const template = handlebars.compile(templateHtml);
-    return template(data);
+function compileTemplate(data) {
+    if (!compiledTemplate) {
+        throw new Error("Invoice template is not compiled or available.");
+    }
+    return compiledTemplate(data);
 }
 
 /**
@@ -107,32 +124,32 @@ async function compileTemplate(data) {
  */
 async function generatePdf(invoiceId) {
     const data = await getPreparedInvoiceData(invoiceId);
-    const html = await compileTemplate({ invoice: data });
+    const html = compileTemplate({ invoice: data });
 
-    const browser = await puppeteer.launch({ 
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Necessary for some environments
-    });
+    const browser = await getBrowser();
     const page = await browser.newPage();
     
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    
-    // Emulate print media type to apply print-specific CSS
-    await page.emulateMediaType('print');
+    try {
+        await page.setContent(html, { waitUntil: 'networkidle0' });
+        
+        // Emulate print media type to apply print-specific CSS
+        await page.emulateMediaType('print');
 
-    const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: {
-            top: '20px',
-            right: '20px',
-            bottom: '20px',
-            left: '20px'
-        }
-    });
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: {
+                top: '20px',
+                right: '20px',
+                bottom: '20px',
+                left: '20px'
+            }
+        });
 
-    await browser.close();
-    return pdfBuffer;
+        return pdfBuffer;
+    } finally {
+        await page.close();
+    }
 }
 
 /**
@@ -142,23 +159,27 @@ async function generatePdf(invoiceId) {
  */
 async function generatePng(invoiceId) {
     const data = await getPreparedInvoiceData(invoiceId);
-    const html = await compileTemplate({ invoice: data });
+    const html = compileTemplate({ invoice: data });
 
-    const browser = await puppeteer.launch({ 
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    const browser = await getBrowser();
     const page = await browser.newPage();
-    await page.setViewport({ width: 800, height: 1120, deviceScaleFactor: 2 }); // A4-like aspect ratio, high-res
-    
-    await page.setContent(html, { waitUntil: 'networkidle0' });
 
-    // Find the invoice element to screenshot
-    const element = await page.$('#invoice-paper');
-    const imageBuffer = await element.screenshot({ type: 'png' });
+    try {
+        await page.setViewport({ width: 800, height: 1120, deviceScaleFactor: 2 }); // A4-like aspect ratio, high-res
+        
+        await page.setContent(html, { waitUntil: 'networkidle0' });
 
-    await browser.close();
-    return imageBuffer;
+        // Find the invoice element to screenshot
+        const element = await page.$('#invoice-paper');
+        if (!element) {
+            throw new ApiError(500, "Could not find '#invoice-paper' element in the template for PNG generation.");
+        }
+        const imageBuffer = await element.screenshot({ type: 'png' });
+
+        return imageBuffer;
+    } finally {
+        await page.close();
+    }
 }
 
 module.exports = {
