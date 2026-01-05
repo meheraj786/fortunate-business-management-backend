@@ -458,11 +458,17 @@ async function getInvoiceById(req, res, next) {
 
 async function getInvoicesBySaleId(req, res, next) {
   try {
-    const { saleId } = req.params;
-    const mongoose = require("mongoose");
-
+    const { saleId } = req.params; // This is the _id of the sale
+    
+    // Find the sale by its _id to get the string saleId
+    const sale = await Sales.findById(saleId).select("saleId").lean();
+    if (!sale) {
+      return next(new ApiError(404, "Sale not found"));
+    }
+    
+    // Use the string sale.saleId to find all associated invoices
     const invoices = await Invoice.aggregate([
-      { $match: { salesId: new mongoose.Types.ObjectId(saleId) } },
+      { $match: { salesId: sale.saleId } },
       {
         $addFields: {
           balanceDue: {
