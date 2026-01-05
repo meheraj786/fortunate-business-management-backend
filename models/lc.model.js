@@ -73,6 +73,7 @@ const lcSchema = new mongoose.Schema(
         {
           originalName: { type: String, trim: true },
           storedName: { type: String, trim: true },
+          path: { type: String }, // Stores the 'YYYY/MM' path
           mimeType: { type: String, trim: true },
           sizeBytes: { type: Number },
         },
@@ -92,7 +93,7 @@ const lcSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-lcSchema.index({ "basicInfo.lcNumber": 1 }); // Add index here
+lcSchema.index({ "basicInfo.lcNumber": 1 }, { unique: true }); // Ensure lcNumber is unique
 
 // Mongoose 'pre-save' middleware to calculate totalCost
 lcSchema.pre("save", function (next) {
