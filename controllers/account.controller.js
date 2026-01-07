@@ -5,6 +5,12 @@ const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
 const { ApiResponse } = require("../utils/ApiResponse");
 const mongoose = require("mongoose"); // Added
+const {
+  startOfDay,
+  endOfDay,
+  now,
+  formatInTimeZone,
+} = require("../utils/timezone.util");
 
 async function createAccount(req, res, next) {
   const session = await mongoose.startSession();
@@ -12,9 +18,17 @@ async function createAccount(req, res, next) {
   try {
     // Strict validation for payload keys
     const allowedFields = new Set([
-      "accountType", "accountName", "initialBalance", "accountHolderName",
-      "bankName", "branchName", "accountNumber", "swiftCode",
-      "serviceName", "mobileNumber", "routingNumber"
+      "accountType",
+      "accountName",
+      "initialBalance",
+      "accountHolderName",
+      "bankName",
+      "branchName",
+      "accountNumber",
+      "swiftCode",
+      "serviceName",
+      "mobileNumber",
+      "routingNumber",
     ]);
 
     const validationErrors = [];
@@ -22,14 +36,17 @@ async function createAccount(req, res, next) {
 
     for (const key of bodyKeys) {
       if (!allowedFields.has(key)) {
-        validationErrors.push({ field: key, message: `Field '${key}' is not allowed.` });
+        validationErrors.push({
+          field: key,
+          message: `Field '${key}' is not allowed.`,
+        });
       }
     }
 
     if (validationErrors.length > 0) {
       throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
-    
+
     const {
       accountType,
       accountName,
@@ -46,7 +63,12 @@ async function createAccount(req, res, next) {
 
     const validAccountTypes = ["Bank", "Mobile Banking", "Cash"];
     if (!validAccountTypes.includes(accountType)) {
-        throw new ApiError(400, `'${accountType}' is not a valid value for 'accountType'. Allowed values are: ${validAccountTypes.join(', ')}.`);
+      throw new ApiError(
+        400,
+        `'${accountType}' is not a valid value for 'accountType'. Allowed values are: ${validAccountTypes.join(
+          ", "
+        )}.`
+      );
     }
 
     // Business logic validation for initialBalance
@@ -97,37 +119,37 @@ async function createAccount(req, res, next) {
     // Check for existing archived accounts with similar details
     let existingArchivedAccountQuery = { status: "Archived" };
     if (accountType === "Cash") {
-        existingArchivedAccountQuery.accountName = accountName;
-        existingArchivedAccountQuery.accountHolderName = accountHolderName;
+      existingArchivedAccountQuery.accountName = accountName;
+      existingArchivedAccountQuery.accountHolderName = accountHolderName;
     } else if (accountType === "Bank") {
-        existingArchivedAccountQuery.bankName = bankName;
-        existingArchivedAccountQuery.accountNumber = accountNumber;
+      existingArchivedAccountQuery.bankName = bankName;
+      existingArchivedAccountQuery.accountNumber = accountNumber;
     } else if (accountType === "Mobile Banking") {
-        existingArchivedAccountQuery.serviceName = serviceName;
-        existingArchivedAccountQuery.mobileNumber = mobileNumber;
+      existingArchivedAccountQuery.serviceName = serviceName;
+      existingArchivedAccountQuery.mobileNumber = mobileNumber;
     }
 
-    const existingArchivedAccount = await Account.findOne(existingArchivedAccountQuery).session(session);
+    const existingArchivedAccount = await Account.findOne(
+      existingArchivedAccountQuery
+    ).session(session);
 
     if (existingArchivedAccount) {
-      throw new ApiError(400, `An archived account with similar details already exists for ${accountType} type.`);
+      throw new ApiError(
+        400,
+        `An archived account with similar details already exists for ${accountType} type.`
+      );
     }
 
-    const account = await Account.create(
-      [
-        accountData
-      ],
-      { session }
-    );
+    const account = await Account.create([accountData], { session });
 
     const createdAccount = account[0]; // Mongoose create with session returns an array
 
     // If there's an initial balance, create a corresponding transaction
     if (initialBalance && initialBalance > 0) {
       // 1. DailyCash Gatekeeper Check
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      const currentTime = now();
+      const startOfToday = startOfDay(currentTime);
+      const endOfToday = endOfDay(currentTime);
 
       const dailyCash = await DailyCash.findOne({
         date: {
@@ -139,7 +161,7 @@ async function createAccount(req, res, next) {
         .session(session);
 
       if (!dailyCash || dailyCash.status === "Closed") {
-        const todayString = now.toDateString();
+        const todayString = formatInTimeZone(currentTime, "PPP");
         throw new ApiError(
           400,
           `Daily cash is closed for ${todayString}. Cannot create account with initial balance. Open daily cash first.`
@@ -151,7 +173,7 @@ async function createAccount(req, res, next) {
         [
           {
             accountId: createdAccount._id,
-            date: new Date(),
+            date: now(),
             transactionType: "Income",
             amount: initialBalance,
             name: "Initial Balance",
@@ -406,7 +428,7 @@ async function deleteAccount(req, res, next) {
 async function getAccountDetails(req, res, next) {
   try {
     const { id } = req.params;
-    const mongoose = require("mongoose");
+
 
     const results = await Account.aggregate([
       {

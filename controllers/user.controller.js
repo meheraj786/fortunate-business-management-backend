@@ -3,6 +3,7 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const jwt = require("jsonwebtoken");
 const logger = require("../utils/logger");
+const { now } = require("../utils/timezone.util");
 const Trash = require("../models/trash.model");
 
 const registerUser = async (req, res, next) => {
@@ -376,7 +377,7 @@ const updateUser = async (req, res, next) => {
 const deleteUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const deletedBy = req.cookies?.userId || req.user?._id || null;
+    const deletedBy = req.user?._id || null;
     const deletedUser = await User.findByIdAndUpdate(
       id,
       { isDeleted: true },
@@ -390,7 +391,7 @@ const deleteUser = async (req, res, next) => {
       docId: deletedUser._id,
       model: "User",
       deletedBy,
-      deletedAt: new Date(),
+      deletedAt: now(),
     });
     return res
       .status(200)

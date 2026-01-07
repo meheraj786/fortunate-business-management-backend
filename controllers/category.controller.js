@@ -3,6 +3,7 @@ const Trash = require("../models/trash.model");
 const Product = require("../models/product.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const { now } = require("../utils/timezone.util");
 const logger = require("../utils/logger");
 
 /* ================= CREATE ================= */
@@ -133,13 +134,13 @@ exports.deleteCategory = async (req, res, next) => {
       return next(new ApiError(400, `Cannot delete category: it is currently assigned to ${productsCount} product(s).`));
     }
 
-    const deletedBy = req.cookies?.userId || req.user?._id || null;
+    const deletedBy = req.user?._id || null;
 
     const category = await Category.findOneAndUpdate(
       { _id: id, isDeleted: { $ne: true } },
       {
         isDeleted: true,
-        deletedAt: new Date(),
+deletedAt: now(),
         deletedBy,
       },
       { new: true }
@@ -152,7 +153,7 @@ exports.deleteCategory = async (req, res, next) => {
       docId: category._id,
       model: "Category",
       deletedBy,
-      deletedAt: new Date(),
+      deletedAt: now(),
     });
 
     res

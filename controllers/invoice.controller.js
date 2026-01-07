@@ -5,6 +5,7 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
 const Trash = require("../models/trash.model");
+const mongoose = require("mongoose");
 
 async function generateInvoice(req, res, next) {
   try {
@@ -224,7 +225,7 @@ async function getAllInvoices(req, res, next) {
 async function getInvoiceById(req, res, next) {
   try {
     const { id } = req.params;
-    const mongoose = require("mongoose");
+
 
     const results = await Invoice.aggregate([
       { $match: { _id: new mongoose.Types.ObjectId(id) } },

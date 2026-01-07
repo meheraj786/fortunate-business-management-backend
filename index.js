@@ -95,7 +95,7 @@ app.listen(PORT, () => {
     await closeMissedDailyCashEntries(); // Fix missed cash entries
     logger.info("Background startup tasks completed"); // Log success
   } catch (error) {
-    logger.error("Startup task failed:", error.message); // Log error
+    logger.error("Startup task failed:", error); // Log error
   }
 })();
 

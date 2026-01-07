@@ -3,6 +3,7 @@ const Trash = require("../models/trash.model");
 const { ApiResponse } = require("../utils/ApiResponse");
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
+const { startOfDay, now } = require("../utils/timezone.util"); // Import startOfDay
 
 const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
   if (!docId || !modelName) {
@@ -15,7 +16,7 @@ const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
       docId,
       model: modelName,
       deletedBy,
-      deletedAt: new Date(),
+      deletedAt: now(),
     },
     { upsert: true, new: true }
   );
@@ -53,8 +54,7 @@ const restoreFromTrash = async (req, res, next) => {
       const Account = mongoose.model("Account");
       const DailyCash = mongoose.model("DailyCash");
 
-      const date = new Date(restoredDoc.date);
-      date.setHours(0, 0, 0, 0);
+      const date = startOfDay(new Date(restoredDoc.date));
 
       const dailyCash = await DailyCash.findOne({
         date,
@@ -132,8 +132,7 @@ const restoreFromTrash = async (req, res, next) => {
       // as these adjustments involve creating new transactions.
       if (restoredDoc.payments.length > 0) {
         const DailyCash = mongoose.model("DailyCash");
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const today = startOfDay(now());
 
         const dailyCash = await DailyCash.findOne({
           date: today,
@@ -164,7 +163,7 @@ const restoreFromTrash = async (req, res, next) => {
             {
               name: `Restored Sale Payment: ${restoredDoc.saleId}`,
               accountId: payment.accountId,
-              date: new Date(),
+              date: now(),
               description: `Payment for restored Sale: ${restoredDoc.saleId}`,
               transactionType: "Income",
               amount: payment.amount,
@@ -188,8 +187,7 @@ const restoreFromTrash = async (req, res, next) => {
       const Transaction = mongoose.model("Transaction");
       const DailyCash = mongoose.model("DailyCash");
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const today = startOfDay(now());
 
       const dailyCash = await DailyCash.findOne({
         date: today,
@@ -235,7 +233,7 @@ const restoreFromTrash = async (req, res, next) => {
               {
                 name: `LC Restore: ${cost.name}`,
                 accountId: cost.accountId,
-                date: new Date(),
+                date: now(),
                 description: `Restored LC Cost: ${cost.name} for LC ${restoredDoc.basicInfo.lcNumber}`,
                 transactionType: "Expense",
                 amount: cost.amount,
@@ -381,7 +379,7 @@ const getTrashDetailById = async (id) => {
       model: modelName,
       deletedBy: deletedBy || null,
       deletedAt: deletedAt || null,
-      originalDoc: originalDoc || null,
+      originalDoc: originalDoc ? originalDoc : null,
       isDeleted: originalDoc ? originalDoc.isDeleted : true,
     };
 

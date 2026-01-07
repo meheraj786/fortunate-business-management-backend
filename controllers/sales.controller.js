@@ -10,6 +10,7 @@ const DailyCash = require("../models/dailyCash.model");
 const mongoose = require("mongoose");
 const Transaction = require("../models/transaction.model");
 const Trash = require("../models/trash.model");
+const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
 
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
@@ -66,10 +67,8 @@ async function createSale(req, res, next) {
 
     const validationErrors = [];
     if (saleDate) {
-        const today = new Date();
-        const providedSaleDate = new Date(saleDate);
-        today.setHours(0, 0, 0, 0);
-        providedSaleDate.setHours(0, 0, 0, 0);
+        const today = startOfDay(now());
+        const providedSaleDate = startOfDay(new Date(saleDate));
 
         if (providedSaleDate > today) {
             validationErrors.push({
@@ -274,8 +273,7 @@ async function createSale(req, res, next) {
 
         // Create a corresponding transaction record
         // 1. DailyCash Gatekeeper Check
-        const paymentDateNormalized = new Date(payment.date);
-        paymentDateNormalized.setHours(0, 0, 0, 0);
+        const paymentDateNormalized = startOfDay(new Date(payment.date));
         const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).sort({ createdAt: -1 }).session(session);
 
         if (!dailyCash || dailyCash.status === "Closed") {
@@ -333,8 +331,7 @@ async function createSale(req, res, next) {
         }
 
         // DailyCash check for the cost transaction date
-        const saleDateNormalized = new Date(sale.saleDate);
-        saleDateNormalized.setHours(0, 0, 0, 0);
+        const saleDateNormalized = startOfDay(new Date(sale.saleDate));
         const dailyCash = await DailyCash.findOne({ date: saleDateNormalized }).sort({ createdAt: -1 }).session(session);
 
         if (!dailyCash || dailyCash.status === "Closed") {
@@ -812,7 +809,7 @@ async function updateSale(req, res, next) {
   try {
     const { id } = req.params;
     const updateData = req.body;
-    console.log(updateData);
+
 
     const sale = await Sales.findById(id).populate('unit').populate({
       path: 'product',
@@ -976,8 +973,7 @@ async function deleteSale(req, res, next) {
     // since reversals create new transactions affecting daily cash.
     if (saleToDelete.payments.length > 0) {
       // DailyCash Gatekeeper Check (only for sales with payments that need reversal)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const today = startOfDay(now());
       const dailyCash = await DailyCash.findOne({ date: today })
         .sort({ createdAt: -1 })
         .session(session);
@@ -1003,7 +999,7 @@ async function deleteSale(req, res, next) {
                 {
                   name: "Sales Deletion Reversal",
                   accountId: payment.accountId,
-                  date: new Date(),
+                  date: now(),
                   description: `Reversal for Deleted Sale ID: ${saleToDelete.saleId}`,
                   transactionType: "Expense",
                   amount: payment.amount,
@@ -1263,8 +1259,7 @@ async function addPartialPayment(req, res, next) {
     // For any account-based payment, we need an account ID
     if (["Bank", "Mobile Banking", "Cash"].includes(paymentMethod)) {
         // 1. DailyCash Gatekeeper Check
-        const paymentDateNormalized = new Date(date);
-        paymentDateNormalized.setHours(0, 0, 0, 0);
+        const paymentDateNormalized = startOfDay(new Date(date));
         const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).sort({ createdAt: -1 }).session(session);
 
         if (!dailyCash || dailyCash.status === "Closed") {
@@ -1523,8 +1518,7 @@ async function cancelSale(req, res, next) {
     }
 
     // DailyCash Gatekeeper Check for reversal transactions
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = startOfDay(now());
     const dailyCash = await DailyCash.findOne({ date: today }).sort({ createdAt: -1 }).session(session);
 
     if (!dailyCash || dailyCash.status === "Closed") {
@@ -1542,7 +1536,7 @@ async function cancelSale(req, res, next) {
           await Transaction.create([{
             name: "Sales Cancellation Reversal",
             accountId: payment.accountId,
-            date: new Date(), // Reversal transaction date is today
+            date: now(),
             description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}.`,
             transactionType: "Expense", // To reverse the Income
             amount: payment.amount,
@@ -1574,7 +1568,7 @@ async function cancelSale(req, res, next) {
             [
               {
                 accountId: cost.accountId,
-                date: new Date(),
+                date: now(),
                 description: `Reversal of cost for cancelled Sale ID: ${saleToCancel.saleId} - ${cost.name}`,
                 transactionType: "Income", // To reverse the Expense
                 amount: cost.amount,

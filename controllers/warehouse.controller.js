@@ -3,6 +3,7 @@ const Product = require("../models/product.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
+const { now } = require("../utils/timezone.util");
 const Trash = require("../models/trash.model");
 
 const createWarehouse = async (req, res, next) => {
@@ -409,8 +410,8 @@ const deleteWarehouse = async (req, res, next) => {
     await Trash.create({
       docId: id,
       model: "Warehouse",
-      deletedBy: req.cookies?.userId || req.user?._id || null,
-      deletedAt: new Date(),
+      deletedBy: req.user?._id || null,
+      deletedAt: now(),
     });
 
     return res

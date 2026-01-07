@@ -3,6 +3,7 @@ const Sales = require("../models/sales.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
+const { now } = require("../utils/timezone.util");
 const mongoose = require("mongoose");
 const Trash = require("../models/trash.model");
 
@@ -279,8 +280,8 @@ async function deleteCustomer(req, res, next) {
     await Trash.create({
       docId: deleted._id,
       model: "Customer",
-      deletedBy: req.cookies?.userId || req.user?._id || null,
-      deletedAt: new Date(),
+      deletedBy: req.user?._id || null,
+      deletedAt: now(),
     });
 
     return res

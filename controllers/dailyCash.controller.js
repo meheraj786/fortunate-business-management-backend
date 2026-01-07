@@ -6,7 +6,7 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
 const mongoose = require("mongoose");
 const Trash = require("../models/trash.model");
-const { getStartOfDay, getEndOfDay } = require("../utils/date.util");
+const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
 
 // @desc    Open a new cash session for the current day
 // @route   POST /api/cash/open
@@ -14,9 +14,9 @@ const { getStartOfDay, getEndOfDay } = require("../utils/date.util");
 async function openCash(req, res, next) {
   try {
     // 1. Validate date: Only allow opening for the current day
-    const today = getStartOfDay(new Date());
+    const today = startOfDay(now());
 
-    const requestedDate = req.body.date ? getStartOfDay(new Date(req.body.date)) : today;
+    const requestedDate = req.body.date ? startOfDay(new Date(req.body.date)) : today;
 
     if (requestedDate.getTime() !== today.getTime()) {
       return next(new ApiError(400, "Cash can only be opened for the current day."));
@@ -37,7 +37,7 @@ async function openCash(req, res, next) {
       openingBalance = lastSessionToday.closingBalance;
     } else {
       // This is the first opening of the day. Auto-close previous day if forgotten.
-      const previousDay = getStartOfDay(new Date(today.getTime() - 24 * 60 * 60 * 1000));
+      const previousDay = startOfDay(new Date(today.getTime() - 24 * 60 * 60 * 1000));
 
       const lastSessionYesterday = await DailyCash.findOne({ date: previousDay }).sort({ createdAt: -1 });
 
@@ -49,7 +49,7 @@ async function openCash(req, res, next) {
 
           // Auto-close yesterday's session
           lastSessionYesterday.status = "Closed";
-          const endOfPreviousDay = getEndOfDay(previousDay);
+          const endOfPreviousDay = endOfDay(previousDay);
           lastSessionYesterday.closedAt = endOfPreviousDay;
           lastSessionYesterday.closingBalance = openingBalance;
           await lastSessionYesterday.save();
@@ -81,7 +81,7 @@ async function openCash(req, res, next) {
       date: today,
       status: "Open",
       openingBalance: openingBalance,
-      openedAt: new Date(),
+      openedAt: now(),
     });
 
     return res
@@ -122,7 +122,7 @@ async function closeCash(req, res, next) {
       return next(new ApiError(400, "Date is required to close daily cash."));
     }
 
-    const targetDate = getStartOfDay(new Date(date));
+    const targetDate = startOfDay(new Date(date));
 
     // 1. Find the currently open session for the target date
     const openSession = await DailyCash.findOne({ date: targetDate, status: "Open" });
@@ -137,7 +137,7 @@ async function closeCash(req, res, next) {
 
     // 3. Update the open session document
     openSession.status = "Closed";
-    openSession.closedAt = new Date();
+    openSession.closedAt = now();
     openSession.closingBalance = finalRunningBalance;
     await openSession.save();
 
@@ -182,7 +182,7 @@ async function getDailyCashStatus(req, res, next) {
       return next(new ApiError(400, "Date is required to get daily cash status."));
     }
 
-    const targetDate = getStartOfDay(new Date(date));
+    const targetDate = startOfDay(new Date(date));
 
     // Find the last session for the date to determine the current status
     const lastSession = await DailyCash.findOne({ date: targetDate }).sort({ createdAt: -1 });
@@ -235,8 +235,8 @@ async function getDailyCashStatus(req, res, next) {
 
 // Helper function to calculate daily cash metrics for a whole day
 async function _calculateDailyCashMetrics(dateString) {
-  const targetDate = getStartOfDay(new Date(dateString));
-  const nextDay = getStartOfDay(new Date(targetDate.getTime() + 24 * 60 * 60 * 1000));
+  const targetDate = startOfDay(new Date(dateString));
+  const nextDay = startOfDay(new Date(targetDate.getTime() + 24 * 60 * 60 * 1000));
 
   // Get all sessions for the target date, sorted by creation time
   const sessions = await DailyCash.find({ date: targetDate }).sort({ createdAt: 'asc' });
@@ -251,7 +251,7 @@ async function _calculateDailyCashMetrics(dateString) {
     status = sessions[sessions.length - 1].status;
   } else {
     // If no sessions for today, calculate opening balance from previous day's last session
-    const previousDay = getStartOfDay(new Date(targetDate.getTime() - 24 * 60 * 60 * 1000));
+    const previousDay = startOfDay(new Date(targetDate.getTime() - 24 * 60 * 60 * 1000));
 
     const prevDayLastSession = await DailyCash.findOne({ date: previousDay }).sort({ createdAt: -1 });
 
@@ -427,7 +427,7 @@ async function addIncome(req, res, next) {
     } = req.body;
 
     // 1. Gatekeeper: Check if Daily Cash for today is Open
-    const today = getStartOfDay(new Date());
+    const today = startOfDay(now());
     const openSession = await DailyCash.findOne({ date: today, status: "Open" });
 
     if (!openSession) {
@@ -505,7 +505,7 @@ async function addIncome(req, res, next) {
     account.balance += amount;
     await account.save({ session });
 
-    const newTransaction = new Transaction({ accountId, date: new Date(), transactionType: "Income", amount, name, source: "Manual", paymentMethod, description: finalDescription, category, reference, referenceModel, miscReference });
+    const newTransaction = new Transaction({ accountId, date: now(), amount, name, source: "Manual", paymentMethod, description: finalDescription, category, reference, referenceModel, miscReference });
     await newTransaction.save({ session });
 
     await session.commitTransaction();
@@ -550,7 +550,7 @@ async function addExpense(req, res, next) {
     const { amount, category, name, paymentMethod, accountId, description, lcId, salesId, lcCostCategory } = req.body;
 
     // 1. Gatekeeper: Check if Daily Cash for today is Open
-    const today = getStartOfDay(new Date());
+    const today = startOfDay(now());
     const openSession = await DailyCash.findOne({ date: today, status: "Open" });
     if (!openSession) throw new ApiError(400, "Daily cash is closed. Cannot add expense.");
 
@@ -604,7 +604,7 @@ async function addExpense(req, res, next) {
       if (!lc[targetLCCostCategory]) lc[targetLCCostCategory] = { costs: [] };
       else if (!lc[targetLCCostCategory].costs) lc[targetLCCostCategory].costs = [];
       
-      lc[targetLCCostCategory].costs.push({ name: name, amount, date: new Date(), paymentMethod, accountId });
+      lc[targetLCCostCategory].costs.push({ name: name, amount, date: now(), paymentMethod, accountId });
       await lc.save({ session });
 
       finalDescription = `Expense for LC: ${lc.basicInfo.lcNumber}, Cost: ${name}.`;
@@ -639,7 +639,7 @@ async function addExpense(req, res, next) {
     account.balance -= amount;
     await account.save({ session });
 
-    const newTransaction = new Transaction({ accountId, date: new Date(), transactionType: "Expense", amount, name: transactionName, source: "Manual", paymentMethod, description: finalDescription, category, reference, referenceModel, miscReference });
+    const newTransaction = new Transaction({ accountId, date: now(), transactionType: "Expense", amount, name: transactionName, source: "Manual", paymentMethod, description: finalDescription, category, reference, referenceModel, miscReference });
     await newTransaction.save({ session });
 
     await session.commitTransaction();
@@ -676,7 +676,7 @@ async function addExpense(req, res, next) {
 
 // @desc    Function to be called by a cron job to auto-close daily cash
 async function autoCloseDailyCashForCron() {
-  const today = getStartOfDay(new Date());
+  const today = startOfDay(now());
 
   const openSession = await DailyCash.findOne({ date: today, status: "Open" });
 
@@ -686,8 +686,8 @@ async function autoCloseDailyCashForCron() {
       const finalRunningBalance = metrics.runningBalance;
 
       openSession.status = "Closed";
-      const endOfDay = getEndOfDay(new Date());
-      openSession.closedAt = endOfDay;
+      const endOfToday = endOfDay(now());
+      openSession.closedAt = endOfToday;
       openSession.closingBalance = finalRunningBalance;
       await openSession.save();
       console.log(`Successfully auto-closed daily cash for ${today.toDateString()} via cron job.`);
@@ -699,7 +699,7 @@ async function autoCloseDailyCashForCron() {
 
 // @desc    Function to be called on server startup to close any missed daily cash entries
 async function closeMissedDailyCashEntries() {
-  const today = getStartOfDay(new Date());
+  const today = startOfDay(now());
 
   try {
     const missedEntries = await DailyCash.find({ date: { $lt: today }, status: "Open" });
@@ -710,8 +710,8 @@ async function closeMissedDailyCashEntries() {
         try {
           const metrics = await _calculateDailyCashMetrics(entry.date.toISOString());
           entry.status = "Closed";
-          const endOfDay = getEndOfDay(new Date(entry.date));
-          entry.closedAt = endOfDay;
+          const endOfEntryDate = endOfDay(new Date(entry.date));
+          entry.closedAt = endOfEntryDate;
           entry.closingBalance = metrics.runningBalance;
           await entry.save();
           console.log(`Successfully closed missed daily cash for ${entry.date.toDateString()}.`);

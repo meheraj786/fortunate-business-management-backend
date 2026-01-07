@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require("uuid");
 const mongoose = require("mongoose");
 
 // Local Utilities and Services
+const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
 const storageUtil = require("../utils/storage.util.js");
 const { generateLCPDF } = require("../utils/LC_pdfGenerator");
 const { ApiError } = require("../utils/ApiError");
@@ -180,9 +181,8 @@ async function _handleLCCostTransaction(cost, lc, session) {
     }
 
     // 1. DailyCash Gatekeeper Check
-    const costDate = cost.date || new Date();
-    const costDateNormalized = new Date(costDate);
-    costDateNormalized.setHours(0, 0, 0, 0);
+    const costDate = cost.date || now();
+    const costDateNormalized = startOfDay(new Date(costDate));
 
     const openSession = await DailyCash.findOne({ date: costDateNormalized, status: "Open", isDeleted: false }).session(session);
     if (!openSession) {
@@ -501,12 +501,11 @@ async function deleteLC(req, res, next) {
       docId: deletedLC._id,
       model: "LC",
       deletedBy: req.user._id,
-      deletedAt: new Date(),
+      deletedAt: now(),
     });
 
     // DailyCash Gatekeeper Check for reversal transactions
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = startOfDay(now());
     const dailyCash = await DailyCash.findOne({ date: today, status: "Open" }).session(session);
 
     if (!dailyCash) {
@@ -533,7 +532,7 @@ async function deleteLC(req, res, next) {
               // Create Reversal Transaction (Income type to offset original Expense)
               await Transaction.create([{
                 accountId: cost.accountId,
-                date: new Date(), // Reversal transaction date is today
+                date: now(), // Reversal transaction date is today
                 description: `Reversal of LC Cost: ${cost.name} for LC Number: ${deletedLC.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
                 transactionType: "Income", // Reverses the Expense
                 amount: cost.amount,
@@ -764,8 +763,7 @@ async function exportLCAsPDF(req, res, next) {
   try {
     const { id } = req.params;
 
-    console.log('=== EXPORT LC DEBUG ===');
-    console.log('LC ID:', id);
+
 
     const lc = await LC.findById(id)
       .populate("productInfo.quantityUnit", "name type conversionFactor")
@@ -775,23 +773,15 @@ async function exportLCAsPDF(req, res, next) {
       .populate("agentTransportInfo.costs.accountId")
       .populate("otherExpenses.costs.accountId");
 
-    console.log('LC Found:', !!lc);
-    
     if (!lc) {
-      console.log('LC not found in database');
       return res.status(404).json({ 
         error: "LC not found",
         message: "No LC found with the provided ID" 
       });
     }
 
-    console.log('LC Basic Info:', JSON.stringify(lc.basicInfo, null, 2));
-    console.log('LC Products:', lc.productInfo?.length || 0);
-    console.log('LC Financial Info:', !!lc.financialInfo);
-
     // Validate LC has minimum required data BEFORE calling generateLCPDF
     if (!lc.basicInfo) {
-      console.log('ERROR: Missing basicInfo');
       return res.status(400).json({ 
         error: "Invalid LC data",
         message: "LC is missing basic information" 
@@ -799,7 +789,6 @@ async function exportLCAsPDF(req, res, next) {
     }
 
     if (!lc.basicInfo.lcNumber) {
-      console.log('ERROR: Missing lcNumber');
       return res.status(400).json({ 
         error: "Invalid LC data",
         message: "LC is missing LC Number" 
@@ -807,7 +796,6 @@ async function exportLCAsPDF(req, res, next) {
     }
 
     if (!lc.productInfo || lc.productInfo.length === 0) {
-      console.log('WARNING: No products in LC');
       return res.status(400).json({ 
         error: "Invalid LC data",
         message: "LC must have at least one product" 
@@ -816,15 +804,12 @@ async function exportLCAsPDF(req, res, next) {
 
     // Additional validation - check if financial info exists
     if (!lc.financialInfo || !lc.financialInfo.lcAmountUsd) {
-      console.log('ERROR: Missing financial information');
       return res.status(400).json({ 
         error: "Invalid LC data",
         message: "LC is missing financial information" 
       });
     }
 
-    console.log('All validations passed. Calling generateLCPDF...');
-    
     // Call the PDF generator - it should handle the response directly
     // DO NOT await if generateLCPDF uses streaming
     const result = generateLCPDF(lc, res);
@@ -833,8 +818,6 @@ async function exportLCAsPDF(req, res, next) {
     if (result && typeof result.then === 'function') {
       await result;
     }
-    
-    console.log('PDF generation completed');
     
     // DO NOT send any response here - generateLCPDF handles it
 
@@ -954,7 +937,11 @@ async function getLCSummary(req, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(200, responseData, "LCs summary fetched successfully")
+        new ApiResponse(
+          200,
+          responseData,
+          "LCs summary fetched successfully"
+        )
       );
   } catch (error) {
     if (error instanceof ApiError) {

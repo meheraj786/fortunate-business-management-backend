@@ -3,6 +3,8 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
 const Trash = require("../models/trash.model");
+const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
+const mongoose = require("mongoose");
 
 async function getTransactionDetails(req, res, next) {
   try {
@@ -10,7 +12,7 @@ async function getTransactionDetails(req, res, next) {
     if (!id) {
       return next(new ApiError(400, "Transaction ID is required."));
     }
-    const mongoose = require("mongoose");
+
 
     const results = await Transaction.aggregate([
       { $match: { _id: new mongoose.Types.ObjectId(id), isDeleted: { $ne: true } } },
@@ -248,8 +250,8 @@ async function getTransactionStats(req, res, next) {
 
     if (startDate || endDate) {
       matchQuery.date = {};
-      if (startDate) matchQuery.date.$gte = new Date(startDate);
-      if (endDate) matchQuery.date.$lte = new Date(endDate);
+      if (startDate) matchQuery.date.$gte = startOfDay(new Date(startDate));
+      if (endDate) matchQuery.date.$lte = endOfDay(new Date(endDate));
     }
     if (transactionType) matchQuery.transactionType = transactionType;
     if (category) matchQuery.category = category;
@@ -388,7 +390,7 @@ async function getTransactionsByAccount(req, res, next) {
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
     const skip = (pageNum - 1) * limitNum;
-    const mongoose = require("mongoose");
+
 
     const pipeline = [];
 
@@ -499,7 +501,6 @@ async function getTransactionsByAccount(req, res, next) {
   }
 }
 
-const mongoose = require("mongoose");
 const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
 const { moveToTrash } = require("../controllers/trash.controller");
@@ -528,8 +529,7 @@ async function deleteTransaction(req, res, next) {
     }
 
     // DailyCash Gatekeeper Check
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = startOfDay(now());
     const dailyCash = await DailyCash.findOne({ date: today, status: "Open" }).session(session);
     if (!dailyCash) {
       throw new ApiError(
