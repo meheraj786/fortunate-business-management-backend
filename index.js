@@ -1,93 +1,110 @@
-require("dotenv").config();
-const express = require("express");
-const compression = require("compression");
-const helmet = require("helmet");
-const cors = require("cors");
-const rateLimit = require("express-rate-limit");
-const { dbConnect } = require("./database/db.config");
-const { getBrowser } = require("./utils/browserManager"); // Import browser manager
-const { ApiError } = require("./utils/ApiError");
-const routers = require("./routes");
-const cookieParser = require("cookie-parser");
-const cron = require("node-cron");
-const { autoCloseDailyCashForCron, closeMissedDailyCashEntries } = require("./controllers/dailyCash.controller");
-const logger = require("./utils/logger");
+// Load environment variables from .env file
+require("dotenv").config(); // Load env variables
 
-const app = express();
+// Import core packages
+const express = require("express"); // Express framework
+const compression = require("compression"); // Compress responses
+const helmet = require("helmet"); // Security headers
+const cors = require("cors"); // CORS handling
+const rateLimit = require("express-rate-limit"); // Rate limiting
+const cookieParser = require("cookie-parser"); // Cookie parsing
+const cron = require("node-cron"); // Cron jobs
 
-// Schedule a cron job to run at 23:59 every day
-cron.schedule('59 23 * * *', () => {
-  logger.info('Running a daily cron job to check and close open cash...');
-  autoCloseDailyCashForCron();
-}, {
-  scheduled: true,
-  timezone: "Asia/Dhaka" // It's good practice to set a timezone
-});
+// Import local modules
+const { dbConnect } = require("./database/db.config"); // Database connection
+const { getBrowser } = require("./utils/browserManager"); // Browser manager
+const routers = require("./routes"); // All routes
+const { ApiError } = require("./utils/ApiError"); // Custom API error
+const logger = require("./utils/logger"); // Logger
+const {
+  autoCloseDailyCashForCron,
+  closeMissedDailyCashEntries,
+} = require("./controllers/dailyCash.controller"); // Cron controllers
 
+// Create express app
+const app = express(); // Initialize express app
+
+// Enable CORS
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN,
-    credentials: true,
+    origin: process.env.CORS_ORIGIN, // Allowed origin
+    credentials: true, // Allow cookies
   })
 );
 
-app.use(helmet());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Security middlewares
+app.use(helmet()); // Add security headers
+app.use(express.json()); // Parse JSON body
+app.use(express.urlencoded({ extended: true })); // Parse URL encoded body
+app.use(cookieParser()); // Parse cookies
 
+// Enable compression
 app.use(
   compression({
-    level: 6,
-    threshold: 1024,
+    level: 6, // Compression level
+    threshold: 1024, // Minimum size
   })
 );
 
-
+// Rate limiting
 const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 500,
-  message: "Too many requests!!",
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 500, // Max requests
+  message: "Too many requests!!", // Message
 });
 app.use(limiter);
 
+// Register routes
+app.use(routers); // Use all API routes
+
+// Global error handler (must be last)
+app.use((err, req, res, next) => {
+  const statusCode = err.statusCode || 500; // Status code
+  const responsePayload = {
+    success: false,
+    message: err.message || "Something went wrong",
+    errors: err.errors || [],
+  };
+
+  if (!(err instanceof ApiError)) {
+    logger.error(err.stack); // Log unexpected errors
+  }
+
+  if (process.env.NODE_ENV === "development") {
+    responsePayload.stack = err.stack; // Show stack in dev
+  }
+
+  return res.status(statusCode).json(responsePayload); // Send response
+});
+
+// Start server FIRST
+const PORT = process.env.PORT || 3000; // Read port from env
+
+app.listen(PORT, () => {
+  logger.info(`Server is running on port ${PORT}`); // Log server start
+});
+
+// Run heavy startup tasks AFTER server starts
 (async () => {
   try {
-    app.use(cookieParser());
-    await dbConnect();
-    await getBrowser(); // Initialize the browser instance on startup
-    await closeMissedDailyCashEntries(); // Run the catch-up mechanism on startup
-    app.use(routers);
-
-    // Custom error handling middleware. This MUST be the last middleware.
-    app.use((err, req, res, next) => {
-      // Determine the status code, defaulting to 500 for unexpected errors
-      const statusCode = err.statusCode || 500;
-
-      // Prepare the base response payload
-      const responsePayload = {
-        success: false,
-        message: err.message || "Something went wrong",
-        errors: err.errors || [],
-      };
-
-      // Log unexpected errors to the console (ApiErrors are typically logged by the caller or not considered "unexpected")
-      if (!(err instanceof ApiError)) {
-        logger.error(err.stack);
-      }
-
-      // Conditionally add the stack trace if in development environment
-      // Ensure process.env.NODE_ENV is set to 'development' in your .env file for this to take effect
-      if (process.env.NODE_ENV === 'development') {
-        responsePayload.stack = err.stack;
-      }
-
-      // Send the JSON response
-      return res.status(statusCode).json(responsePayload);
-    });
-
-    const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => logger.info(`Server is running on port ${PORT}`));
+    await dbConnect(); // Connect database
+    await getBrowser(); // Start browser
+    await closeMissedDailyCashEntries(); // Fix missed cash entries
+    logger.info("Background startup tasks completed"); // Log success
   } catch (error) {
-    logger.error("Server failed to start:", error.message);
+    logger.error("Startup task failed:", error.message); // Log error
   }
 })();
+
+// Cron job (runs daily at 23:59)
+cron.schedule(
+  "59 23 * * *",
+  () => {
+    logger.info("Running daily cash auto close job");
+    autoCloseDailyCashForCron(); // Run cron task
+  },
+  {
+    scheduled: true, // Enable cron
+    timezone: "Asia/Dhaka", // Set timezone
+  }
+);
