@@ -1,3 +1,6 @@
+// Set the default timezone for the application
+process.env.TZ = "Asia/Dhaka";
+
 // Load environment variables from .env file
 require("dotenv").config(); // Load env variables
 

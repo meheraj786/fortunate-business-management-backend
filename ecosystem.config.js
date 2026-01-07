@@ -9,9 +9,11 @@ module.exports = {
       merge_logs: true,
       env: {
         NODE_ENV: "development",
+        TZ: "Asia/Dhaka",
       },
       env_production: {
         NODE_ENV: "production",
+        TZ: "Asia/Dhaka",
       },
     },
   ],
