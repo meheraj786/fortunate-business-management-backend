@@ -125,16 +125,24 @@ async function createAccount(req, res, next) {
     // If there's an initial balance, create a corresponding transaction
     if (initialBalance && initialBalance > 0) {
       // 1. DailyCash Gatekeeper Check
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const dailyCash = await DailyCash.findOne({ date: today })
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+      const dailyCash = await DailyCash.findOne({
+        date: {
+          $gte: startOfToday,
+          $lt: endOfToday,
+        },
+      })
         .sort({ createdAt: -1 })
         .session(session);
 
       if (!dailyCash || dailyCash.status === "Closed") {
+        const todayString = now.toDateString();
         throw new ApiError(
           400,
-          `Daily cash is closed for ${today.toDateString()}. Cannot create account with initial balance. Open daily cash first.`
+          `Daily cash is closed for ${todayString}. Cannot create account with initial balance. Open daily cash first.`
         );
       }
 
