@@ -6,5 +6,6 @@ exports.dbConnect = async () => {
     logger.info("DB Connected");
   } catch (error) {
     logger.error("Can't Connect DB", error);
+    process.exit(1);
   }
 };
