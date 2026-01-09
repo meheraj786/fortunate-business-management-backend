@@ -1,34 +1,19 @@
 const mongoose = require("mongoose");
 const User = require("../models/user.model");
 const logger = require("./logger");
+const { PERMISSIONS, MODULES } = require("./permissions.constants");
 require("dotenv").config();
 
-const fullAccess = [
-  {
-    module: "LC",
-    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
-  },
-  {
-    module: "SALE",
-    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
-  },
-  {
-    module: "CASH",
-    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
-  },
-  {
-    module: "STOCK",
-    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
-  },
-  {
-    module: "BANKING",
-    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
-  },
-  {
-    module: "CUSTOMER",
-    permissions: ["CREATE", "GET", "UPDATE", "DELETE"],
-  },
-];
+// Dynamically create full access for all modules based on the constants
+const fullAccess = MODULES.map((moduleName) => {
+  const modulePermissions = Object.keys(PERMISSIONS).filter((p) =>
+    p.startsWith(moduleName)
+  );
+  return {
+    module: moduleName,
+    permissions: modulePermissions,
+  };
+});
 
 const seedSuperAdmin = async () => {
   try {
@@ -40,19 +25,22 @@ const seedSuperAdmin = async () => {
     const exists = await User.findOne({ email: superAdminEmail });
 
     if (exists) {
-      logger.info("Super Admin already exists. No new user created.");
+      // If superadmin exists, ensure they have all permissions
+      exists.access = fullAccess;
+      await exists.save();
+      logger.info("Super Admin already exists. All permissions have been updated.");
       process.exit(0);
     }
 
     await User.create({
       name: "Super Admin",
       email: superAdminEmail,
-      password: process.env.SUPER_ADMIN_PASSWORD, 
-      roleName: "SUPER_ADMIN",   
+      password: process.env.SUPER_ADMIN_PASSWORD,
+      roleName: "SUPER_ADMIN",
       location: "Head Office",
       access: fullAccess,
       phone: "01000000000",
-      isDeleted: false
+      isDeleted: false,
     });
 
     logger.info("Super Admin Created Successfully!");

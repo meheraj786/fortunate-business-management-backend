@@ -4,6 +4,9 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const jwt = require("jsonwebtoken");
 const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
+const {
+  BUNDLED_PERMISSIONS,
+} = require("../utils/permissions.constants");
 const Trash = require("../models/trash.model");
 
 const registerUser = async (req, res, next) => {
@@ -82,13 +85,13 @@ const loginUser = async (req, res, next) => {
 
     res.cookie("accessToken", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: true, // Always true for sameSite: "none"
       sameSite: "none",
     });
 
     return res
       .status(200)
-      .json(new ApiResponse(200, { user, token }, "Logged in successfully"));
+      .json(new ApiResponse(200, user, "Logged in successfully"));
   } catch (error) {
     logger.error(error);
     if (error instanceof ApiError) {
@@ -318,17 +321,25 @@ const updateUser = async (req, res, next) => {
       updates.password = await bcrypt.hash(updates.password, 10);
     }
 
+    // Handle the new, more granular access structure
     if (updates.access && Array.isArray(updates.access)) {
       updates.access = updates.access.map((module) => {
-        let permissions = module.permissions || [];
+        // Start with the permissions explicitly given for the module
+        let permissions = new Set(module.permissions || []);
 
-        permissions = permissions.flat(Infinity);
-
-        permissions = [...new Set(permissions)];
+        // Automatically add bundled permissions
+        (module.permissions || []).forEach((p) => {
+          const bundled = BUNDLED_PERMISSIONS[p];
+          if (bundled) {
+            bundled.forEach((bundledPermission) =>
+              permissions.add(bundledPermission)
+            );
+          }
+        });
 
         return {
           module: module.module,
-          permissions: permissions,
+          permissions: Array.from(permissions), // Convert Set back to Array
         };
       });
     }
@@ -412,5 +423,5 @@ module.exports = {
   getAllUser,
   getUser,
   updateUser,
-  deleteUser
+  deleteUser,
 };

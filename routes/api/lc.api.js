@@ -15,39 +15,112 @@ const {
   getLCSummary,
   getActiveLcs,
   searchLCSummary,
-  deleteDocument, // Import the new controller
+  deleteDocument,
 } = require("../../controllers/lc.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
-const authorize = require("../../middleware/authorize.middleware");
+const { authorize } = require("../../middleware/authorize.middleware");
+const { PERMISSIONS } = require("../../utils/permissions.constants");
 
 const lcRoutes = express.Router();
 
 // --- Core LC Routes ---
-lcRoutes.post("/create-lc", authenticate, authorize("LC", "CREATE"), upload.array("documents"), createLC);
-lcRoutes.get("/get-all-lc", authenticate, authorize("LC", "GET"), getAllLCs);
-lcRoutes.get("/get-lc/:id", authenticate, authorize("LC", "GET"), getLCById);
-// Add multer middleware to handle file uploads during update
-lcRoutes.patch("/update-lc/:id", authenticate, authorize("LC", "UPDATE"), upload.array("documents"), updateLC);
-lcRoutes.delete("/delete-lc/:id", authenticate, authorize("LC", "DELETE"), deleteLC);
+lcRoutes.post(
+  "/create-lc",
+  authenticate,
+  authorize(PERMISSIONS.LC_CREATE),
+  upload.array("documents"),
+  createLC
+);
+lcRoutes.get(
+  "/get-all-lc",
+  authenticate,
+  authorize(PERMISSIONS.LC_VIEW_TABLE),
+  getAllLCs
+);
+lcRoutes.get(
+  "/get-lc/:id",
+  authenticate,
+  authorize(PERMISSIONS.LC_VIEW_DETAILS),
+  getLCById
+);
+lcRoutes.patch(
+  "/update-lc/:id",
+  authenticate,
+  authorize(PERMISSIONS.LC_UPDATE),
+  upload.array("documents"),
+  updateLC
+);
+lcRoutes.delete(
+  "/delete-lc/:id",
+  authenticate,
+  authorize(PERMISSIONS.LC_DELETE),
+  deleteLC
+);
 
 // --- Document Management Routes ---
-// Route to get a specific document
-lcRoutes.get("/:lcId/documents/:storedName", authenticate, authorize("LC", "GET"), downloadDocument);
-// Route to delete a specific document
-lcRoutes.delete("/delete-document/:lcId/:docId", authenticate, authorize("LC", "DELETE"), deleteDocument);
-
+lcRoutes.get(
+  "/:lcId/documents/:storedName",
+  authenticate,
+  authorize(PERMISSIONS.LC_VIEW_DETAILS),
+  downloadDocument
+);
+lcRoutes.delete(
+  "/delete-document/:lcId/:docId",
+  authenticate,
+  authorize(PERMISSIONS.LC_DELETE),
+  deleteDocument
+);
 
 // --- Other LC-related Routes ---
-lcRoutes.post("/add-expense", authenticate, authorize("LC", "UPDATE"), addExpenseToLC);
-lcRoutes.get("/completed-lc", authenticate, authorize("LC", "GET"), getAllCompletedLCs);
-lcRoutes.get("/export-lc/:id", authenticate, authorize("LC", "GET"), exportLCAsPDF);
-lcRoutes.get("/active-lc", authenticate, authorize("LC", "GET"), getActiveLcs);
+lcRoutes.post(
+  "/add-expense",
+  authenticate,
+  authorize(PERMISSIONS.LC_UPDATE),
+  addExpenseToLC
+);
+lcRoutes.get(
+  "/completed-lc",
+  authenticate,
+  authorize(PERMISSIONS.LC_VIEW_TABLE),
+  getAllCompletedLCs
+);
+lcRoutes.get(
+  "/export-lc/:id",
+  authenticate,
+  authorize(PERMISSIONS.LC_EXPORT_PDF),
+  exportLCAsPDF
+);
+lcRoutes.get(
+  "/active-lc",
+  authenticate,
+  authorize(PERMISSIONS.LC_VIEW_TABLE),
+  getActiveLcs
+);
 
 // --- Analytics & Summary Routes ---
-lcRoutes.get("/summary", authenticate, authorize("LC", "GET"), getLCSummary);
-lcRoutes.get("/summary/search", authenticate, authorize("LC", "GET"), searchLCSummary);
-lcRoutes.get("/counts/status", authenticate, authorize("LC", "GET"), getLCCountsByStatus);
-lcRoutes.get("/counts/total", authenticate, authorize("LC", "GET"), getTotalLCCount);
-
+lcRoutes.get(
+  "/summary",
+  authenticate,
+  authorize(PERMISSIONS.LC_VIEW_TABLE),
+  getLCSummary
+);
+lcRoutes.get(
+  "/summary/search",
+  authenticate,
+  authorize(PERMISSIONS.LC_VIEW_TABLE),
+  searchLCSummary
+);
+lcRoutes.get(
+  "/counts/status",
+  authenticate,
+  authorize(PERMISSIONS.LC_VIEW_TABLE),
+  getLCCountsByStatus
+);
+lcRoutes.get(
+  "/counts/total",
+  authenticate,
+  authorize(PERMISSIONS.LC_VIEW_TABLE),
+  getTotalLCCount
+);
 
 module.exports = lcRoutes;

@@ -10,33 +10,86 @@ const {
   addPartialPayment,
   cancelSale,
   getSalesByCustomerId,
-  getPaginatedSalesSummary, // New import
+  getPaginatedSalesSummary,
 } = require("../../controllers/sales.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const {
   getInvoiceAsPdf,
   getInvoiceAsPng,
 } = require("../../controllers/generatedInvoice.controller");
-const authorize = require("../../middleware/authorize.middleware"); 
+const { authorize } = require("../../middleware/authorize.middleware");
+const { PERMISSIONS } = require("../../utils/permissions.constants");
 const salesRoutes = express.Router();
 
-salesRoutes.post("/create-sales", authenticate, authorize("SALE", "CREATE"), createSale);
-salesRoutes.get("/get-all-sales", authenticate, authorize("SALE", "GET"), getAllSales);
-salesRoutes.get("/get-sales/:id", authenticate, authorize("SALE", "GET"), getSaleById);
-salesRoutes.patch("/update-sale/:id", authenticate, authorize("SALE", "GET"), updateSale);
-salesRoutes.delete("/delete-sale/:id", authenticate, authorize("SALE", "DELETE"), deleteSale);
-salesRoutes.patch("/cancel-sale/:id", authenticate, authorize("SALE", "UPDATE"), cancelSale);
-salesRoutes.get("/sales-summary", authenticate, authorize("SALE", "GET"), getSalesSummary);
-salesRoutes.get("/customer/:customerId", authenticate, authorize("SALE", "GET"), getSalesByCustomerId);
+salesRoutes.use(authenticate);
 
-salesRoutes.get("/get-all-invoices-status-count", getAll_invoices_status_count);
-salesRoutes.post("/:id/payments", addPartialPayment);
+salesRoutes.post(
+  "/create-sales",
+  authorize(PERMISSIONS.SALE_CREATE),
+  createSale
+);
+salesRoutes.get(
+  "/get-all-sales",
+  authorize(PERMISSIONS.SALE_VIEW_TABLE),
+  getAllSales
+);
+salesRoutes.get(
+  "/get-sales/:id",
+  authorize(PERMISSIONS.SALE_VIEW_DETAILS),
+  getSaleById
+);
+salesRoutes.patch(
+  "/update-sale/:id",
+  authorize(PERMISSIONS.SALE_UPDATE),
+  updateSale
+);
+salesRoutes.delete(
+  "/delete-sale/:id",
+  authorize(PERMISSIONS.SALE_DELETE),
+  deleteSale
+);
+salesRoutes.patch(
+  "/cancel-sale/:id",
+  authorize(PERMISSIONS.SALE_CANCEL),
+  cancelSale
+);
+salesRoutes.get(
+  "/sales-summary",
+  authorize(PERMISSIONS.SALE_VIEW_TABLE),
+  getSalesSummary
+);
+salesRoutes.get(
+  "/customer/:customerId",
+  authorize(PERMISSIONS.SALE_VIEW_TABLE),
+  getSalesByCustomerId
+);
 
-// New comprehensive sales summary route
-salesRoutes.get("/sales-summary-table", authenticate, authorize("SALE", "GET"), getPaginatedSalesSummary);
+salesRoutes.get(
+  "/get-all-invoices-status-count",
+  authorize(PERMISSIONS.SALE_VIEW_TABLE),
+  getAll_invoices_status_count
+);
+salesRoutes.post(
+  "/:id/payments",
+  authorize(PERMISSIONS.SALE_ADD_PAYMENT),
+  addPartialPayment
+);
 
-// Routes for generating invoice files
-salesRoutes.get("/invoice/:invoiceId/pdf", authenticate, getInvoiceAsPdf);
-salesRoutes.get("/invoice/:invoiceId/png", authenticate, getInvoiceAsPng);
+salesRoutes.get(
+  "/sales-summary-table",
+  authorize(PERMISSIONS.SALE_VIEW_TABLE),
+  getPaginatedSalesSummary
+);
+
+salesRoutes.get(
+  "/invoice/:invoiceId/pdf",
+  authorize(PERMISSIONS.SALE_DOWNLOAD_INVOICE),
+  getInvoiceAsPdf
+);
+salesRoutes.get(
+  "/invoice/:invoiceId/png",
+  authorize(PERMISSIONS.SALE_DOWNLOAD_INVOICE),
+  getInvoiceAsPng
+);
 
 module.exports = salesRoutes;

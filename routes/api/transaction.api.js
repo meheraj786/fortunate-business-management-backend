@@ -5,42 +5,51 @@ const {
   getTransactionStats,
   getAllTransactions,
   deleteTransaction,
+  createTransaction,
+  updateTransaction,
 } = require("../../controllers/transaction.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
-const authorize = require("../../middleware/authorize.middleware");
+const { authorize } = require("../../middleware/authorize.middleware");
+const { PERMISSIONS } = require("../../utils/permissions.constants");
 
 const transactionRoutes = express.Router();
 
+transactionRoutes.use(authenticate);
+
+transactionRoutes.post(
+  "/create-transaction",
+  authorize(PERMISSIONS.TRANSACTION_CREATE),
+  createTransaction
+);
+transactionRoutes.get(
+  "/get-all-transactions",
+  authorize(PERMISSIONS.TRANSACTION_VIEW_ALL),
+  getAllTransactions
+);
 transactionRoutes.get(
   "/get-transactions-by-account/:accountId",
-  authenticate,
-  authorize("TRANSACTION", "GET"),
+  authorize(PERMISSIONS.TRANSACTION_VIEW_ALL),
   getTransactionsByAccount
 );
 transactionRoutes.get(
   "/get-transaction-details/:id",
-  authenticate,
-  authorize("TRANSACTION", "GET"),
+  authorize(PERMISSIONS.TRANSACTION_VIEW_DETAILS),
   getTransactionDetails
 );
 transactionRoutes.get(
   "/get-transaction-stats",
-  authenticate,
-  authorize("TRANSACTION", "GET"),
+  authorize(PERMISSIONS.TRANSACTION_VIEW_ALL),
   getTransactionStats
 );
-transactionRoutes.get(
-  "/get-all-transactions",
-  authenticate,
-  authorize("TRANSACTION", "GET"),
-  getAllTransactions
+transactionRoutes.patch(
+  "/update-transaction/:id",
+  authorize(PERMISSIONS.TRANSACTION_UPDATE),
+  updateTransaction
 );
 transactionRoutes.delete(
-  "/delete/:id",
-  authenticate,
-  authorize("TRANSACTION", "DELETE"),
+  "/delete-transaction/:id",
+  authorize(PERMISSIONS.TRANSACTION_DELETE),
   deleteTransaction
 );
-
 
 module.exports = transactionRoutes;

@@ -5,19 +5,26 @@ const {
   getInvoiceById,
   getInvoicesBySaleId,
 } = require("../../controllers/invoice.controller");
-const {
-  verifyJWT,
-  authorizeRoles,
-} = require("../../middleware/auth.middleware");
+const { authenticate } = require("../../middleware/auth.middleware");
+const { authorize } = require("../../middleware/authorize.middleware");
+const { PERMISSIONS } = require("../../utils/permissions.constants");
 
 const router = express.Router();
 
-// All routes in this file are protected and accessible only to admin and manager
-// router.use(verifyJWT, authorizeRoles("admin", "manager"));
+// All routes are protected
+router.use(authenticate);
 
-router.post("/generate", generateInvoice);
-router.get("/", getAllInvoices);
-router.get("/:id", getInvoiceById);
-router.get("/sale/:saleId", getInvoicesBySaleId);
+router.post(
+  "/generate",
+  authorize(PERMISSIONS.SALE_GENERATE_INVOICE),
+  generateInvoice
+);
+router.get("/", authorize(PERMISSIONS.SALE_VIEW_TABLE), getAllInvoices);
+router.get("/:id", authorize(PERMISSIONS.SALE_VIEW_INVOICE), getInvoiceById);
+router.get(
+  "/sale/:saleId",
+  authorize(PERMISSIONS.SALE_VIEW_INVOICE),
+  getInvoicesBySaleId
+);
 
 module.exports = router;

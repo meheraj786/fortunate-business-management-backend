@@ -54,6 +54,10 @@ const userSchema = new mongoose.Schema({
       "No Role",
     ],
   },
+  description: {
+    type: String,
+    default: "No description provided.",
+  },
   location: {
     type: String,
     required: true,
@@ -64,14 +68,22 @@ const userSchema = new mongoose.Schema({
       module: {
         type: String,
         required: true,
-        enum: ["LC", "SALE", "CASH", "STOCK", "BANKING", "CUSTOMER"],
+        enum: [
+          "USER",
+          "WAREHOUSE",
+          "PRODUCT",
+          "LC",
+          "SALE",
+          "CASH",
+          "ACCOUNT",
+          "TRANSACTION",
+          "CUSTOMER",
+          "CATEGORY",
+          "UNIT",
+          "TRASH",
+        ],
       },
-      permissions: [
-        {
-          type: [String],
-          enum: ["CREATE", "GET", "UPDATE", "DELETE"],
-        },
-      ],
+      permissions: [String],
     },
   ],
   warehouse: [

@@ -362,11 +362,12 @@ const deleteTrashPermanently = async (req, res, next) => {
   }
 };
 
-const getTrashDetailById = async (id) => {
+const getTrashDetailById = async (req, res, next) => {
   try {
+    const { id } = req.params;
     const trash = await Trash.findById(id).populate("deletedBy", "name email");
     if (!trash) {
-      throw new Error("Trash entry not found");
+      throw new ApiError(404, "Trash entry not found");
     }
 
     const { docId, model: modelName, deletedBy, deletedAt } = trash;
@@ -383,10 +384,13 @@ const getTrashDetailById = async (id) => {
       isDeleted: originalDoc ? originalDoc.isDeleted : true,
     };
 
-    return response;
+    res.status(200).json(new ApiResponse(200, response, "Trash detail fetched successfully"));
   } catch (err) {
     logger.error("GetTrashDetailById Error:", err);
-    throw err;
+    if (err instanceof ApiError) {
+      return next(err);
+    }
+    next(new ApiError(500, "Failed to fetch trash item details."));
   }
 };
 

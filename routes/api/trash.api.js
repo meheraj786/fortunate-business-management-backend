@@ -3,20 +3,38 @@ const {
   getAllTrash,
   restoreFromTrash,
   deleteTrashPermanently,
-  moveToTrash,
   getTrashDetailById,
 } = require("../../controllers/trash.controller");
+const { authenticate } = require("../../middleware/auth.middleware");
+const { authorizeTrashAccess } = require("../../middleware/authorize.middleware");
 
 const trashRouter = express.Router();
 
-trashRouter.post("/move-to-trash", moveToTrash);
+// Authenticate all routes in this file
+trashRouter.use(authenticate);
 
-trashRouter.get("/get", getAllTrash);
+// Get all trashed items for a specific model (e.g., /api/trash/LC)
+trashRouter.get("/:model", authorizeTrashAccess("VIEW"), getAllTrash);
 
-trashRouter.post("/restore/:id", restoreFromTrash);
+// Get details of a specific trashed item
+trashRouter.get(
+  "/:model/:id",
+  authorizeTrashAccess("VIEW"),
+  getTrashDetailById
+);
 
-trashRouter.delete("/delete/:id", deleteTrashPermanently);
+// Restore a specific item from the trash
+trashRouter.post(
+  "/:model/:id/restore",
+  authorizeTrashAccess("RESTORE"),
+  restoreFromTrash
+);
 
-trashRouter.get("/get-detail/:id", getTrashDetailById);
+// Permanently delete an item from the trash
+trashRouter.delete(
+  "/:model/:id",
+  authorizeTrashAccess("DELETE"),
+  deleteTrashPermanently
+);
 
 module.exports = trashRouter;

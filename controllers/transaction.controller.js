@@ -5,6 +5,239 @@ const logger = require("../utils/logger");
 const Trash = require("../models/trash.model");
 const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
 const mongoose = require("mongoose");
+const Account = require("../models/account.model");
+const DailyCash = require("../models/dailyCash.model");
+const { moveToTrash } = require("../controllers/trash.controller");
+
+async function createTransaction(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const {
+      accountId,
+      date,
+      transactionType,
+      amount,
+      name,
+      paymentMethod,
+      description,
+      category,
+    } = req.body;
+
+    // Validate required fields
+    if (
+      !accountId ||
+      !date ||
+      !transactionType ||
+      !amount ||
+      !name ||
+      !paymentMethod ||
+      !category
+    ) {
+      throw new ApiError(400, "All required transaction fields must be provided.");
+    }
+
+    const account = await Account.findById(accountId).session(session);
+    if (!account) {
+      throw new ApiError(404, "Account not found.");
+    }
+
+    // DailyCash Gatekeeper Check
+    const transactionDate = startOfDay(new Date(date));
+    const dailyCash = await DailyCash.findOne({
+      date: transactionDate,
+      status: "Open",
+    }).session(session);
+
+    if (!dailyCash) {
+      throw new ApiError(
+        400,
+        `Daily cash is closed for ${transactionDate.toDateString()}. Cannot create transaction.`
+      );
+    }
+
+    if (transactionType === "Income") {
+      account.balance += amount;
+    } else if (transactionType === "Expense") {
+      if (account.balance < amount) {
+        throw new ApiError(400, "Insufficient balance for this expense.");
+      }
+      account.balance -= amount;
+    } else {
+      throw new ApiError(400, "Invalid transaction type. Must be 'Income' or 'Expense'.");
+    }
+
+    await account.save({ session });
+
+    const newTransaction = await Transaction.create(
+      [
+        {
+          accountId,
+          date,
+          transactionType,
+          amount,
+          name,
+          source: "Manual",
+          paymentMethod,
+          description,
+          category,
+          isDeleted: false,
+        },
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res
+      .status(201)
+      .json(
+        new ApiResponse(
+          201,
+          newTransaction[0],
+          "Transaction created successfully."
+        )
+      );
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    logger.error("CreateTransaction Error:", error);
+    next(new ApiError(500, "Failed to create transaction. Please try again."));
+  }
+}
+
+async function updateTransaction(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { id } = req.params;
+    const {
+      accountId,
+      date,
+      transactionType,
+      amount,
+      name,
+      paymentMethod,
+      description,
+      category,
+    } = req.body;
+
+    const transaction = await Transaction.findById(id).session(session);
+    if (!transaction) {
+      throw new ApiError(404, "Transaction not found.");
+    }
+    if (transaction.isDeleted) {
+      throw new ApiError(400, "Cannot update a deleted transaction.");
+    }
+    if (transaction.source === "Auto") {
+      throw new ApiError(
+        400,
+        "Cannot update an automatically generated transaction. Please update the source (e.g., Sale, LC) instead."
+      );
+    }
+
+    const oldAccountId = transaction.accountId;
+    const oldAmount = transaction.amount;
+    const oldTransactionType = transaction.transactionType;
+
+    // DailyCash Gatekeeper Check for old and new dates if they differ
+    const oldTransactionDate = startOfDay(new Date(transaction.date));
+    const newTransactionDate = startOfDay(new Date(date));
+    if (oldTransactionDate.getTime() !== newTransactionDate.getTime()) {
+        const newDailyCash = await DailyCash.findOne({ date: newTransactionDate, status: "Open" }).session(session);
+        if (!newDailyCash) {
+            throw new ApiError(
+                400,
+                `Daily cash is closed for ${newTransactionDate.toDateString()}. Cannot update transaction date.`
+            );
+        }
+        const oldDailyCash = await DailyCash.findOne({ date: oldTransactionDate, status: "Open" }).session(session);
+         if (!oldDailyCash) {
+            throw new ApiError(
+                400,
+                `Daily cash is closed for ${oldTransactionDate.toDateString()}. Cannot update transaction as it affects a closed daily cash.`
+            );
+        }
+    } else {
+         const dailyCash = await DailyCash.findOne({ date: newTransactionDate, status: "Open" }).session(session);
+         if (!dailyCash) {
+            throw new ApiError(
+                400,
+                `Daily cash is closed for ${newTransactionDate.toDateString()}. Cannot update transaction.`
+            );
+        }
+    }
+
+
+    const currentAccount = await Account.findById(oldAccountId).session(session);
+    if (!currentAccount) {
+      throw new ApiError(404, "Original account not found.");
+    }
+
+    // Reverse the old transaction's effect on the old account
+    if (oldTransactionType === "Income") {
+      if (currentAccount.balance < oldAmount) {
+        throw new ApiError(
+          400,
+          `Insufficient balance in ${currentAccount.accountName} to reverse old income.`
+        );
+      }
+      currentAccount.balance -= oldAmount;
+    } else if (oldTransactionType === "Expense") {
+      currentAccount.balance += oldAmount;
+    }
+    await currentAccount.save({ session });
+
+    // Apply the new transaction's effect on potentially a new account
+    const newAccount = await Account.findById(accountId).session(session);
+    if (!newAccount) {
+      throw new ApiError(404, "New account not found.");
+    }
+
+    if (transactionType === "Income") {
+      newAccount.balance += amount;
+    } else if (transactionType === "Expense") {
+      if (newAccount.balance < amount) {
+        throw new ApiError(400, "Insufficient balance for this new expense.");
+      }
+      newAccount.balance -= amount;
+    } else {
+      throw new ApiError(400, "Invalid transaction type. Must be 'Income' or 'Expense'.");
+    }
+    await newAccount.save({ session });
+
+    // Update the transaction details
+    transaction.accountId = accountId;
+    transaction.date = date;
+    transaction.transactionType = transactionType;
+    transaction.amount = amount;
+    transaction.name = name;
+    transaction.paymentMethod = paymentMethod;
+    transaction.description = description;
+    transaction.category = category;
+
+    await transaction.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, transaction, "Transaction updated successfully."));
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    logger.error("UpdateTransaction Error:", error);
+    next(new ApiError(500, "Failed to update transaction. Please try again."));
+  }
+}
 
 async function getTransactionDetails(req, res, next) {
   try {
@@ -501,11 +734,6 @@ async function getTransactionsByAccount(req, res, next) {
   }
 }
 
-const Account = require("../models/account.model");
-const DailyCash = require("../models/dailyCash.model");
-const { moveToTrash } = require("../controllers/trash.controller");
-
-
 async function deleteTransaction(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -587,6 +815,8 @@ async function deleteTransaction(req, res, next) {
 }
 
 module.exports = {
+  createTransaction,
+  updateTransaction,
   getAllTransactions,
   getTransactionDetails,
   getTransactionStats,
