@@ -19,7 +19,7 @@ apiRoutes.use("/customer", customerRoutes)
 apiRoutes.use("/lc", lcRoutes)
 // Product routes are nested under warehouseRoutes, no need to mount here
 apiRoutes.use("/sales", salesRoutes)
-apiRoutes.use("/warehouse", warehouseRoutes) // authenticate is already inside warehouseRoutes
+apiRoutes.use("/warehouses", warehouseRoutes) // authenticate is already inside warehouseRoutes
 apiRoutes.use("/category", categoryRouter)
 apiRoutes.use("/unit", unitRouter)
 apiRoutes.use("/cash", dailyCashRouter) // authenticate is already inside dailyCashRouter

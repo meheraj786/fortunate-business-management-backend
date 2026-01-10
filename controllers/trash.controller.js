@@ -285,9 +285,13 @@ const getAllTrash = async (req, res) => {
       filter.model = moduleFilter;
     }
 
-    // Add specific filtering for Product module by warehouseId
-    if (moduleFilter === "Product" && warehouseId) {
-        filter["metadata.warehouseId"] = new mongoose.Types.ObjectId(warehouseId);
+    // Filter trash items by the user's assigned warehouses unless they are a SUPER_ADMIN.
+    if (req.user.roleName !== "SUPER_ADMIN") {
+      // Ensure req.user.warehouse contains ObjectIds for comparison.
+      // req.user.warehouse can be an array of strings (from JWT) or ObjectIds (from DB).
+      // Converting all to ObjectId for robust comparison with metadata.warehouseId.
+      const accessibleWarehouseObjectIds = req.user.warehouse.map(id => new mongoose.Types.ObjectId(id));
+      filter["metadata.warehouseId"] = { $in: accessibleWarehouseObjectIds };
     }
 
     const [trash, total] = await Promise.all([

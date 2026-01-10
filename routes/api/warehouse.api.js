@@ -19,7 +19,7 @@ const warehouseRoutes = express.Router();
 warehouseRoutes.use(authenticate);
 
 // CRUD for warehouses
-warehouseRoutes.post("/", authorizeRole("SUPER_ADMIN"), createWarehouse);
+warehouseRoutes.post("/", authorize(PERMISSIONS.WAREHOUSE_CREATE), createWarehouse);
 warehouseRoutes.get(
   "/",
   authorize(PERMISSIONS.WAREHOUSE_VIEW),
@@ -30,8 +30,8 @@ warehouseRoutes.get(
   authorize(PERMISSIONS.WAREHOUSE_VIEW),
   getWarehouseById
 );
-warehouseRoutes.patch("/:id", authorizeRole("SUPER_ADMIN"), updateWarehouse);
-warehouseRoutes.delete("/:id", authorizeRole("SUPER_ADMIN"), deleteWarehouse);
+warehouseRoutes.patch("/:id", authorize(PERMISSIONS.WAREHOUSE_UPDATE), updateWarehouse);
+warehouseRoutes.delete("/:id", authorize(PERMISSIONS.WAREHOUSE_DELETE), deleteWarehouse);
 
 // Nest the product routes under a specific warehouse
 warehouseRoutes.use("/:warehouseId/products", productRoutes);

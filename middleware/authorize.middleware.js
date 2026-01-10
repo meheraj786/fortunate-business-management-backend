@@ -1,3 +1,5 @@
+const { PERMISSIONS } = require("../utils/permissions.constants");
+
 const authorizeRole = (requiredRole) => (req, res, next) => {
   try {
     const user = req.user;
@@ -106,6 +108,13 @@ const authorizeWarehouseAccess = (requiredPermission) => (req, res, next) => {
 
     // 2. Check if user has the required permission for the action
 
+    // Special handling for PRODUCT_VIEW_TABLE: warehouse access implies view permission
+    if (requiredPermission === PERMISSIONS.PRODUCT_VIEW_TABLE) {
+      // If we reached here, hasWarehouseAccess was already true, so permit
+      return next();
+    }
+
+    // For all other required permissions, check if the user explicitly has it
     if (requiredPermission) {
       const userPermissions = new Set();
 

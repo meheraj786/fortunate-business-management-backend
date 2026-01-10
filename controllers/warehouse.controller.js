@@ -1,5 +1,7 @@
+const mongoose = require("mongoose");
 const Warehouse = require("../models/warehouse.model");
 const Product = require("../models/product.model");
+const User = require("../models/user.model"); // Import User model
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
@@ -11,6 +13,15 @@ const createWarehouse = async (req, res, next) => {
     const { name, location } = req.body;
 
     const warehouse = await Warehouse.create({ name, location });
+
+    // Automatically assign the newly created warehouse to the creator
+    if (req.user && req.user._id) {
+      const creator = await User.findById(req.user._id);
+      if (creator) {
+        creator.warehouse.push(warehouse._id);
+        await creator.save({ validateBeforeSave: false }); // Skip validation for this save as only pushing ID
+      }
+    }
 
     return res
       .status(201)
@@ -45,7 +56,7 @@ const createWarehouse = async (req, res, next) => {
   }
 };
 
-const getAllWarehouses = async (_, res, next) => {
+const getAllWarehouses = async (req, res, next) => {
   try {
     // Pipeline for fetching warehouses and their individual stats
     const warehousePipeline = [
@@ -54,6 +65,16 @@ const getAllWarehouses = async (_, res, next) => {
           isDeleted: false,
         },
       },
+      // Conditionally add match stage for non-SUPER_ADMIN users
+      ...(req.user.roleName !== "SUPER_ADMIN"
+        ? [
+            {
+              $match: {
+                _id: { $in: req.user.warehouse.map((id) => new mongoose.Types.ObjectId(id)) },
+              },
+            },
+          ]
+        : []),
       {
         $lookup: {
           from: "products",
