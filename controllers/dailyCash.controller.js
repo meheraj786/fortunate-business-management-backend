@@ -275,36 +275,54 @@ async function _calculateDailyCashMetrics(dateString) {
     }
   }
 
-  // --- Optimized Transaction Aggregation ---
+  // --- Enriched Transaction Aggregation ---
   const transactionStatsPipeline = [
     {
       $match: {
         date: { $gte: targetDate, $lt: nextDay },
       },
     },
+    // ** Start of Enrichment **
     {
       $lookup: {
         from: "accounts",
         localField: "accountId",
         foreignField: "_id",
-        as: "accountInfo",
+        as: "accountId",
       },
     },
     {
+      $lookup: {
+        from: "sales",
+        localField: "reference",
+        foreignField: "_id",
+        as: "saleRef",
+      },
+    },
+    {
+      $lookup: {
+        from: "lcs",
+        localField: "reference",
+        foreignField: "_id",
+        as: "lcRef",
+      },
+    },
+    { $unwind: { path: "$accountId", preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: "$saleRef", preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: "$lcRef", preserveNullAndEmptyArrays: true } },
+    {
       $addFields: {
-        accountId: {
-          $let: {
-            vars: { acc: { $arrayElemAt: ["$accountInfo", 0] } },
-            in: {
-              _id: "$$acc._id",
-              accountName: "$$acc.accountName",
-              accountType: "$$acc.accountType",
-            },
+        reference: {
+          $cond: {
+            if: { $eq: ["$referenceModel", "Sale"] },
+            then: "$saleRef",
+            else: "$lcRef",
           },
         },
       },
     },
-    { $project: { accountInfo: 0 } },
+    { $project: { saleRef: 0, lcRef: 0 } }, // Clean up
+    // ** End of Enrichment **
     { $sort: { date: -1 } }, // Sort transactions descending by date
     {
       $group: {
@@ -349,7 +367,7 @@ async function _calculateDailyCashMetrics(dateString) {
     totalIncomeTransactionsCount = transactionResults[0].totalIncomeTransactionsCount;
     totalExpenseTransactionsCount = transactionResults[0].totalExpenseTransactionsCount;
   }
-  // --- End of Optimization ---
+  // --- End of Aggregation ---
 
   // Running balance is based on the day's starting opening balance
   const runningBalance = openingBalance + totalIncome - totalExpenses;
@@ -505,7 +523,20 @@ async function addIncome(req, res, next) {
     account.balance += amount;
     await account.save({ session });
 
-    const newTransaction = new Transaction({ accountId, date: now(), amount, name, source: "Manual", paymentMethod, description: finalDescription, category, reference, referenceModel, miscReference });
+    const newTransaction = new Transaction({
+      accountId,
+      date: now(),
+      transactionType: "Income",
+      amount,
+      name,
+      source: "Manual",
+      paymentMethod,
+      description: finalDescription,
+      category,
+      reference,
+      referenceModel,
+      miscReference,
+    });
     await newTransaction.save({ session });
 
     await session.commitTransaction();
