@@ -40,19 +40,6 @@ const userSchema = new mongoose.Schema({
   roleName: {
     type: String,
     default: "No Role",
-    enum: [
-      "ADMIN",
-      "SUPER_ADMIN",
-      "MANAGER",
-      "Warehouse Keeper",
-      "Accountant",
-      "Sales Executive",
-      "Operations Coordinator",
-      "Logistics Officer",
-      "Quality Inspector",
-      "Customs Officer",
-      "No Role",
-    ],
   },
   description: {
     type: String,

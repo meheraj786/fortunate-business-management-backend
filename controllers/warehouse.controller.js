@@ -150,7 +150,17 @@ const getAllWarehouses = async (req, res, next) => {
 
     // Separate, efficient pipeline for calculating global stats across all products
     const globalStatsPipeline = [
-      { $match: { isDeleted: false } },
+      // Conditionally add match stage for non-SUPER_ADMIN users
+      ...(req.user.roleName !== "SUPER_ADMIN"
+        ? [
+            {
+              $match: {
+                warehouse: { $in: req.user.warehouse.map((id) => new mongoose.Types.ObjectId(id)) },
+              },
+            },
+          ]
+        : []),
+      { $match: { isDeleted: false } }, // Filter for active products
       {
         $group: {
           _id: null,
