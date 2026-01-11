@@ -433,6 +433,7 @@ const deleteWarehouse = async (req, res, next) => {
       model: "Warehouse",
       deletedBy: req.user?._id || null,
       deletedAt: now(),
+      metadata: { warehouseId: new mongoose.Types.ObjectId(id) },
     });
 
     return res
