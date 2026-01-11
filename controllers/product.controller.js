@@ -991,6 +991,82 @@ async function getProductSalesHistory(req, res, next) {
   }
 }
 
+
+async function getProductsForSale(req, res, next) {
+  try {
+    const { warehouseId } = req.params;
+    const { categoryId } = req.query;
+    const mongoose = require("mongoose");
+
+    const matchStage = {
+      warehouse: new mongoose.Types.ObjectId(warehouseId),
+      isDeleted: false,
+      quantity: { $gt: 0 }, // Only fetch products that are in stock
+    };
+
+    if (categoryId) {
+      matchStage.category = new mongoose.Types.ObjectId(categoryId);
+    }
+
+    const products = await Product.aggregate([
+      { $match: matchStage },
+      {
+        $lookup: {
+          from: "units",
+          localField: "unit",
+          foreignField: "_id",
+          as: "unit",
+        },
+      },
+      { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+          pipeline: [
+            { $match: { isDeleted: false } }, // only active category
+          ],
+        },
+      },
+      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          name: 1,
+          unitPrice: 1,
+          quantity: 1,
+          unit: {
+            _id: "$unit._id",
+            name: "$unit.name",
+          },
+          category: {
+            _id: "$category._id",
+            name: "$category.name",
+          },
+        },
+      },
+      { $sort: { name: 1 } }, // Sort alphabetically by name
+    ]);
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          products,
+          "Products for sale fetched successfully"
+        )
+      );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+  }
+}
+
 module.exports = {
   createProductInWarehouse,
   getProductsByWarehouse,
@@ -1000,4 +1076,5 @@ module.exports = {
   getProductSalesHistory,
   getAllProducts,
   getStockStatus,
+  getProductsForSale,
 };

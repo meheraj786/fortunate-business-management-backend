@@ -6,6 +6,7 @@ const {
   updateProductInWarehouse,
   deleteProductInWarehouse,
   getProductSalesHistory,
+  getProductsForSale,
 } = require("../../controllers/product.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const {
@@ -16,6 +17,15 @@ const { PERMISSIONS } = require("../../utils/permissions.constants");
 const productRoutes = express.Router({ mergeParams: true });
 
 productRoutes.use(authenticate);
+
+// @desc    Get products for sales dropdown
+// @route   GET /api/v1/warehouses/:warehouseId/products/for-sale
+// @access  Private (requires SALE_CREATE permission)
+productRoutes.get(
+  "/for-sale",
+  authorizeWarehouseAccess(PERMISSIONS.SALE_CREATE),
+  getProductsForSale
+);
 
 productRoutes.post(
   "/",

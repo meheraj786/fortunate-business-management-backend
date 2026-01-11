@@ -89,6 +89,30 @@ async function getAllCustomers(_, res, next) {
   }
 }
 
+async function getAllActiveCustomers(_, res, next) {
+  try {
+    const customers = await Customer.find({ isDeleted: false }).select(
+      "_id name customerId phone"
+    );
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          customers,
+          "Active customers fetched successfully"
+        )
+      );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    logger.error(error);
+    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+  }
+}
+
 async function getCustomerById(req, res, next) {
   try {
     const { id } = req.params;
@@ -542,4 +566,5 @@ module.exports = {
   deleteCustomer,
   getCustomerStats,
   getCustomersSummary,
+  getAllActiveCustomers,
 };

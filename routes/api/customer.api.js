@@ -8,6 +8,7 @@ const {
   deleteCustomer,
   getCustomersSummary,
   downloadCustomerDocument,
+  getAllActiveCustomers,
 } = require("../../controllers/customer.controller");
 const { authorize } = require("../../middleware/authorize.middleware");
 const { authenticate } = require("../../middleware/auth.middleware");
@@ -25,6 +26,11 @@ customerRoutes.get(
   authenticate,
   authorize(PERMISSIONS.CUSTOMER_VIEW_TABLE),
   getAllCustomers
+);
+customerRoutes.get(
+  "/get-active-customers",
+  authenticate,
+  getAllActiveCustomers
 );
 customerRoutes.get(
   "/get-customer/:id",
