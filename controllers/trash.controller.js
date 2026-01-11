@@ -272,25 +272,38 @@ const restoreFromTrash = async (req, res, next) => {
   }
 };
 
-const getAllTrash = async (req, res) => {
+const getAllTrash = async (req, res, next) => {
   try {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const { module: moduleFilter, warehouseId } = req.query;
+    const { model: moduleFilter } = req.params;
+    const { warehouseId } = req.query; // Extract warehouseId from query
 
     const filter = {};
     if (moduleFilter && moduleFilter !== "undefined" && moduleFilter !== "") {
       filter.model = moduleFilter;
     }
 
-    // Filter trash items by the user's assigned warehouses unless they are a SUPER_ADMIN.
-    if (req.user.roleName !== "SUPER_ADMIN") {
-      // Ensure req.user.warehouse contains ObjectIds for comparison.
-      // req.user.warehouse can be an array of strings (from JWT) or ObjectIds (from DB).
-      // Converting all to ObjectId for robust comparison with metadata.warehouseId.
-      const accessibleWarehouseObjectIds = req.user.warehouse.map(id => new mongoose.Types.ObjectId(id));
+    // If a specific warehouseId is provided, filter by it.
+    if (warehouseId) {
+      // Security check: ensure the user has access to this warehouse, unless they are a SUPER_ADMIN
+      if (
+        req.user.roleName !== "SUPER_ADMIN" &&
+        !req.user.warehouse.map(String).includes(String(warehouseId))
+      ) {
+        return next(
+          new ApiError(403, "You do not have access to this warehouse's trash.")
+        );
+      }
+      filter["metadata.warehouseId"] = new mongoose.Types.ObjectId(warehouseId);
+    }
+    // If no specific warehouse is requested, filter by all user's accessible warehouses (for non-admins)
+    else if (req.user.roleName !== "SUPER_ADMIN") {
+      const accessibleWarehouseObjectIds = req.user.warehouse.map(
+        (id) => new mongoose.Types.ObjectId(id)
+      );
       filter["metadata.warehouseId"] = { $in: accessibleWarehouseObjectIds };
     }
 

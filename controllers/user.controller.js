@@ -259,12 +259,6 @@ const getAllUser = async (req, res, next) => {
           as: "warehouse",
         },
       },
-      {
-        $unwind: {
-          path: "$warehouse",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
     ]);
 
     if (!fetchedUser) {
