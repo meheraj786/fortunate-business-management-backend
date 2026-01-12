@@ -108,11 +108,11 @@ const salesSchema = new mongoose.Schema(
     payments: [paymentSchema],
     notes: { type: String, trim: true },
     saleDate: { type: Date, default: Date.now },
-      isDeleted: {
-    type: Boolean,
-    default: false,
-    index: true,
-  }
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   { timestamps: true }
 );
@@ -127,10 +127,7 @@ salesSchema.plugin(mongoosePaginate);
  */
 salesSchema.pre("validate", function (next) {
   this.totalAmount = this.quantity * this.pricePerUnit;
-  const costsTotal = this.costs.reduce(
-    (acc, cost) => acc + cost.amount,
-    0
-  );
+  const costsTotal = this.costs.reduce((acc, cost) => acc + cost.amount, 0);
   const chargesTotal = this.charges.reduce(
     (acc, charge) => acc + charge.amount,
     0

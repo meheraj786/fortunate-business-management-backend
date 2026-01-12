@@ -21,11 +21,9 @@ const Product = require("../models/product.model");
 const Trash = require("../models/trash.model");
 require("../models/account.model"); // Ensure Account model is registered for population
 
-
 // --- Initialize Storage ---
 // Ensure all necessary directories exist on application startup.
 storageUtil.initializeStorage();
-
 
 // --- Multer Configuration ---
 const storage = multer.diskStorage({
@@ -75,29 +73,48 @@ async function createLC(req, res, next) {
             ["Bank", "Mobile Banking", "Cash"].includes(cost.paymentMethod) &&
             !cost.accountId
           ) {
-            throw new ApiError(400, `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`);
+            throw new ApiError(
+              400,
+              `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`,
+            );
           }
           if (cost.accountId) {
-            const existingAccount = await Account.findById(cost.accountId).session(session);
+            const existingAccount = await Account.findById(
+              cost.accountId,
+            ).session(session);
             if (!existingAccount) {
-               throw new ApiError(400, `Account with ID ${cost.accountId} not found for cost "${cost.name}".`);
+              throw new ApiError(
+                400,
+                `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
+              );
             }
             if (existingAccount.accountType !== cost.paymentMethod) {
-              throw new ApiError(400, `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`);
+              throw new ApiError(
+                400,
+                `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided for cost "${cost.name}".`,
+              );
             }
           }
         }
       }
     }
-     if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
+    if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
       for (const product of lcData.productInfo) {
         if (product.quantityUnit) {
-          if (typeof product.quantityUnit === "object" && product.quantityUnit.id) {
+          if (
+            typeof product.quantityUnit === "object" &&
+            product.quantityUnit.id
+          ) {
             product.quantityUnit = product.quantityUnit.id;
           }
-          const existingUnit = await Unit.findById(product.quantityUnit).session(session);
+          const existingUnit = await Unit.findById(
+            product.quantityUnit,
+          ).session(session);
           if (!existingUnit) {
-            throw new ApiError(400, `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`);
+            throw new ApiError(
+              400,
+              `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
+            );
           }
         }
       }
@@ -105,8 +122,8 @@ async function createLC(req, res, next) {
     // --- End Validation ---
 
     // 1. Prepare document metadata without moving files
-    const preparedDocs = uploadedFiles.map(file =>
-      storageUtil.prepareDocumentData(file)
+    const preparedDocs = uploadedFiles.map((file) =>
+      storageUtil.prepareDocumentData(file),
     );
 
     // 2. Prepare the final LC data for the database
@@ -114,7 +131,9 @@ async function createLC(req, res, next) {
     if (!lcData.documentsNotes) {
       lcData.documentsNotes = {};
     }
-    lcData.documentsNotes.uploadedDocuments = preparedDocs.map(p => p.docData);
+    lcData.documentsNotes.uploadedDocuments = preparedDocs.map(
+      (p) => p.docData,
+    );
     lcData._id = newLcId;
 
     // 3. Create and save the LC document
@@ -132,7 +151,11 @@ async function createLC(req, res, next) {
 
     // 5. If DB operations are successful, commit files to permanent storage
     for (const preparedDoc of preparedDocs) {
-        await storageUtil.commitDocument(preparedDoc.tempPath, preparedDoc.docData, lc.basicInfo.lcNumber);
+      await storageUtil.commitDocument(
+        preparedDoc.tempPath,
+        preparedDoc.docData,
+        lc.basicInfo.lcNumber,
+      );
     }
 
     // 6. Commit the database transaction
@@ -142,7 +165,6 @@ async function createLC(req, res, next) {
     return res
       .status(201)
       .json(new ApiResponse(201, lc, "LC created successfully"));
-
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -156,18 +178,24 @@ async function createLC(req, res, next) {
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `An LC with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `An LC with the same ${field} '${value}' already exists.`,
+        ),
+      );
     }
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       const userFriendlyMessage = `Validation failed: ${error.errors[firstErrorField].message}`;
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
 
-    next(new ApiError(500, error.message || "Something went wrong creating LC."));
+    next(
+      new ApiError(500, error.message || "Something went wrong creating LC."),
+    );
   }
 }
-
 
 /**
  * @param {object} cost The cost object from the LC
@@ -175,34 +203,49 @@ async function createLC(req, res, next) {
  * @param {mongoose.ClientSession} session The mongoose session for the transaction
  */
 async function _handleLCCostTransaction(cost, lc, session) {
-    // Only process costs that have an account and a valid amount
-    if (!cost.accountId || !cost.amount || cost.amount <= 0) {
-        return;
-    }
+  // Only process costs that have an account and a valid amount
+  if (!cost.accountId || !cost.amount || cost.amount <= 0) {
+    return;
+  }
 
-    // 1. DailyCash Gatekeeper Check
-    const costDate = cost.date || now();
-    const costDateNormalized = startOfDay(new Date(costDate));
+  // 1. DailyCash Gatekeeper Check
+  const costDate = cost.date || now();
+  const costDateNormalized = startOfDay(new Date(costDate));
 
-    const openSession = await DailyCash.findOne({ date: costDateNormalized, status: "Open", isDeleted: false }).session(session);
-    if (!openSession) {
-        throw new ApiError(400, `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost.`);
-    }
+  const openSession = await DailyCash.findOne({
+    date: costDateNormalized,
+    status: "Open",
+    isDeleted: false,
+  }).session(session);
+  if (!openSession) {
+    throw new ApiError(
+      400,
+      `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost.`,
+    );
+  }
 
-    // 2. Find account and update balance
-    const account = await Account.findById(cost.accountId).session(session);
-    if (!account) {
-        throw new ApiError(404, `Account with ID ${cost.accountId} not found for cost '${cost.name}'.`);
-    }
-    if (account.balance < cost.amount) {
-        throw new ApiError(400, `Insufficient balance in account '${account.accountName}' for cost '${cost.name}'.`);
-    }
+  // 2. Find account and update balance
+  const account = await Account.findById(cost.accountId).session(session);
+  if (!account) {
+    throw new ApiError(
+      404,
+      `Account with ID ${cost.accountId} not found for cost '${cost.name}'.`,
+    );
+  }
+  if (account.balance < cost.amount) {
+    throw new ApiError(
+      400,
+      `Insufficient balance in account '${account.accountName}' for cost '${cost.name}'.`,
+    );
+  }
 
-    account.balance -= cost.amount;
-    await account.save({ session });
+  account.balance -= cost.amount;
+  await account.save({ session });
 
-    // 3. Create Transaction for the LC cost
-    await Transaction.create([{
+  // 3. Create Transaction for the LC cost
+  await Transaction.create(
+    [
+      {
         accountId: cost.accountId,
         date: costDate,
         description: `LC Cost: ${cost.name} for LC Number: ${lc.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
@@ -215,19 +258,21 @@ async function _handleLCCostTransaction(cost, lc, session) {
         reference: lc._id,
         referenceModel: "LC",
         miscReference: {
-            lcNumber: lc.basicInfo.lcNumber,
-            costName: cost.name,
-            costAmount: cost.amount,
-            paymentMethod: cost.paymentMethod,
-            accountId: cost.accountId,
+          lcNumber: lc.basicInfo.lcNumber,
+          costName: cost.name,
+          costAmount: cost.amount,
+          paymentMethod: cost.paymentMethod,
+          accountId: cost.accountId,
         },
-    }], { session });
+      },
+    ],
+    { session },
+  );
 }
-
 
 async function getAllLCs(_, res, next) {
   try {
-    const lcs = await LC.find( { isDeleted: false } )
+    const lcs = await LC.find({ isDeleted: false })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .populate("basicInfo.accountId")
       .populate("financialInfo.costs.accountId")
@@ -245,10 +290,15 @@ async function getAllLCs(_, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -283,10 +333,15 @@ async function getLCById(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -317,21 +372,42 @@ async function updateLC(req, res, next) {
     }
 
     // --- Validation ---
-    const sectionsWithCosts = ["financialInfo", "shippingCustomsInfo", "agentTransportInfo", "otherExpenses"];
+    const sectionsWithCosts = [
+      "financialInfo",
+      "shippingCustomsInfo",
+      "agentTransportInfo",
+      "otherExpenses",
+    ];
     for (const section of sectionsWithCosts) {
       if (updateData[section] && updateData[section].costs) {
         for (const cost of updateData[section].costs) {
-          if (cost.accountId === '') { cost.accountId = null; }
-          if (["Bank", "Mobile Banking", "Cash"].includes(cost.paymentMethod) && !cost.accountId) {
-            throw new ApiError(400, `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`);
+          if (cost.accountId === "") {
+            cost.accountId = null;
+          }
+          if (
+            ["Bank", "Mobile Banking", "Cash"].includes(cost.paymentMethod) &&
+            !cost.accountId
+          ) {
+            throw new ApiError(
+              400,
+              `Account ID is required for ${cost.paymentMethod} payment method in cost "${cost.name}".`,
+            );
           }
           if (cost.accountId) {
-            const existingAccount = await Account.findById(cost.accountId).session(session);
+            const existingAccount = await Account.findById(
+              cost.accountId,
+            ).session(session);
             if (!existingAccount) {
-               throw new ApiError(400, `Account with ID ${cost.accountId} not found for cost "${cost.name}".`);
+              throw new ApiError(
+                400,
+                `Account with ID ${cost.accountId} not found for cost "${cost.name}".`,
+              );
             }
             if (existingAccount.accountType !== cost.paymentMethod) {
-              throw new ApiError(400, `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided.`);
+              throw new ApiError(
+                400,
+                `Payment method '${cost.paymentMethod}' requires a '${cost.paymentMethod}' account, but a '${existingAccount.accountType}' account was provided.`,
+              );
             }
           }
         }
@@ -340,12 +416,20 @@ async function updateLC(req, res, next) {
     if (updateData.productInfo && Array.isArray(updateData.productInfo)) {
       for (const product of updateData.productInfo) {
         if (product.quantityUnit) {
-          if (typeof product.quantityUnit === "object" && product.quantityUnit.id) {
+          if (
+            typeof product.quantityUnit === "object" &&
+            product.quantityUnit.id
+          ) {
             product.quantityUnit = product.quantityUnit.id;
           }
-          const existingUnit = await Unit.findById(product.quantityUnit).session(session);
+          const existingUnit = await Unit.findById(
+            product.quantityUnit,
+          ).session(session);
           if (!existingUnit) {
-            throw new ApiError(400, `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`);
+            throw new ApiError(
+              400,
+              `Unit with ID ${product.quantityUnit} not found for product ${product.itemName}`,
+            );
           }
         }
       }
@@ -364,52 +448,70 @@ async function updateLC(req, res, next) {
     // Preserve the original lcNumber to prevent it from being updated
     const originalLcNumber = lc.basicInfo.lcNumber;
     if (updateData.basicInfo) {
-        updateData.basicInfo.lcNumber = originalLcNumber;
+      updateData.basicInfo.lcNumber = originalLcNumber;
     }
-    
+
     // --- Document Management ---
     const existingDocs = lc.documentsNotes.uploadedDocuments || [];
     const incomingDocs = updateData.documentsNotes?.uploadedDocuments || [];
     let finalDocs = [];
 
     const docsToDelete = existingDocs.filter(
-      (doc) => !incomingDocs.some((inDoc) => inDoc._id.toString() === doc._id.toString())
+      (doc) =>
+        !incomingDocs.some(
+          (inDoc) => inDoc._id.toString() === doc._id.toString(),
+        ),
     );
 
     for (const doc of docsToDelete) {
-      await storageUtil.deleteLcDocument(lc.basicInfo.lcNumber, doc.path, doc.storedName);
+      await storageUtil.deleteLcDocument(
+        lc.basicInfo.lcNumber,
+        doc.path,
+        doc.storedName,
+      );
       storageUtil.cleanupEmptyLcDirectory(lc.basicInfo.lcNumber, doc.path);
     }
 
-    finalDocs = existingDocs.filter(
-      (doc) => incomingDocs.some((inDoc) => inDoc._id.toString() === doc._id.toString())
+    finalDocs = existingDocs.filter((doc) =>
+      incomingDocs.some((inDoc) => inDoc._id.toString() === doc._id.toString()),
     );
-    
+
     if (uploadedFiles.length > 0) {
-      preparedNewDocs = uploadedFiles.map(file => storageUtil.prepareDocumentData(file));
-      finalDocs.push(...preparedNewDocs.map(p => p.docData));
+      preparedNewDocs = uploadedFiles.map((file) =>
+        storageUtil.prepareDocumentData(file),
+      );
+      finalDocs.push(...preparedNewDocs.map((p) => p.docData));
     }
 
     if (!updateData.documentsNotes) {
-        updateData.documentsNotes = {};
+      updateData.documentsNotes = {};
     }
     updateData.documentsNotes.uploadedDocuments = finalDocs;
-    
+
     // Apply all updates
+    // Critical: Reconcile financial costs BEFORE saving
+    await _reconcileLCCosts(lc, updateData, session);
+
     lc.set(updateData);
-    
+
     const updatedLC = await lc.save({ session });
-    
+
     if (preparedNewDocs.length > 0) {
-        for (const preparedDoc of preparedNewDocs) {
-            await storageUtil.commitDocument(preparedDoc.tempPath, preparedDoc.docData, lc.basicInfo.lcNumber);
-        }
+      for (const preparedDoc of preparedNewDocs) {
+        await storageUtil.commitDocument(
+          preparedDoc.tempPath,
+          preparedDoc.docData,
+          lc.basicInfo.lcNumber,
+        );
+      }
     }
 
     await session.commitTransaction();
     session.endSession();
 
-    return res.status(200).json(new ApiResponse(200, updatedLC, "LC updated successfully"));
+    return res
+      .status(200)
+      .json(new ApiResponse(200, updatedLC, "LC updated successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -420,16 +522,27 @@ async function updateLC(req, res, next) {
       return next(error);
     }
     if (error.code === 11000) {
-        const field = Object.keys(error.keyPattern)[0];
-        const value = error.keyValue[field];
-        return next(new ApiError(409, `An LC with the same ${field} '${value}' already exists.`));
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(
+        new ApiError(
+          409,
+          `An LC with the same ${field} '${value}' already exists.`,
+        ),
+      );
     }
-    if (error.name === 'ValidationError') {
-        const firstErrorField = Object.keys(error.errors)[0];
-        const userFriendlyMessage = error.errors[firstErrorField]?.message || "Validation failed.";
-        return next(new ApiError(400, userFriendlyMessage, error.errors));
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      const userFriendlyMessage =
+        error.errors[firstErrorField]?.message || "Validation failed.";
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong while updating the LC."));
+    next(
+      new ApiError(
+        500,
+        error.message || "Something went wrong while updating the LC.",
+      ),
+    );
   }
 }
 
@@ -450,7 +563,11 @@ async function deleteDocument(req, res, next) {
     }
 
     // 1. Delegate physical file deletion to the storage utility
-    await storageUtil.deleteLcDocument(lc.basicInfo.lcNumber, doc.path, doc.storedName);
+    await storageUtil.deleteLcDocument(
+      lc.basicInfo.lcNumber,
+      doc.path,
+      doc.storedName,
+    );
 
     // 2. Remove the sub-document from the array using Mongoose's .pull() method.
     lc.documentsNotes.uploadedDocuments.pull(docId);
@@ -462,8 +579,9 @@ async function deleteDocument(req, res, next) {
     // Fire-and-forget the cleanup, no need to wait for it
     storageUtil.cleanupEmptyLcDirectory(lc.basicInfo.lcNumber, doc.path);
 
-    return res.status(200).json(new ApiResponse(200, lc, "Document deleted successfully."));
-
+    return res
+      .status(200)
+      .json(new ApiResponse(200, lc, "Document deleted successfully."));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -471,10 +589,14 @@ async function deleteDocument(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    next(new ApiError(500, error.message || "Something went wrong while deleting the document."));
+    next(
+      new ApiError(
+        500,
+        error.message || "Something went wrong while deleting the document.",
+      ),
+    );
   }
 }
-
 
 async function deleteLC(req, res, next) {
   const session = await mongoose.startSession();
@@ -483,15 +605,22 @@ async function deleteLC(req, res, next) {
     const { id } = req.params;
 
     // Check if any products are linked to this LC before deleting
-    const linkedProduct = await Product.findOne({ LC: id, isDeleted: { $ne: true } }).session(session);
+    const linkedProduct = await Product.findOne({
+      LC: id,
+      isDeleted: { $ne: true },
+    }).session(session);
     if (linkedProduct) {
       throw new ApiError(
         409, // Conflict
-        `Cannot delete this LC because it is linked to product "${linkedProduct.name}" (and possibly others). You must delete or unlink the associated products first.`
+        `Cannot delete this LC because it is linked to product "${linkedProduct.name}" (and possibly others). You must delete or unlink the associated products first.`,
       );
     }
 
-    const deletedLC = await LC.findByIdAndUpdate(id, { isDeleted: true }, { session, new: true });
+    const deletedLC = await LC.findByIdAndUpdate(
+      id,
+      { isDeleted: true },
+      { session, new: true },
+    );
 
     if (!deletedLC) {
       throw new ApiError(404, "LC not found");
@@ -506,10 +635,16 @@ async function deleteLC(req, res, next) {
 
     // DailyCash Gatekeeper Check for reversal transactions
     const today = startOfDay(now());
-    const dailyCash = await DailyCash.findOne({ date: today, status: "Open" }).session(session);
+    const dailyCash = await DailyCash.findOne({
+      date: today,
+      status: "Open",
+    }).session(session);
 
     if (!dailyCash) {
-        throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot reverse LC costs.`);
+      throw new ApiError(
+        400,
+        `Daily cash is closed for ${today.toDateString()}. Cannot reverse LC costs.`,
+      );
     }
 
     // Iterate through all cost sections of the deleted LC to create reversal transactions
@@ -523,33 +658,41 @@ async function deleteLC(req, res, next) {
     for (const section of sectionsWithCosts) {
       if (section && section.costs) {
         for (const cost of section.costs) {
-          if (cost.accountId && cost.amount > 0) { // Only reverse costs that had an account and amount
-            const account = await Account.findById(cost.accountId).session(session);
+          if (cost.accountId && cost.amount > 0) {
+            // Only reverse costs that had an account and amount
+            const account = await Account.findById(cost.accountId).session(
+              session,
+            );
             if (account) {
               account.balance += cost.amount; // Increase account balance (reversing the expense)
               await account.save({ session });
 
               // Create Reversal Transaction (Income type to offset original Expense)
-              await Transaction.create([{
-                accountId: cost.accountId,
-                date: now(), // Reversal transaction date is today
-                description: `Reversal of LC Cost: ${cost.name} for LC Number: ${deletedLC.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
-                transactionType: "Income", // Reverses the Expense
-                amount: cost.amount,
-                name: `LC Cost Reversal: ${cost.name}`,
-                source: "Auto",
-                category: "LC Reversal",
-                paymentMethod: cost.paymentMethod,
-                reference: deletedLC._id,
-                referenceModel: "LC",
-                miscReference: {
-                    lcNumber: deletedLC.basicInfo.lcNumber,
-                    costName: cost.name,
-                    costAmount: cost.amount,
-                    paymentMethod: cost.paymentMethod,
+              await Transaction.create(
+                [
+                  {
                     accountId: cost.accountId,
-                },
-              }], { session });
+                    date: now(), // Reversal transaction date is today
+                    description: `Reversal of LC Cost: ${cost.name} for LC Number: ${deletedLC.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
+                    transactionType: "Income", // Reverses the Expense
+                    amount: cost.amount,
+                    name: `LC Cost Reversal: ${cost.name}`,
+                    source: "Auto",
+                    category: "LC Reversal",
+                    paymentMethod: cost.paymentMethod,
+                    reference: deletedLC._id,
+                    referenceModel: "LC",
+                    miscReference: {
+                      lcNumber: deletedLC.basicInfo.lcNumber,
+                      costName: cost.name,
+                      costAmount: cost.amount,
+                      paymentMethod: cost.paymentMethod,
+                      accountId: cost.accountId,
+                    },
+                  },
+                ],
+                { session },
+              );
             }
           }
         }
@@ -572,10 +715,15 @@ async function deleteLC(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -590,7 +738,10 @@ async function deleteLC(req, res, next) {
 
 async function getAllCompletedLCs(_, res, next) {
   try {
-    const lcs = await LC.find({ "basicInfo.status": /^Completed$/i, isDeleted: false })
+    const lcs = await LC.find({
+      "basicInfo.status": /^Completed$/i,
+      isDeleted: false,
+    })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .select("_id basicInfo.lcNumber basicInfo.status productInfo");
     return res
@@ -604,10 +755,15 @@ async function getAllCompletedLCs(_, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -650,8 +806,8 @@ async function getLCCountsByStatus(req, res, next) {
         new ApiResponse(
           200,
           statusCounts,
-          "LC counts by status fetched successfully"
-        )
+          "LC counts by status fetched successfully",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -661,10 +817,15 @@ async function getLCCountsByStatus(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -677,10 +838,9 @@ async function getLCCountsByStatus(req, res, next) {
   }
 }
 
-
 async function getTotalLCCount(req, res, next) {
   try {
-    const totalCount = await LC.countDocuments( { isDeleted: false } );
+    const totalCount = await LC.countDocuments({ isDeleted: false });
 
     return res
       .status(200)
@@ -688,8 +848,8 @@ async function getTotalLCCount(req, res, next) {
         new ApiResponse(
           200,
           { total: totalCount },
-          "Total LC count fetched successfully"
-        )
+          "Total LC count fetched successfully",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -699,10 +859,15 @@ async function getTotalLCCount(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -724,20 +889,30 @@ async function downloadDocument(req, res, next) {
       throw new ApiError(404, "LC not found");
     }
 
-    const doc = lc.documentsNotes.uploadedDocuments.find(d => d.storedName === storedName);
+    const doc = lc.documentsNotes.uploadedDocuments.find(
+      (d) => d.storedName === storedName,
+    );
     if (!doc) {
       throw new ApiError(404, "Document not found in this LC");
     }
 
-    const filePath = path.join(storageUtil.LC_DOCUMENTS_DIR, doc.path, lc.basicInfo.lcNumber, storedName);
+    const filePath = path.join(
+      storageUtil.LC_DOCUMENTS_DIR,
+      doc.path,
+      lc.basicInfo.lcNumber,
+      storedName,
+    );
 
     // Set headers for inline display (viewing in browser) and correct filename for download
-    res.setHeader('Content-Type', doc.mimeType);
-    res.setHeader('Content-Disposition', `inline; filename="${doc.originalName}"`);
+    res.setHeader("Content-Type", doc.mimeType);
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${doc.originalName}"`,
+    );
 
     res.sendFile(filePath, (err) => {
       if (err) {
-        if (err.code === 'ENOENT') {
+        if (err.code === "ENOENT") {
           return next(new ApiError(404, "File not found on server."));
         } else {
           logger.error(`Failed to send file: ${filePath}`, err);
@@ -745,25 +920,26 @@ async function downloadDocument(req, res, next) {
         }
       }
     });
-
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
     }
     // The res.sendFile callback handles ENOENT, but a check before might also throw it
-    if (error.code === 'ENOENT') {
+    if (error.code === "ENOENT") {
       return next(new ApiError(404, "File not found."));
     }
-    next(new ApiError(500, error.message || "Something went wrong while downloading the document."));
+    next(
+      new ApiError(
+        500,
+        error.message || "Something went wrong while downloading the document.",
+      ),
+    );
   }
 }
-
 
 async function exportLCAsPDF(req, res, next) {
   try {
     const { id } = req.params;
-
-
 
     const lc = await LC.findById(id)
       .populate("productInfo.quantityUnit", "name type conversionFactor")
@@ -774,57 +950,59 @@ async function exportLCAsPDF(req, res, next) {
       .populate("otherExpenses.costs.accountId");
 
     if (!lc) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: "LC not found",
-        message: "No LC found with the provided ID" 
+        message: "No LC found with the provided ID",
       });
     }
 
     // Validate LC has minimum required data BEFORE calling generateLCPDF
     if (!lc.basicInfo) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Invalid LC data",
-        message: "LC is missing basic information" 
+        message: "LC is missing basic information",
       });
     }
 
     if (!lc.basicInfo.lcNumber) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Invalid LC data",
-        message: "LC is missing LC Number" 
+        message: "LC is missing LC Number",
       });
     }
 
     if (!lc.productInfo || lc.productInfo.length === 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Invalid LC data",
-        message: "LC must have at least one product" 
+        message: "LC must have at least one product",
       });
     }
 
     // Additional validation - check if financial info exists
     if (!lc.financialInfo || !lc.financialInfo.lcAmountUsd) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Invalid LC data",
-        message: "LC is missing financial information" 
+        message: "LC is missing financial information",
       });
     }
 
     // Call the PDF generator - it should handle the response directly
     // DO NOT await if generateLCPDF uses streaming
     const result = generateLCPDF(lc, res);
-    
+
     // If generateLCPDF returns a promise, await it
-    if (result && typeof result.then === 'function') {
+    if (result && typeof result.then === "function") {
       await result;
     }
-    
-    // DO NOT send any response here - generateLCPDF handles it
 
+    // DO NOT send any response here - generateLCPDF handles it
   } catch (error) {
     // Check if response was already sent, which can happen during streaming
     if (res.headersSent) {
-      logger.error('An error occurred during PDF streaming after headers were sent:', error);
+      logger.error(
+        "An error occurred during PDF streaming after headers were sent:",
+        error,
+      );
       // Can't send a new response, but we should log it. The connection will likely be terminated.
       return;
     }
@@ -833,15 +1011,18 @@ async function exportLCAsPDF(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    
+
     // For all other errors, log them and send a generic response.
-    logger.error('Error during PDF export:', error);
+    logger.error("Error during PDF export:", error);
     next(new ApiError(500, "Failed to generate PDF. Please try again."));
   }
 }
-async function getActiveLcs(req,res,next){
+async function getActiveLcs(req, res, next) {
   try {
-    const lcs = await LC.find({ "basicInfo.status": /^Active$/i, isDeleted: false })
+    const lcs = await LC.find({
+      "basicInfo.status": /^Active$/i,
+      isDeleted: false,
+    })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .select("_id basicInfo.lcNumber basicInfo.status productInfo");
     return res
@@ -855,10 +1036,15 @@ async function getActiveLcs(req,res,next){
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -937,11 +1123,7 @@ async function getLCSummary(req, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(
-          200,
-          responseData,
-          "LCs summary fetched successfully"
-        )
+        new ApiResponse(200, responseData, "LCs summary fetched successfully"),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -951,10 +1133,15 @@ async function getLCSummary(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -990,7 +1177,7 @@ async function addExpenseToLC(req, res, next) {
     if (!validCategories.includes(category)) {
       throw new ApiError(
         400,
-        `Invalid category. Must be one of: ${validCategories.join(", ")}`
+        `Invalid category. Must be one of: ${validCategories.join(", ")}`,
       );
     }
 
@@ -1009,9 +1196,9 @@ async function addExpenseToLC(req, res, next) {
     } else if (!lc[category].costs) {
       lc[category].costs = [];
     }
-    
+
     // Clean up empty accountId in the new expense to prevent CastError
-    if (expense && (!expense.accountId || expense.accountId === '')) {
+    if (expense && (!expense.accountId || expense.accountId === "")) {
       expense.accountId = null; // Set to null if empty string
     }
 
@@ -1045,7 +1232,7 @@ async function addExpenseToLC(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    
+
     if (error instanceof ApiError) {
       return next(error);
     }
@@ -1054,11 +1241,16 @@ async function addExpenseToLC(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `An LC expense with the same ${field} '${value}' already exists.`)); // Specific message for LC expense
+      return next(
+        new ApiError(
+          409,
+          `An LC expense with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Specific message for LC expense
     }
 
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -1070,7 +1262,6 @@ async function addExpenseToLC(req, res, next) {
     next(new ApiError(500, error.message || "Something went wrong"));
   }
 }
-
 
 async function searchLCSummary(req, res, next) {
   try {
@@ -1149,8 +1340,8 @@ async function searchLCSummary(req, res, next) {
         new ApiResponse(
           200,
           responseData,
-          "LCs summary search completed successfully"
-        )
+          "LCs summary search completed successfully",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -1160,10 +1351,15 @@ async function searchLCSummary(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -1173,6 +1369,163 @@ async function searchLCSummary(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     next(new ApiError(500, error.message || "Something went wrong"));
+  }
+}
+
+/**
+ * @param {object} originalLC The original LC document from DB
+ * @param {object} updateData The data being updated
+ * @param {mongoose.ClientSession} session
+ */
+async function _reconcileLCCosts(originalLC, updateData, session) {
+  const sectionsWithCosts = [
+    "financialInfo",
+    "shippingCustomsInfo",
+    "agentTransportInfo",
+    "otherExpenses",
+  ];
+
+  // 1. Check Daily Cash Status (Gatekeeper)
+  const today = startOfDay(now());
+  const dailyCash = await DailyCash.findOne({
+    date: today,
+    status: "Open",
+    isDeleted: false,
+  }).session(session);
+
+  let cashCheckPerformed = false;
+  const ensureCashOpen = () => {
+    if (!cashCheckPerformed) {
+      // Slight optimization: only throw if we actually need to write
+      if (!dailyCash) {
+        throw new ApiError(
+          400,
+          `Daily cash is closed for ${today.toDateString()}. Cannot update LC costs.`,
+        );
+      }
+      cashCheckPerformed = true;
+    }
+  };
+
+  for (const section of sectionsWithCosts) {
+    // If the section is not in updateData, it means no changes for this section
+    if (!updateData[section] || !updateData[section].costs) continue;
+
+    const originalCosts = originalLC[section]?.costs || [];
+    const newCosts = updateData[section].costs;
+
+    // A. Detect Deleted or Modify-requiring Costs (Present in Original but missing or changed in New)
+    for (const oldCost of originalCosts) {
+      // Only care about costs that had financial impact
+      if (!oldCost.accountId || !oldCost.amount) continue;
+
+      const matchingNewCost = newCosts.find(
+        (nc) => nc._id && nc._id.toString() === oldCost._id.toString(),
+      );
+
+      // If deleted OR significantly changed (amount/account), we REVERSE the old cost
+      // Note: For simplicity and audit safety, if amount/account changes, we Reverse Old + Apply New
+      if (
+        !matchingNewCost ||
+        matchingNewCost.amount !== oldCost.amount ||
+        matchingNewCost.accountId !== oldCost.accountId.toString()
+      ) {
+        ensureCashOpen();
+
+        const account = await Account.findById(oldCost.accountId).session(
+          session,
+        );
+        if (account) {
+          account.balance += oldCost.amount; // Refund
+          await account.save({ session });
+
+          await Transaction.create(
+            [
+              {
+                accountId: oldCost.accountId,
+                date: now(),
+                description: `Update Reversal: ${oldCost.name} for LC ${originalLC.basicInfo.lcNumber}`,
+                transactionType: "Income",
+                amount: oldCost.amount,
+                name: `LC Cost Adjustment: ${oldCost.name}`,
+                source: "Auto",
+                category: "LC Reversal",
+                paymentMethod: oldCost.paymentMethod,
+                reference: originalLC._id,
+                referenceModel: "LC",
+                miscReference: {
+                  lcNumber: originalLC.basicInfo.lcNumber,
+                  costName: oldCost.name,
+                  modificationType: "Update/Delete",
+                },
+              },
+            ],
+            { session },
+          );
+        }
+      }
+    }
+
+    // B. Detect New or Updated Costs
+    for (const newCost of newCosts) {
+      // Skip invalid costs
+      if (!newCost.accountId || !newCost.amount) continue;
+
+      const isNew = !newCost._id;
+      const matchingOldCost = originalCosts.find(
+        (oc) => newCost._id && oc._id.toString() === newCost._id.toString(),
+      );
+
+      // If it's New OR (Old exists BUT changed), we apply the NEW cost
+      if (
+        isNew ||
+        (matchingOldCost &&
+          (matchingOldCost.amount !== newCost.amount ||
+            matchingOldCost.accountId.toString() !== newCost.accountId))
+      ) {
+        ensureCashOpen();
+
+        const account = await Account.findById(newCost.accountId).session(
+          session,
+        );
+        if (!account)
+          throw new ApiError(400, `Account not found for cost ${newCost.name}`);
+
+        if (account.balance < newCost.amount) {
+          throw new ApiError(
+            400,
+            `Insufficient balance in ${account.accountName} for updated cost ${newCost.name}`,
+          );
+        }
+
+        account.balance -= newCost.amount; // Deduct
+        await account.save({ session });
+
+        await Transaction.create(
+          [
+            {
+              accountId: newCost.accountId,
+              date: now(), // Use current time for the adjustment
+              description: `LC Cost ${isNew ? "Added" : "Updated"}: ${newCost.name} for LC ${originalLC.basicInfo.lcNumber}`,
+              transactionType: "Expense",
+              amount: newCost.amount,
+              name: `LC Cost: ${newCost.name}`,
+              source: "Auto",
+              category: "LC",
+              paymentMethod: newCost.paymentMethod,
+              reference: originalLC._id,
+              referenceModel: "LC",
+              miscReference: {
+                lcNumber: originalLC.basicInfo.lcNumber,
+                costName: newCost.name,
+                modificationType: isNew ? "Create" : "Update",
+              },
+            },
+          ],
+          { session },
+        );
+      }
+    }
   }
 }
 

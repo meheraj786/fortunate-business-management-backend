@@ -15,7 +15,7 @@ async function createProductInWarehouse(req, res, next) {
       name,
       productDescription,
       category,
-      LC,
+      LC: lcId,
       supplierName,
       thickness,
       width,
@@ -35,7 +35,8 @@ async function createProductInWarehouse(req, res, next) {
         field: "category",
         message: "Category is required",
       });
-    if (!LC) validationErrors.push({ field: "LC", message: "LC is required" });
+    if (!lcId)
+      validationErrors.push({ field: "LC", message: "LC is required" });
     if (!quantity)
       validationErrors.push({
         field: "quantity",
@@ -60,6 +61,20 @@ async function createProductInWarehouse(req, res, next) {
       return next(new ApiError(404, "Unit not found"));
     }
 
+    const mongoose = require("mongoose");
+    const LcModel = require("../models/lc.model");
+    const Category = require("../models/category.model");
+
+    const existingCategory = await Category.findById(category);
+    if (!existingCategory) {
+      return next(new ApiError(404, "Category not found"));
+    }
+
+    const existingLC = await LcModel.findById(lcId);
+    if (!existingLC) {
+      return next(new ApiError(404, "LC not found"));
+    }
+
     const productWarehouse = await Warehouse.findById(warehouseId);
     if (!productWarehouse) {
       return next(new ApiError(404, "Warehouse not found"));
@@ -68,7 +83,7 @@ async function createProductInWarehouse(req, res, next) {
     const product = await Product.create({
       name,
       category,
-      LC,
+      LC: lcId,
       thickness,
       width,
       length,
@@ -112,7 +127,7 @@ async function createProductInWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -357,7 +372,7 @@ async function getProductsByWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -576,7 +591,7 @@ async function getProductInWarehouse(req, res, next) {
         },
       },
     ];
-    
+
     const results = await Product.aggregate(pipeline);
 
     if (results.length === 0) {
@@ -615,7 +630,7 @@ async function getProductInWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -689,7 +704,7 @@ async function updateProductInWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -700,9 +715,17 @@ async function deleteProductInWarehouse(req, res, next) {
     const { warehouseId, productId } = req.params;
 
     // First, check if the product has any associated sales
-    const existingSale = await Sales.findOne({ product: productId, isDeleted: { $ne: true } });
+    const existingSale = await Sales.findOne({
+      product: productId,
+      isDeleted: { $ne: true },
+    });
     if (existingSale) {
-      return next(new ApiError(409, "Cannot delete product: It is linked to existing sales records."));
+      return next(
+        new ApiError(
+          409,
+          "Cannot delete product: It is linked to existing sales records."
+        )
+      );
     }
 
     // Ensure the product exists and is in the specified warehouse
@@ -714,7 +737,7 @@ async function deleteProductInWarehouse(req, res, next) {
       return next(new ApiError(404, "Product not found in this warehouse"));
     }
     if (product.isDeleted) {
-        return next(new ApiError(400, "Product is already in the trash."));
+      return next(new ApiError(400, "Product is already in the trash."));
     }
 
     // Then, soft-delete the product
@@ -732,7 +755,7 @@ async function deleteProductInWarehouse(req, res, next) {
       docId: productId,
       model: "Product",
       deletedBy: req.cookies?.userId || req.user?._id || null,
-      metadata: { warehouseId: product.warehouse } // Store warehouseId in metadata
+      metadata: { warehouseId: product.warehouse }, // Store warehouseId in metadata
     });
 
     return res
@@ -765,7 +788,7 @@ async function deleteProductInWarehouse(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -833,7 +856,7 @@ async function getAllProducts(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -867,7 +890,7 @@ async function getStockStatus(_, res, next) {
             { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
           ],
           outOfStock: [
-            { $match: { quantity: 0 , isDeleted: false } },
+            { $match: { quantity: 0, isDeleted: false } },
             {
               $lookup: {
                 from: "warehouses",
@@ -929,7 +952,7 @@ async function getStockStatus(_, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -986,11 +1009,10 @@ async function getProductSalesHistory(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
-
 
 async function getProductsForSale(req, res, next) {
   try {
@@ -1052,11 +1074,7 @@ async function getProductsForSale(req, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(
-          200,
-          products,
-          "Products for sale fetched successfully"
-        )
+        new ApiResponse(200, products, "Products for sale fetched successfully")
       );
   } catch (error) {
     if (error instanceof ApiError) {

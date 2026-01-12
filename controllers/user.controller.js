@@ -4,9 +4,7 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const jwt = require("jsonwebtoken");
 const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
-const {
-  BUNDLED_PERMISSIONS,
-} = require("../utils/permissions.constants");
+const { BUNDLED_PERMISSIONS } = require("../utils/permissions.constants");
 const Trash = require("../models/trash.model");
 
 const registerUser = async (req, res, next) => {
@@ -28,8 +26,8 @@ const registerUser = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A user with the same ${field} '${value}' already exists.`
-        )
+          `A user with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for user
     }
     // Handle Mongoose validation errors
@@ -42,15 +40,13 @@ const registerUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
 
 const loginUser = async (req, res, next) => {
   try {
-
-
     const { email, password } = req.body;
     const validationErrors = [];
     if (!email)
@@ -61,10 +57,9 @@ const loginUser = async (req, res, next) => {
         message: "Password is required",
       });
 
-
     if (validationErrors.length > 0) {
       return next(
-        new ApiError(400, validationErrors[0].message, validationErrors)
+        new ApiError(400, validationErrors[0].message, validationErrors),
       );
     }
 
@@ -85,7 +80,7 @@ const loginUser = async (req, res, next) => {
 
     res.cookie("accessToken", token, {
       httpOnly: true,
-      secure: true, // Always true for sameSite: "none"
+      secure: process.env.NODE_ENV === "production",
       sameSite: "none",
     });
 
@@ -104,8 +99,8 @@ const loginUser = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A user with the same ${field} '${value}' already exists.`
-        )
+          `A user with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for user
     }
     // Handle Mongoose validation errors
@@ -118,7 +113,7 @@ const loginUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -144,8 +139,8 @@ const logoutUser = async (_, res, next) => {
       return next(
         new ApiError(
           409,
-          `A user with the same ${field} '${value}' already exists.`
-        )
+          `A user with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for user
     }
     // Handle Mongoose validation errors
@@ -158,7 +153,7 @@ const logoutUser = async (_, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -166,7 +161,7 @@ const logoutUser = async (_, res, next) => {
 const getUser = async (req, res, next) => {
   try {
     const fetchedUser = await User.findById(req.params.id).populate(
-      "warehouse"
+      "warehouse",
     );
     if (!fetchedUser || fetchedUser.isDeleted) {
       return next(new ApiError(404, "User not found"));
@@ -186,8 +181,8 @@ const getUser = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A user with the same ${field} '${value}' already exists.`
-        )
+          `A user with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for user
     }
     // Handle Mongoose validation errors
@@ -200,7 +195,7 @@ const getUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -225,8 +220,8 @@ const getProfile = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A user with the same ${field} '${value}' already exists.`
-        )
+          `A user with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for user
     }
     // Handle Mongoose validation errors
@@ -239,7 +234,7 @@ const getProfile = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -278,8 +273,8 @@ const getAllUser = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A user with the same ${field} '${value}' already exists.`
-        )
+          `A user with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for user
     }
     // Handle Mongoose validation errors
@@ -292,7 +287,7 @@ const getAllUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -326,7 +321,7 @@ const updateUser = async (req, res, next) => {
           const bundled = BUNDLED_PERMISSIONS[p];
           if (bundled) {
             bundled.forEach((bundledPermission) =>
-              permissions.add(bundledPermission)
+              permissions.add(bundledPermission),
             );
           }
         });
@@ -360,8 +355,8 @@ const updateUser = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A user with the same ${field} '${value}' already exists.`
-        )
+          `A user with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for user
     }
     // Handle Mongoose validation errors
@@ -374,7 +369,7 @@ const updateUser = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -386,7 +381,7 @@ const deleteUser = async (req, res, next) => {
     const deletedUser = await User.findByIdAndUpdate(
       id,
       { isDeleted: true },
-      { new: true }
+      { new: true },
     );
     if (!deletedUser) {
       return next(new ApiError(404, "User not found"));
@@ -401,10 +396,10 @@ const deleteUser = async (req, res, next) => {
     return res
       .status(200)
       .json(
-        new ApiResponse(200, deletedUser, "User moved to trash successfully")
+        new ApiResponse(200, deletedUser, "User moved to trash successfully"),
       );
   } catch (error) {
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };

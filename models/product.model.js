@@ -25,11 +25,11 @@ const productSchema = new mongoose.Schema(
       ref: "Warehouse",
       required: true,
     },
-      isDeleted: {
-    type: Boolean,
-    default: false,
-    index: true,
-  },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   { timestamps: true }
 );
@@ -43,7 +43,8 @@ productSchema.statics.getInventoryStats = async function (warehouseId) {
 
   const totalProductsCount = await this.countDocuments(matchQuery); // Total number of product documents (regardless of stock)
 
-  const inStockProductsCount = await this.countDocuments({ // Count of products with quantity > 0
+  const inStockProductsCount = await this.countDocuments({
+    // Count of products with quantity > 0
     ...matchQuery,
     quantity: { $gt: 0 },
   });
@@ -72,6 +73,8 @@ productSchema.statics.getInventoryStats = async function (warehouseId) {
 };
 
 productSchema.index({ quantity: 1 });
+productSchema.index({ warehouse: 1 });
+productSchema.index({ category: 1 });
 productSchema.plugin(mongoosePaginate);
 
 const Product = mongoose.model("Product", productSchema);
