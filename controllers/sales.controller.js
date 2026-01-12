@@ -167,54 +167,55 @@ async function createSale(req, res, next) {
       finalCustomerInfo.address = existingCustomer.location;
 
       // Credit Limit Check
-      if (existingCustomer.creditLimit > 0) {
-        // Manually calculate what the new sale's due amount will be
-        const totalAmount = quantity * pricePerUnit;
-        const costsTotal = costs.reduce((acc, cost) => acc + cost.amount, 0);
-        const chargesTotal = charges.reduce(
-          (acc, charge) => acc + charge.amount,
-          0
-        );
-        const prospectiveTotal = totalAmount + costsTotal + chargesTotal - discount;
-        const totalPaidInThisTransaction = transformedPayments.reduce(
-          (acc, p) => acc + p.amount,
-          0
-        );
-        const newSaleDueAmount = prospectiveTotal - totalPaidInThisTransaction;
+      // Manually calculate what the new sale's due amount will be
+      const totalAmount = quantity * pricePerUnit;
+      const costsTotal = costs.reduce((acc, cost) => acc + cost.amount, 0);
+      const chargesTotal = charges.reduce(
+        (acc, charge) => acc + charge.amount,
+        0
+      );
+      const prospectiveTotal = totalAmount + costsTotal + chargesTotal - discount;
+      const totalPaidInThisTransaction = transformedPayments.reduce(
+        (acc, p) => acc + p.amount,
+        0
+      );
+      const newSaleDueAmount = prospectiveTotal - totalPaidInThisTransaction;
 
-        if (newSaleDueAmount > 0) {
-          const salesPipeline = [
-            {
-              $match: {
-                "customer.customerId": existingCustomer._id,
-                isDeleted: { $ne: true },
-                paymentStatus: "Due payment",
-              },
+      // Only proceed with due-related checks if the new sale or existing dues create an outstanding amount
+      if (newSaleDueAmount > 0 || existingCustomer.creditLimit === 0) {
+        const salesPipeline = [
+          {
+            $match: {
+              "customer.customerId": existingCustomer._id,
+              isDeleted: { $ne: true },
+              paymentStatus: "Due payment",
             },
-            {
-              $group: {
-                _id: null,
-                totalDue: {
-                  $sum: {
-                    $subtract: [
-                      "$totalAmountToBePaid",
-                      { $sum: "$payments.amount" },
-                    ],
-                  },
+          },
+          {
+            $group: {
+              _id: null,
+              totalDue: {
+                $sum: {
+                  $subtract: [
+                    "$totalAmountToBePaid",
+                    { $sum: "$payments.amount" },
+                  ],
                 },
               },
             },
-          ];
+          },
+        ];
 
-          const result = await Sales.aggregate(salesPipeline).session(session);
-          const currentDues = result.length > 0 ? result[0].totalDue : 0;
+        const result = await Sales.aggregate(salesPipeline).session(session);
+        const currentDues = result.length > 0 ? result[0].totalDue : 0;
 
-          if (currentDues + newSaleDueAmount > existingCustomer.creditLimit) {
-            throw new ApiError(
-              409, // Conflict
-              `Cannot create sale. This transaction exceeds the customer's credit limit of ${existingCustomer.creditLimit}. Current outstanding due is ${currentDues}.`
-            );
-          }
+        // Unified credit limit check: if creditLimit is 0, then total dues must also be 0.
+        // Otherwise, currentDues + newSaleDueAmount must not exceed the positive creditLimit.
+        if (currentDues + newSaleDueAmount > existingCustomer.creditLimit) {
+          throw new ApiError(
+            409, // Conflict
+            `Cannot create sale. This transaction exceeds the customer's credit limit of ${existingCustomer.creditLimit}. Current outstanding due is ${currentDues}.`
+          );
         }
       }
     }
