@@ -743,7 +743,9 @@ async function getAllCompletedLCs(_, res, next) {
       isDeleted: false,
     })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
-      .select("_id basicInfo.lcNumber basicInfo.status productInfo");
+      .select(
+        "_id basicInfo.lcNumber basicInfo.status productInfo basicInfo.supplierName basicInfo.supplierCountry",
+      );
     return res
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
