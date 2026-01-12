@@ -78,11 +78,13 @@ const loginUser = async (req, res, next) => {
     // Ensure password hash is not sent in the response
     delete user.password;
 
-    res.cookie("accessToken", token, {
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "none",
-    });
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    };
+
+    res.cookie("accessToken", token, cookieOptions);
 
     return res
       .status(200)
@@ -119,11 +121,13 @@ const loginUser = async (req, res, next) => {
 };
 const logoutUser = async (_, res, next) => {
   try {
-    res.clearCookie("accessToken", {
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "none",
-    });
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    };
+
+    res.clearCookie("accessToken", cookieOptions);
 
     return res
       .status(200)

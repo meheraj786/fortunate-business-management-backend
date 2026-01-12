@@ -27,12 +27,39 @@ const {
 // Create express app
 const app = express(); // Initialize express app
 
-// Enable CORS
+// Configure CORS
+const allowedOrigins = [];
+if (process.env.NODE_ENV === "production") {
+  if (process.env.CORS_ORIGIN) {
+    allowedOrigins.push(process.env.CORS_ORIGIN);
+  }
+} else {
+  // In development, allow any localhost origin
+}
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN, // Allowed origin
+    origin: (origin, callback) => {
+      // In development, allow requests from any localhost port
+      if (
+        process.env.NODE_ENV !== "production" &&
+        origin &&
+        origin.startsWith("http://localhost")
+      ) {
+        return callback(null, true);
+      }
+
+      // In production, check against the configured origin
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Block other origins
+      // return callback(new Error('Not allowed by CORS'));
+      return callback(null, true);
+    },
     credentials: true, // Allow cookies
-  })
+  }),
 );
 
 // Security middlewares
@@ -46,7 +73,7 @@ app.use(
   compression({
     level: 6, // Compression level
     threshold: 1024, // Minimum size
-  })
+  }),
 );
 
 // Rate limiting
@@ -109,5 +136,5 @@ cron.schedule(
   {
     scheduled: true, // Enable cron
     timezone: "Asia/Dhaka", // Set timezone
-  }
+  },
 );
