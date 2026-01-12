@@ -4,12 +4,47 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const jwt = require("jsonwebtoken");
 const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
-const { BUNDLED_PERMISSIONS } = require("../utils/permissions.constants");
+const { BUNDLED_PERMISSIONS, PERMISSIONS } = require("../utils/permissions.constants");
 const Trash = require("../models/trash.model");
 
 const registerUser = async (req, res, next) => {
   try {
     const user = new User(req.body);
+
+    // Ensure access array exists
+    if (!user.access) {
+      user.access = [];
+    }
+
+    // Add CATEGORY_VIEW permission
+    const categoryModule = "CATEGORY";
+    const categoryViewPermission = PERMISSIONS.CATEGORY_VIEW;
+    let categoryAccess = user.access.find((a) => a.module === categoryModule);
+    if (categoryAccess) {
+      if (!categoryAccess.permissions.includes(categoryViewPermission)) {
+        categoryAccess.permissions.push(categoryViewPermission);
+      }
+    } else {
+      user.access.push({
+        module: categoryModule,
+        permissions: [categoryViewPermission],
+      });
+    }
+
+    // Add UNIT_VIEW permission
+    const unitModule = "UNIT";
+    const unitViewPermission = PERMISSIONS.UNIT_VIEW;
+    let unitAccess = user.access.find((a) => a.module === unitModule);
+    if (unitAccess) {
+      if (!unitAccess.permissions.includes(unitViewPermission)) {
+        unitAccess.permissions.push(unitViewPermission);
+      }
+    } else {
+      user.access.push({
+        module: unitModule,
+        permissions: [unitViewPermission],
+      });
+    }
     await user.save();
 
     return res

@@ -81,7 +81,6 @@ lcRoutes.post(
 lcRoutes.get(
   "/completed-lc",
   authenticate,
-  authorize(PERMISSIONS.LC_VIEW_TABLE),
   getAllCompletedLCs
 );
 lcRoutes.get(
