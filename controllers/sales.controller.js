@@ -51,18 +51,17 @@ async function createSale(req, res, next) {
       charges = [], // User-facing charges like service fees
       discount = 0,
       invoiceStatus,
-      paymentStatus,
       payments: originalPayments = [], // Rename to avoid conflict
       notes,
       saleDate,
     } = req.body;
 
     // Transform payments to ensure accountId is used consistently
-    const transformedPayments = originalPayments.map(p => ({
-      ...p,
-      accountId: p.account || p.accountId, // Map 'account' to 'accountId' if present
-      // Ensure 'account' field is not passed if 'accountId' is preferred by schema
-      account: undefined
+    const transformedPayments = originalPayments.map((p) => ({
+      amount: p.amount,
+      date: p.date,
+      method: p.method,
+      accountId: p.account || p.accountId,
     }));
 
     const validationErrors = [];
@@ -181,8 +180,8 @@ async function createSale(req, res, next) {
       );
       const newSaleDueAmount = prospectiveTotal - totalPaidInThisTransaction;
 
-      // Only proceed with due-related checks if the new sale or existing dues create an outstanding amount
-      if (newSaleDueAmount > 0 || existingCustomer.creditLimit === 0) {
+      // Only proceed with the credit limit check if this new sale itself has a due amount.
+      if (newSaleDueAmount > 0) {
         const salesPipeline = [
           {
             $match: {
@@ -209,12 +208,11 @@ async function createSale(req, res, next) {
         const result = await Sales.aggregate(salesPipeline).session(session);
         const currentDues = result.length > 0 ? result[0].totalDue : 0;
 
-        // Unified credit limit check: if creditLimit is 0, then total dues must also be 0.
-        // Otherwise, currentDues + newSaleDueAmount must not exceed the positive creditLimit.
+        // The check should be against the total potential due amount.
         if (currentDues + newSaleDueAmount > existingCustomer.creditLimit) {
           throw new ApiError(
             409, // Conflict
-            `Cannot create sale. This transaction exceeds the customer's credit limit of ${existingCustomer.creditLimit}. Current outstanding due is ${currentDues}.`
+            `Cannot create sale. This transaction exceeds the customer's credit limit of ${existingCustomer.creditLimit}. Current outstanding due is ${currentDues}.`,
           );
         }
       }
@@ -233,8 +231,7 @@ async function createSale(req, res, next) {
       charges,
       discount,
       invoiceStatus,
-      paymentStatus,
-      payments: transformedPayments, 
+      payments: transformedPayments,
       notes,
       saleDate,
     });
@@ -244,27 +241,33 @@ async function createSale(req, res, next) {
     }
 
     // Handle payments and update account balances
-    for (const payment of transformedPayments) { // Iterate over transformed payments
+    for (const payment of transformedPayments) {
+      // Iterate over transformed payments
       // For any account-based payment, we need an account ID
-      if (["Bank", "Mobile Banking", "Cash"].includes(payment.paymentMethod)) {
-        if (!payment.accountId) { // Check for accountId
+      if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+        if (!payment.accountId) {
+          // Check for accountId
           throw new ApiError(
             400,
-            `Account ID is required for ${payment.paymentMethod} payment.`
+            `Account ID is required for ${payment.method} payment.`,
           );
         }
-        const account = await Account.findById(payment.accountId).session(session); // Use payment.accountId
+        const account = await Account.findById(payment.accountId).session(
+          session,
+        ); // Use payment.accountId
         if (!account) {
           throw new ApiError(404, `Account not found for payment.`);
         }
 
         // Validate that the account type matches the payment method
         const expectedAccountType =
-          payment.paymentMethod === "Mobile Banking" ? "Mobile Banking" : payment.paymentMethod;
+          payment.method === "Mobile Banking"
+            ? "Mobile Banking"
+            : payment.method;
         if (account.accountType !== expectedAccountType) {
           throw new ApiError(
             400,
-            `Payment method '${payment.paymentMethod}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`
+            `Payment method '${payment.method}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`,
           );
         }
 
@@ -275,12 +278,16 @@ async function createSale(req, res, next) {
         // Create a corresponding transaction record
         // 1. DailyCash Gatekeeper Check
         const paymentDateNormalized = startOfDay(new Date(payment.date));
-        const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).sort({ createdAt: -1 }).session(session);
+        const dailyCash = await DailyCash.findOne({
+          date: paymentDateNormalized,
+        })
+          .sort({ createdAt: -1 })
+          .session(session);
 
         if (!dailyCash || dailyCash.status === "Closed") {
           throw new ApiError(
             400,
-            `Daily cash is closed for ${paymentDateNormalized.toDateString()}. Cannot record payment.`
+            `Daily cash is closed for ${paymentDateNormalized.toDateString()}. Cannot record payment.`,
           );
         }
 
@@ -289,24 +296,24 @@ async function createSale(req, res, next) {
             {
               accountId: account._id,
               date: payment.date,
-              description: `Payment received for Sale ID: ${req.body.saleId} from ${finalCustomerInfo.name} via ${payment.paymentMethod}.`,
+              description: `Payment received for Sale ID: ${req.body.saleId} from ${finalCustomerInfo.name} via ${payment.method}.`,
               transactionType: "Income",
               amount: payment.amount,
               name: "Sales Payment",
               source: "Auto",
               category: "Sales",
-              paymentMethod: payment.paymentMethod,
+              paymentMethod: payment.method,
               reference: sale._id,
               referenceModel: "Sale",
               miscReference: {
                 saleId: req.body.saleId,
                 customerName: finalCustomerInfo.name,
                 paymentAmount: payment.amount,
-                paymentMethod: payment.paymentMethod,
+                paymentMethod: payment.method,
               },
             },
           ],
-          { session }
+          { session },
         );
       }
     }
@@ -1621,7 +1628,7 @@ async function cancelSale(req, res, next) {
     }
 
     saleToCancel.invoiceStatus = "Cancelled";
-    saleToCancel.paymentStatus = undefined; // Clear payment status for cancelled sales
+    saleToCancel.paymentStatus = "N/A"; // Clear payment status for cancelled sales
     await saleToCancel.save({ session });
 
     await session.commitTransaction();
@@ -1629,6 +1636,7 @@ async function cancelSale(req, res, next) {
 
     return res
       .status(200)
+      .json(new ApiResponse(200, saleToCancel, "Sale cancelled successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();

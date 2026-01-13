@@ -8,6 +8,7 @@ const mongoosePaginate = require("mongoose-paginate-v2");
 const costSchema = new mongoose.Schema({
   name: { type: String, required: true },
   amount: { type: Number, required: true },
+  date: { type: Date, required: true },
   accountId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Account",
@@ -63,12 +64,6 @@ const salesSchema = new mongoose.Schema(
         return this.saleId && !this.saleId.startsWith("OPEN-BAL-");
       },
     },
-    /*
-     * Customer Information
-     * For existing customers, `customerId` will be populated along with their details.
-     * For manual (temporary) customers, `name`, `phone`, and `address` will be populated,
-     * and `customerId` will be null.
-     */
     customer: {
       customerId: {
         type: mongoose.Schema.Types.ObjectId,
