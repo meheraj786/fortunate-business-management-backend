@@ -6,8 +6,11 @@ const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
 const mongoose = require("mongoose");
 const Trash = require("../models/trash.model");
+const { v4: uuidv4 } = require('uuid'); // Import uuid
 
 async function createCustomer(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const currentYear = new Date().getFullYear();
     const lastCustomer = await Customer.findOne({
@@ -28,11 +31,51 @@ async function createCustomer(req, res, next) {
 
     req.body.customerId = newCustomerId;
 
-    const customer = await Customer.create(req.body);
+    const [customer] = await Customer.create([req.body], { session }); // Destructure to get the customer object
+
+    // Handle Opening Due
+    const { openingDue } = req.body;
+    if (openingDue && openingDue > 0) {
+      const openingBalanceSaleId = `OPEN-BAL-${customer.customerId.toString()}`;
+      
+      const openingBalanceSale = {
+        saleId: openingBalanceSaleId,
+        customer: {
+          customerId: customer._id,
+          name: customer.name,
+          phone: customer.phone,
+          address: customer.billingAddress, 
+        },
+        product: null, // No specific product for opening balance
+        warehouse: null, // No specific warehouse
+        category: null, // No specific category
+        quantity: 1, // Unit quantity for a "balance"
+        unit: null, // No specific unit
+        pricePerUnit: openingDue,
+        costs: [],
+        charges: [],
+        discount: 0,
+        invoiceStatus: "Invoiced", 
+        paymentStatus: "Due payment",
+        payments: [],
+        notes: `Automated entry for customer's opening due balance: ${openingDue}.`,
+        saleDate: customer.joinDate || now(), 
+        totalAmount: openingDue,
+        totalAmountToBePaid: openingDue,
+      };
+
+      await Sales.create([openingBalanceSale], { session });
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
     return res
       .status(201)
       .json(new ApiResponse(201, customer, "Customer created successfully"));
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     if (error instanceof ApiError) {
       return next(error);
     }

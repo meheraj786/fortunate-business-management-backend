@@ -59,7 +59,9 @@ const salesSchema = new mongoose.Schema(
     product: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
-      required: true,
+      required: function () {
+        return this.saleId && !this.saleId.startsWith("OPEN-BAL-");
+      },
     },
     /*
      * Customer Information
@@ -80,15 +82,25 @@ const salesSchema = new mongoose.Schema(
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Warehouse",
-      required: true,
+      required: function () {
+        return this.saleId && !this.saleId.startsWith("OPEN-BAL-");
+      },
     },
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      required: true,
+      required: function () {
+        return this.saleId && !this.saleId.startsWith("OPEN-BAL-");
+      },
     },
     quantity: { type: Number, required: true, min: 0 },
-    unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
+    unit: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Unit",
+      required: function () {
+        return this.saleId && !this.saleId.startsWith("OPEN-BAL-");
+      },
+    },
     pricePerUnit: { type: Number, required: true, min: 0 },
     totalAmount: { type: Number, required: true },
     costs: [costSchema],
