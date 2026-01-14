@@ -588,6 +588,8 @@ async function getProductInWarehouse(req, res, next) {
             location: "$warehouse.location",
             manager: "$warehouse.manager",
           },
+          createdAt: 1,
+          updatedAt: 1,
         },
       },
     ];
