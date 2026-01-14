@@ -82,8 +82,10 @@ async function createProductInWarehouse(req, res, next) {
 
     const product = await Product.create({
       name,
+      productDescription,
       category,
       LC: lcId,
+      supplierName,
       thickness,
       width,
       length,
@@ -572,6 +574,7 @@ async function getProductInWarehouse(req, res, next) {
             name: "$category.name",
           },
           LC: {
+            id: "$LC._id",
             basicInfo: {
               lcNumber: "$LC.basicInfo.lcNumber",
               status: "$LC.status",
@@ -580,10 +583,12 @@ async function getProductInWarehouse(req, res, next) {
             },
           },
           unit: {
+            id: "$unit._id",
             name: "$unit.name",
             type: "$unit.type",
           },
           warehouse: {
+            id: "$warehouse._id",
             name: "$warehouse.name",
             location: "$warehouse.location",
             manager: "$warehouse.manager",
