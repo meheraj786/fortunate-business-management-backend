@@ -1,15 +1,29 @@
+// Import mongoose for database session and model handling
 const mongoose = require("mongoose");
+
+// Import Trash model
 const Trash = require("../models/trash.model");
+
+// Import response helpers
 const { ApiResponse } = require("../utils/ApiResponse");
 const { ApiError } = require("../utils/ApiError");
+
+// Import logger
 const logger = require("../utils/logger");
+
+// Import timezone helpers
 const { startOfDay, now } = require("../utils/timezone.util"); // Import startOfDay
 
+// ===============================
+// MOVE DOCUMENT TO TRASH
+// ===============================
 const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
+  // Validate required data
   if (!docId || !modelName) {
-    throw new Error("docId and modelName are required");
+    throw new Error("Document ID and module name are required to move item to trash.");
   }
 
+  // Create or update trash entry
   await Trash.findOneAndUpdate(
     { docId, model: modelName },
     {
@@ -22,7 +36,9 @@ const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
   );
 };
 
-
+// ===============================
+// RESTORE ITEM FROM TRASH
+// ===============================
 const restoreFromTrash = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -30,9 +46,11 @@ const restoreFromTrash = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // 1️⃣ Trash entry
+    // 1️⃣ Find trash record
     const trashEntry = await Trash.findById(id).session(session);
-    if (!trashEntry) throw new ApiError(404, "Trash entry not found");
+    if (!trashEntry) {
+      throw new ApiError(404, "This trash item could not be found. It may have already been removed.");
+    }
 
     const { docId, model: modelName } = trashEntry;
     const TargetModel = mongoose.model(modelName);
@@ -44,8 +62,9 @@ const restoreFromTrash = async (req, res, next) => {
       { session, new: true }
     );
 
-    if (!restoredDoc)
-      throw new ApiError(404, `${modelName} not found to restore`);
+    if (!restoredDoc) {
+      throw new ApiError(404, `The ${modelName} record could not be restored because it no longer exists.`);
+    }
 
     /* =====================================================
         TRANSACTION RESTORE
@@ -61,20 +80,26 @@ const restoreFromTrash = async (req, res, next) => {
         status: "Open",
       }).session(session);
 
-      if (!dailyCash)
-        throw new ApiError(400, `Daily cash closed for ${date.toDateString()}`);
+      if (!dailyCash) {
+        throw new ApiError(
+          400,
+          `Daily cash is closed for ${date.toDateString()}. Transaction restore is not allowed.`
+        );
+      }
 
-      const account = await Account.findById(restoredDoc.accountId).session(
-        session
-      );
-
-      if (!account) throw new ApiError(404, "Account not found");
+      const account = await Account.findById(restoredDoc.accountId).session(session);
+      if (!account) {
+        throw new ApiError(404, "The linked account for this transaction was not found.");
+      }
 
       if (restoredDoc.transactionType === "Income") {
         account.balance += restoredDoc.amount;
       } else {
         if (account.balance < restoredDoc.amount) {
-          throw new ApiError(400, "Insufficient balance to restore expense");
+          throw new ApiError(
+            400,
+            "The account does not have enough balance to restore this expense transaction."
+          );
         }
         account.balance -= restoredDoc.amount;
       }
@@ -90,28 +115,35 @@ const restoreFromTrash = async (req, res, next) => {
       const Account = mongoose.model("Account");
       const Transaction = mongoose.model("Transaction");
 
-      // The document is already restored by the initial update. We re-fetch it here to populate its dependencies.
+      // Re-fetch sale with required relations
       const saleToRestore = await TargetModel.findById(docId)
         .populate("unit")
         .populate({ path: "product", populate: { path: "unit" } })
         .session(session);
 
       if (!saleToRestore) {
-        throw new ApiError(404, "Original Sale document not found to restore.");
+        throw new ApiError(404, "The original sale record could not be found for restoration.");
       }
-      
-      // 🔹 Restore stock using populated data
+
+      // 🔹 Restore stock
       const product = saleToRestore.product;
       if (product && saleToRestore.unit && product.unit) {
-         if (product.unit.type !== saleToRestore.unit.type) {
-            throw new ApiError(400, "Cannot restore sale. Product and sale units are incompatible.");
+        if (product.unit.type !== saleToRestore.unit.type) {
+          throw new ApiError(
+            400,
+            "Stock restoration failed because product unit and sale unit do not match."
+          );
         }
-        const deductQty = 
-            (saleToRestore.quantity * saleToRestore.unit.conversionFactor) / 
-            product.unit.conversionFactor;
+
+        const deductQty =
+          (saleToRestore.quantity * saleToRestore.unit.conversionFactor) /
+          product.unit.conversionFactor;
 
         if (product.quantity < deductQty) {
-            throw new ApiError(400, "Insufficient stock to restore this sale.");
+          throw new ApiError(
+            400,
+            "Not enough stock available to restore this sale."
+          );
         }
 
         await Product.findByIdAndUpdate(
@@ -120,16 +152,13 @@ const restoreFromTrash = async (req, res, next) => {
           { session }
         );
       }
-      
-      // Update the sale document's status
+
+      // Update sale status
       saleToRestore.isDeleted = false;
       saleToRestore.status = "Active";
-      // Re-assign to the outer scope variable so the final response is populated
       restoredDoc = await saleToRestore.save({ session });
 
-      // DailyCash Gatekeeper Check for financial restorations
-      // This check is required if there are payments to be financially adjusted,
-      // as these adjustments involve creating new transactions.
+      // Check Daily Cash before restoring payments
       if (restoredDoc.payments.length > 0) {
         const DailyCash = mongoose.model("DailyCash");
         const today = startOfDay(now());
@@ -142,12 +171,12 @@ const restoreFromTrash = async (req, res, next) => {
         if (!dailyCash) {
           throw new ApiError(
             400,
-            `Daily cash is closed for ${today.toDateString()}. Cannot process financial restorations for the sale.`
+            `Daily cash is closed for ${today.toDateString()}. Sale payment restoration is not allowed.`
           );
         }
       }
 
-      // 🔹 Restore payments → account + transaction
+      // 🔹 Restore payments
       for (const payment of restoredDoc.payments || []) {
         if (!["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
           continue;
@@ -158,17 +187,18 @@ const restoreFromTrash = async (req, res, next) => {
 
         account.balance += payment.amount;
         await account.save({ session });
+
         await Transaction.create(
           [
             {
-              name: `Restored Sale Payment: ${restoredDoc.saleId}`,
+              name: `Sale Payment Restored (Sale ID: ${restoredDoc.saleId})`,
               accountId: payment.accountId,
               date: now(),
-              description: `Payment for restored Sale: ${restoredDoc.saleId}`,
+              description: `Payment amount restored for Sale ID ${restoredDoc.saleId}. This transaction was created automatically during sale restoration.`,
               transactionType: "Income",
               amount: payment.amount,
               source: "Auto",
-              category: "Sales Restore",
+              category: "Sale Restoration",
               paymentMethod: payment.method,
               reference: restoredDoc._id,
               referenceModel: "Sale",
@@ -194,11 +224,12 @@ const restoreFromTrash = async (req, res, next) => {
         status: "Open",
       }).session(session);
 
-      if (!dailyCash)
+      if (!dailyCash) {
         throw new ApiError(
           400,
-          `Daily cash closed for ${today.toDateString()}`
+          `Daily cash is closed for ${today.toDateString()}. LC cost restoration is not allowed.`
         );
+      }
 
       const sections = [
         restoredDoc.financialInfo,
@@ -213,32 +244,30 @@ const restoreFromTrash = async (req, res, next) => {
         for (const cost of section.costs) {
           if (!cost.accountId || cost.amount <= 0) continue;
 
-          const account = await Account.findById(cost.accountId).session(
-            session
-          );
+          const account = await Account.findById(cost.accountId).session(session);
 
           if (!account || account.balance < cost.amount) {
             throw new ApiError(
               400,
-              `Insufficient balance for LC cost: ${cost.name}`
+              `Insufficient account balance to restore LC expense: ${cost.name}.`
             );
           }
 
-          // deduct again (LC restore = expense again)
+          // Deduct again
           account.balance -= cost.amount;
           await account.save({ session });
 
           await Transaction.create(
             [
               {
-                name: `LC Restore: ${cost.name}`,
+                name: `LC Cost Restored: ${cost.name}`,
                 accountId: cost.accountId,
                 date: now(),
-                description: `Restored LC Cost: ${cost.name} for LC ${restoredDoc.basicInfo.lcNumber}`,
+                description: `Expense restored for LC number ${restoredDoc.basicInfo.lcNumber}. Cost name: ${cost.name}.`,
                 transactionType: "Expense",
                 amount: cost.amount,
                 source: "Auto",
-                category: "LC Restore",
+                category: "LC Restoration",
                 paymentMethod: cost.paymentMethod,
                 reference: restoredDoc._id,
                 referenceModel: "LC",
@@ -250,7 +279,7 @@ const restoreFromTrash = async (req, res, next) => {
       }
     }
 
-    // 3️⃣ Remove from trash
+    // 3️⃣ Remove trash entry
     await Trash.findByIdAndDelete(id).session(session);
 
     await session.commitTransaction();
@@ -259,19 +288,33 @@ const restoreFromTrash = async (req, res, next) => {
     res
       .status(200)
       .json(
-        new ApiResponse(200, restoredDoc, `${modelName} restored successfully`)
+        new ApiResponse(
+          200,
+          restoredDoc,
+          `${modelName} has been successfully restored and is now active again.`
+        )
       );
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
+
     if (error instanceof ApiError) {
       return next(error);
     }
+
     logger.error(error);
-    next(new ApiError(500, "Failed to restore item from trash. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "Something went wrong while restoring the item. Please try again later."
+      )
+    );
   }
 };
 
+// ===============================
+// GET ALL TRASH ITEMS
+// ===============================
 const getAllTrash = async (req, res, next) => {
   try {
     const page = Number(req.query.page) || 1;
@@ -279,28 +322,27 @@ const getAllTrash = async (req, res, next) => {
     const skip = (page - 1) * limit;
 
     const { model: moduleFilter } = req.params;
-    const { warehouseId } = req.query; // Extract warehouseId from query
+    const { warehouseId } = req.query;
 
     const filter = {};
     if (moduleFilter && moduleFilter !== "undefined" && moduleFilter !== "") {
       filter.model = moduleFilter;
     }
 
-    // If a specific warehouseId is provided, filter by it.
     if (warehouseId) {
-      // Security check: ensure the user has access to this warehouse, unless they are a SUPER_ADMIN
       if (
         req.user.roleName !== "SUPER_ADMIN" &&
         !req.user.warehouse.map(String).includes(String(warehouseId))
       ) {
         return next(
-          new ApiError(403, "You do not have access to this warehouse's trash.")
+          new ApiError(
+            403,
+            "You do not have permission to view trash items for this warehouse."
+          )
         );
       }
       filter["metadata.warehouseId"] = new mongoose.Types.ObjectId(warehouseId);
-    }
-    // If no specific warehouse is requested, filter by all user's accessible warehouses (for non-admins)
-    else if (req.user.roleName !== "SUPER_ADMIN") {
+    } else if (req.user.roleName !== "SUPER_ADMIN") {
       const accessibleWarehouseObjectIds = req.user.warehouse.map(
         (id) => new mongoose.Types.ObjectId(id)
       );
@@ -331,35 +373,35 @@ const getAllTrash = async (req, res, next) => {
     });
   } catch (err) {
     logger.error("GetAllTrash Error:", err);
-    next(new ApiError(500, "Failed to load trash"));
+    next(new ApiError(500, "Failed to load trash items. Please try again."));
   }
 };
 
+// ===============================
+// PERMANENT DELETE FROM TRASH
+// ===============================
 const deleteTrashPermanently = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
+
   try {
     const { id } = req.params;
 
     const trashEntry = await Trash.findById(id).session(session);
-
     if (!trashEntry) {
-      throw new ApiError(404, "Trash entry not found");
+      throw new ApiError(404, "The selected trash item was not found.");
     }
 
     const { docId, model: modelName } = trashEntry;
     const TargetModel = mongoose.model(modelName);
 
-    // Attempt to delete the original document
     const originalDoc = await TargetModel.findByIdAndDelete(docId, { session });
-
     if (!originalDoc) {
       logger.warn(
-        `Original document (ID: ${docId}, Model: ${modelName}) not found during permanent trash deletion. It might have been manually deleted.`
+        `Original document already missing. Model: ${modelName}, ID: ${docId}`
       );
     }
 
-    // Delete the trash entry itself
     await Trash.findByIdAndDelete(id, { session });
 
     await session.commitTransaction();
@@ -367,28 +409,44 @@ const deleteTrashPermanently = async (req, res, next) => {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, null, "Item permanently deleted from trash"));
+      .json(
+        new ApiResponse(
+          200,
+          null,
+          "The item has been permanently deleted and cannot be recovered."
+        )
+      );
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
+
     if (err instanceof ApiError) {
       return next(err);
     }
+
     logger.error("Permanent delete error:", err);
-    next(new ApiError(500, "Failed to permanently delete trash item"));
+    next(
+      new ApiError(
+        500,
+        "Failed to permanently delete the item. Please try again."
+      )
+    );
   }
 };
 
+// ===============================
+// GET TRASH ITEM DETAILS
+// ===============================
 const getTrashDetailById = async (req, res, next) => {
   try {
     const { id } = req.params;
+
     const trash = await Trash.findById(id).populate("deletedBy", "name email");
     if (!trash) {
-      throw new ApiError(404, "Trash entry not found");
+      throw new ApiError(404, "Trash item details could not be found.");
     }
 
     const { docId, model: modelName, deletedBy, deletedAt } = trash;
-
     const TargetModel = mongoose.model(modelName);
     const originalDoc = await TargetModel.findById(docId).lean();
 
@@ -401,16 +459,32 @@ const getTrashDetailById = async (req, res, next) => {
       isDeleted: originalDoc ? originalDoc.isDeleted : true,
     };
 
-    res.status(200).json(new ApiResponse(200, response, "Trash detail fetched successfully"));
+    res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          response,
+          "Trash item details loaded successfully."
+        )
+      );
   } catch (err) {
     logger.error("GetTrashDetailById Error:", err);
+
     if (err instanceof ApiError) {
       return next(err);
     }
-    next(new ApiError(500, "Failed to fetch trash item details."));
+
+    next(
+      new ApiError(
+        500,
+        "Unable to fetch trash item details at this moment."
+      )
+    );
   }
 };
 
+// Export all handlers
 module.exports = {
   moveToTrash,
   restoreFromTrash,

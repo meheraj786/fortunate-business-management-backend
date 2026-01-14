@@ -599,23 +599,27 @@ async function deleteDocument(req, res, next) {
 }
 
 async function deleteLC(req, res, next) {
+  // Start a database session
   const session = await mongoose.startSession();
   session.startTransaction();
+
   try {
     const { id } = req.params;
 
-    // Check if any products are linked to this LC before deleting
+    // Check if any active products are linked with this LC
     const linkedProduct = await Product.findOne({
       LC: id,
       isDeleted: { $ne: true },
     }).session(session);
+
     if (linkedProduct) {
       throw new ApiError(
         409, // Conflict
-        `Cannot delete this LC because it is linked to product "${linkedProduct.name}" (and possibly others). You must delete or unlink the associated products first.`,
+        `This LC cannot be deleted because it is still linked with the product "${linkedProduct.name}". Please remove or unlink all related products first.`,
       );
     }
 
+    // Soft delete the LC
     const deletedLC = await LC.findByIdAndUpdate(
       id,
       { isDeleted: true },
@@ -623,9 +627,10 @@ async function deleteLC(req, res, next) {
     );
 
     if (!deletedLC) {
-      throw new ApiError(404, "LC not found");
+      throw new ApiError(404, "The LC you are trying to delete was not found.");
     }
 
+    // Move LC to trash
     await Trash.create({
       docId: deletedLC._id,
       model: "LC",
@@ -633,7 +638,7 @@ async function deleteLC(req, res, next) {
       deletedAt: now(),
     });
 
-    // DailyCash Gatekeeper Check for reversal transactions
+    // Daily cash check before reversing LC costs
     const today = startOfDay(now());
     const dailyCash = await DailyCash.findOne({
       date: today,
@@ -643,11 +648,11 @@ async function deleteLC(req, res, next) {
     if (!dailyCash) {
       throw new ApiError(
         400,
-        `Daily cash is closed for ${today.toDateString()}. Cannot reverse LC costs.`,
+        `Daily cash is closed for ${today.toDateString()}. LC cost reversal is not allowed.`,
       );
     }
 
-    // Iterate through all cost sections of the deleted LC to create reversal transactions
+    // All LC cost sections
     const sectionsWithCosts = [
       deletedLC.financialInfo,
       deletedLC.shippingCustomsInfo,
@@ -655,28 +660,30 @@ async function deleteLC(req, res, next) {
       deletedLC.otherExpenses,
     ];
 
+    // Reverse each LC cost
     for (const section of sectionsWithCosts) {
       if (section && section.costs) {
         for (const cost of section.costs) {
           if (cost.accountId && cost.amount > 0) {
-            // Only reverse costs that had an account and amount
             const account = await Account.findById(cost.accountId).session(
               session,
             );
+
             if (account) {
-              account.balance += cost.amount; // Increase account balance (reversing the expense)
+              // Add money back to account
+              account.balance += cost.amount;
               await account.save({ session });
 
-              // Create Reversal Transaction (Income type to offset original Expense)
+              // Create reversal transaction
               await Transaction.create(
                 [
                   {
                     accountId: cost.accountId,
-                    date: now(), // Reversal transaction date is today
-                    description: `Reversal of LC Cost: ${cost.name} for LC Number: ${deletedLC.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
-                    transactionType: "Income", // Reverses the Expense
+                    date: now(),
+                    description: `LC cost reversal processed for "${cost.name}". Amount returned to account due to LC deletion. LC Number: ${deletedLC.basicInfo.lcNumber}.`,
+                    transactionType: "Income",
                     amount: cost.amount,
-                    name: `LC Cost Reversal: ${cost.name}`,
+                    name: `LC Cost Reversal - ${cost.name}`,
                     source: "Auto",
                     category: "LC Reversal",
                     paymentMethod: cost.paymentMethod,
@@ -699,42 +706,61 @@ async function deleteLC(req, res, next) {
       }
     }
 
+    // Commit transaction
     await session.commitTransaction();
     session.endSession();
 
     return res
       .status(200)
-      .json(new ApiResponse(200, deletedLC, "LC deleted successfully"));
+      .json(
+        new ApiResponse(
+          200,
+          deletedLC,
+          "LC has been deleted successfully and all related costs have been reversed.",
+        ),
+      );
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
+
     if (error instanceof ApiError) {
       return next(error);
     }
-    // Handle MongoServerError for duplicate key (unique: true)
+
+    // Handle duplicate key error
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
       return next(
         new ApiError(
           409,
-          `A document with the same ${field} '${value}' already exists.`,
+          `Another record already exists with the same ${field}: "${value}".`,
         ),
-      ); // Generic message
+      );
     }
-    // Handle Mongoose validation errors
+
+    // Handle validation errors
     if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
+      let userFriendlyMessage = "Validation failed. Please check your input.";
 
       if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+        userFriendlyMessage = `The field "${firstErrorField}" is required or invalid.`;
       }
+
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-    next(new ApiError(500, error.message || "Something went wrong"));
+
+    // Fallback error
+    next(
+      new ApiError(
+        500,
+        "Failed to delete the LC due to an unexpected error. Please try again.",
+      ),
+    );
   }
 }
+
 
 async function getAllCompletedLCs(_, res, next) {
   try {
