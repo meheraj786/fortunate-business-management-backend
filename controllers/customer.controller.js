@@ -268,41 +268,90 @@ async function getCustomerById(req, res, next) {
 }
 
 async function updateCustomer(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { id } = req.params;
-    const updated = await Customer.findByIdAndUpdate(id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const { openingDue, ...updateData } = req.body;
 
-    if (!updated) {
-      return next(new ApiError(404, "Customer not found"));
+    const customer = await Customer.findById(id).session(session);
+    if (!customer) {
+      throw new ApiError(404, "Customer not found");
     }
+
+    const newOpeningDue =
+      openingDue !== undefined && !isNaN(parseFloat(openingDue))
+        ? parseFloat(openingDue)
+        : null;
+
+    if (newOpeningDue !== null) {
+      const openingBalanceSaleId = `OPEN-BAL-${customer.customerId}`;
+      const existingOpeningSale = await Sales.findOne({
+        saleId: openingBalanceSaleId,
+      }).session(session);
+
+      if (existingOpeningSale) {
+        if (existingOpeningSale.totalAmountToBePaid !== newOpeningDue) {
+          existingOpeningSale.pricePerUnit = newOpeningDue;
+          existingOpeningSale.totalAmount = newOpeningDue;
+          existingOpeningSale.totalAmountToBePaid = newOpeningDue;
+          await existingOpeningSale.save({ session });
+        }
+      } else if (newOpeningDue > 0) {
+        const openingBalanceSale = {
+          saleId: openingBalanceSaleId,
+          customer: {
+            customerId: customer._id,
+            name: customer.name,
+            phone: customer.phone,
+            address: customer.billingAddress,
+          },
+          product: null,
+          warehouse: null,
+          category: null,
+          quantity: 1,
+          unit: null,
+          pricePerUnit: newOpeningDue,
+          costs: [],
+          charges: [],
+          discount: 0,
+          invoiceStatus: "Invoiced",
+          paymentStatus: "Due payment",
+          payments: [],
+          notes: `Automated entry for customer's opening due balance (updated): ${newOpeningDue}.`,
+          saleDate: customer.joinDate || now(),
+          totalAmount: newOpeningDue,
+          totalAmountToBePaid: newOpeningDue,
+        };
+        await Sales.create([openingBalanceSale], { session });
+      }
+      updateData.openingDue = newOpeningDue;
+    }
+
+    Object.assign(customer, updateData);
+    const updatedCustomer = await customer.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
 
     return res
       .status(200)
-      .json(new ApiResponse(200, updated, "Customer updated successfully"));
+      .json(new ApiResponse(200, updatedCustomer, "Customer updated successfully"));
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     if (error instanceof ApiError) {
       return next(error);
     }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+    if (error.code === 11000) {
+      return next(
+        new ApiError(409, "A customer with the same phone number already exists.")
+      );
     }
-    // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    if (error.name === "ValidationError") {
+      return next(new ApiError(400, "Validation failed.", error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
