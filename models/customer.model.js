@@ -2,9 +2,11 @@ const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
 const documentSchema = new Schema({
-  name: { type: String, required: true },
-  type: { type: String, required: true },
-  size: { type: String, required: true },
+  originalName: { type: String, required: true },
+  storedName: { type: String, required: true },
+  path: { type: String, required: true },
+  mimeType: { type: String, required: true },
+  sizeBytes: { type: Number, required: true },
   uploadDate: { type: Date, default: Date.now },
 });
 

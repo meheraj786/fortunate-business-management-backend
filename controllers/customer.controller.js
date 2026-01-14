@@ -6,12 +6,31 @@ const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
 const mongoose = require("mongoose");
 const Trash = require("../models/trash.model");
-const { v4: uuidv4 } = require('uuid'); // Import uuid
+const path = require("path");
+const multer = require("multer");
+const storageUtil = require("../utils/storage.util.js");
+
+// --- Multer Configuration ---
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, storageUtil.TEMP_DIR);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = path.parse(file.originalname).name + '-' + Date.now();
+    const extension = path.extname(file.originalname);
+    cb(null, `${uniqueSuffix}${extension}`);
+  },
+});
+
+const upload = multer({ storage: storage });
 
 async function createCustomer(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
+  const uploadedFiles = req.files || [];
   try {
+    const customerData = JSON.parse(req.body.customerData);
+
     const currentYear = new Date().getFullYear();
     const lastCustomer = await Customer.findOne({
       customerId: new RegExp(`^CUST-${currentYear}-`, "i"),
@@ -29,12 +48,16 @@ async function createCustomer(req, res, next) {
       .toString()
       .padStart(4, "0")}`;
 
-    req.body.customerId = newCustomerId;
+    customerData.customerId = newCustomerId;
+    
+    // 1. Prepare document metadata
+    const preparedDocs = uploadedFiles.map((file) => storageUtil.prepareDocumentData(file));
+    customerData.documents = preparedDocs.map((p) => p.docData);
 
-    const [customer] = await Customer.create([req.body], { session }); // Destructure to get the customer object
+    const [customer] = await Customer.create([customerData], { session });
 
     // Handle Opening Due
-    const { openingDue } = req.body;
+    const { openingDue } = customerData;
     if (openingDue && openingDue > 0) {
       const openingBalanceSaleId = `OPEN-BAL-${customer.customerId.toString()}`;
       
@@ -46,11 +69,11 @@ async function createCustomer(req, res, next) {
           phone: customer.phone,
           address: customer.billingAddress, 
         },
-        product: null, // No specific product for opening balance
-        warehouse: null, // No specific warehouse
-        category: null, // No specific category
-        quantity: 1, // Unit quantity for a "balance"
-        unit: null, // No specific unit
+        product: null,
+        warehouse: null,
+        category: null,
+        quantity: 1,
+        unit: null,
         pricePerUnit: openingDue,
         costs: [],
         charges: [],
@@ -67,6 +90,15 @@ async function createCustomer(req, res, next) {
       await Sales.create([openingBalanceSale], { session });
     }
 
+    // If DB operations are successful, commit files to permanent storage
+    for (const preparedDoc of preparedDocs) {
+      await storageUtil.commitCustomerDocument(
+        preparedDoc.tempPath,
+        preparedDoc.docData,
+        customer.customerId
+      );
+    }
+
     await session.commitTransaction();
     session.endSession();
 
@@ -76,6 +108,10 @@ async function createCustomer(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
+
+    // On error, cleanup temp files
+    await storageUtil.cleanupTempFiles(uploadedFiles);
+
     if (error instanceof ApiError) {
       return next(error);
     }
@@ -95,7 +131,7 @@ async function createCustomer(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -111,13 +147,11 @@ async function getAllCustomers(_, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    // Handle MongoServerError for duplicate key (unique: true)
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
       return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
     }
-    // Handle Mongoose validation errors
     if (error.name === 'ValidationError') {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
@@ -224,7 +258,7 @@ async function getCustomerById(req, res, next) {
       },
       {
         $project: {
-          sales: 0, // Exclude the sales array from the final customer object
+          sales: 0, 
         },
       },
     ];
@@ -246,13 +280,11 @@ async function getCustomerById(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    // Handle MongoServerError for duplicate key (unique: true)
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
       return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
     }
-    // Handle Mongoose validation errors
     if (error.name === 'ValidationError') {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
@@ -262,7 +294,7 @@ async function getCustomerById(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -270,9 +302,12 @@ async function getCustomerById(req, res, next) {
 async function updateCustomer(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
+  const uploadedFiles = req.files || [];
+  let preparedNewDocs = [];
   try {
     const { id } = req.params;
-    const { openingDue, ...updateData } = req.body;
+    const updateData = JSON.parse(req.body.customerData);
+    const { openingDue, ...customerUpdateData } = updateData;
 
     const customer = await Customer.findById(id).session(session);
     if (!customer) {
@@ -325,11 +360,55 @@ async function updateCustomer(req, res, next) {
         };
         await Sales.create([openingBalanceSale], { session });
       }
-      updateData.openingDue = newOpeningDue;
+      customerUpdateData.openingDue = newOpeningDue;
+    }
+    
+    // --- Document Management ---
+    const existingDocs = customer.documents || [];
+    const incomingDocs = customerUpdateData.documents || [];
+    let finalDocs = [];
+
+    const docsToDelete = existingDocs.filter(
+      (doc) =>
+        !incomingDocs.some(
+          (inDoc) => inDoc._id && inDoc._id.toString() === doc._id.toString(),
+        ),
+    );
+
+    for (const doc of docsToDelete) {
+      await storageUtil.deleteCustomerDocument(
+        customer.customerId,
+        doc.path,
+        doc.storedName,
+      );
+      storageUtil.cleanupEmptyCustomerDirectory(customer.customerId, doc.path);
     }
 
-    Object.assign(customer, updateData);
+    finalDocs = existingDocs.filter((doc) =>
+      incomingDocs.some((inDoc) => inDoc._id && inDoc._id.toString() === doc._id.toString()),
+    );
+
+    if (uploadedFiles.length > 0) {
+      preparedNewDocs = uploadedFiles.map((file) =>
+        storageUtil.prepareDocumentData(file),
+      );
+      finalDocs.push(...preparedNewDocs.map((p) => p.docData));
+    }
+
+    customerUpdateData.documents = finalDocs;
+
+    Object.assign(customer, customerUpdateData);
     const updatedCustomer = await customer.save({ session });
+
+    if (preparedNewDocs.length > 0) {
+      for (const preparedDoc of preparedNewDocs) {
+        await storageUtil.commitCustomerDocument(
+          preparedDoc.tempPath,
+          preparedDoc.docData,
+          customer.customerId
+        );
+      }
+    }
 
     await session.commitTransaction();
     session.endSession();
@@ -340,6 +419,7 @@ async function updateCustomer(req, res, next) {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
+    await storageUtil.cleanupTempFiles(uploadedFiles);
     if (error instanceof ApiError) {
       return next(error);
     }
@@ -355,7 +435,6 @@ async function updateCustomer(req, res, next) {
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
-
 async function deleteCustomer(req, res, next) {
   try {
     const { id } = req.params;
@@ -409,7 +488,6 @@ async function deleteCustomer(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    // Handle MongoServerError for duplicate key (unique: true)
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
@@ -420,7 +498,6 @@ async function deleteCustomer(req, res, next) {
         )
       );
     }
-    // Handle Mongoose validation errors
     if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
@@ -430,8 +507,91 @@ async function deleteCustomer(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
+  }
+}
+// Other functions remain unchanged
+
+async function downloadCustomerDocument(req, res, next) {
+  try {
+    const { id, docId } = req.params;
+
+    const customer = await Customer.findById(id);
+    if (!customer || customer.isDeleted) {
+      throw new ApiError(404, "Customer not found");
+    }
+
+    const doc = customer.documents.id(docId);
+    if (!doc) {
+      throw new ApiError(404, "Document not found in this customer record");
+    }
+
+    const filePath = path.join(
+      storageUtil.CUSTOMER_DOCUMENTS_DIR,
+      doc.path,
+      customer.customerId,
+      doc.storedName,
+    );
+
+    res.setHeader("Content-Type", doc.mimeType);
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${doc.originalName}"`,
+    );
+
+    res.sendFile(filePath, (err) => {
+      if (err) {
+        if (err.code === "ENOENT") {
+          return next(new ApiError(404, "File not found on server."));
+        } else {
+          logger.error(`Failed to send file: ${filePath}`, err);
+          return next(new ApiError(500, "Could not send the file."));
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function deleteCustomerDocument(req, res, next) {
+  const { id, docId } = req.params;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const customer = await Customer.findById(id).session(session);
+    if (!customer) {
+      throw new ApiError(404, "Customer not found");
+    }
+
+    const doc = customer.documents.id(docId);
+    if (!doc) {
+      throw new ApiError(404, "Document not found in this customer record");
+    }
+
+    await storageUtil.deleteCustomerDocument(
+      customer.customerId,
+      doc.path,
+      doc.storedName,
+    );
+
+    customer.documents.pull(docId);
+    await customer.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    storageUtil.cleanupEmptyCustomerDirectory(customer.customerId, doc.path);
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, customer, "Document deleted successfully."));
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    next(error);
   }
 }
 
@@ -650,6 +810,7 @@ async function getCustomersSummary(req, res, next) {
   }
 }
 
+
 module.exports = {
   createCustomer,
   getAllCustomers,
@@ -659,4 +820,7 @@ module.exports = {
   getCustomerStats,
   getCustomersSummary,
   getAllActiveCustomers,
+  downloadCustomerDocument,
+  deleteCustomerDocument,
+  upload,
 };

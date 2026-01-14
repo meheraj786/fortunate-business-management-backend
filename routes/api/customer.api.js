@@ -7,8 +7,10 @@ const {
   getCustomerStats,
   deleteCustomer,
   getCustomersSummary,
-  downloadCustomerDocument,
   getAllActiveCustomers,
+  downloadCustomerDocument,
+  deleteCustomerDocument,
+  upload,
 } = require("../../controllers/customer.controller");
 const { authorize } = require("../../middleware/authorize.middleware");
 const { authenticate } = require("../../middleware/auth.middleware");
@@ -19,6 +21,7 @@ customerRoutes.post(
   "/create-customer",
   authenticate,
   authorize(PERMISSIONS.CUSTOMER_CREATE),
+  upload.array("documents"),
   createCustomer
 );
 customerRoutes.get(
@@ -42,6 +45,7 @@ customerRoutes.patch(
   "/update-customer/:id",
   authenticate,
   authorize(PERMISSIONS.CUSTOMER_UPDATE),
+  upload.array("documents"),
   updateCustomer
 );
 customerRoutes.delete(
@@ -62,6 +66,20 @@ customerRoutes.get(
   authorize(PERMISSIONS.CUSTOMER_VIEW_TABLE),
   getCustomersSummary
 );
-// customerRoutes.get("/:id/documents/:filename", downloadCustomerDocument);
+
+// Document Routes
+customerRoutes.get(
+    "/:id/documents/:docId",
+    authenticate,
+    authorize(PERMISSIONS.CUSTOMER_VIEW_DETAILS), // Or a more specific permission
+    downloadCustomerDocument
+);
+
+customerRoutes.delete(
+    "/:id/documents/:docId",
+    authenticate,
+    authorize(PERMISSIONS.CUSTOMER_UPDATE), // Or a more specific permission
+    deleteCustomerDocument
+);
 
 module.exports = customerRoutes;

@@ -5,6 +5,7 @@ const logger = require("./logger");
 
 const UPLOADS_BASE_DIR = process.env.UPLOADS_DIR || path.join(__dirname, "../uploads");
 const LC_DOCUMENTS_DIR = path.join(UPLOADS_BASE_DIR, "lc_documents");
+const CUSTOMER_DOCUMENTS_DIR = path.join(UPLOADS_BASE_DIR, "customer_documents");
 const TEMP_DIR = path.join(UPLOADS_BASE_DIR, "temp");
 
 function sanitizeForPath(name) {
@@ -30,6 +31,7 @@ async function ensureDir(dirPath) {
 async function initializeStorage() {
   await ensureDir(UPLOADS_BASE_DIR);
   await ensureDir(LC_DOCUMENTS_DIR);
+  await ensureDir(CUSTOMER_DOCUMENTS_DIR);
   await ensureDir(TEMP_DIR);
   logger.info("Storage directories initialized.");
 }
@@ -63,7 +65,7 @@ function prepareDocumentData(file) {
 }
 
 /**
- * Commits a prepared document to permanent storage by moving it from temp.
+ * Commits a prepared LC document to permanent storage by moving it from temp.
  * @param {string} tempPath The path of the file in the temporary directory.
  * @param {object} docData The document's metadata (containing path and storedName).
  * @param {string} lcNumber The LC Number for the directory.
@@ -77,6 +79,21 @@ async function commitDocument(tempPath, docData, lcNumber) {
     await fs.rename(tempPath, finalPath);
 }
 
+/**
+ * Commits a prepared customer document to permanent storage by moving it from temp.
+ * @param {string} tempPath The path of the file in the temporary directory.
+ * @param {object} docData The document's metadata (containing path and storedName).
+ * @param {string} customerId The Customer ID for the directory.
+ */
+async function commitCustomerDocument(tempPath, docData, customerId) {
+    const sanitizedCustomerId = sanitizeForPath(customerId);
+    const finalDir = path.join(CUSTOMER_DOCUMENTS_DIR, docData.path, sanitizedCustomerId);
+    await ensureDir(finalDir);
+
+    const finalPath = path.join(finalDir, docData.storedName);
+    await fs.rename(tempPath, finalPath);
+}
+
 async function deleteLcDocument(lcNumber, docPath, storedName) {
   if (!lcNumber || !docPath || !storedName) {
     logger.error("Attempted to delete a document without a valid lcNumber, path, or stored name.");
@@ -84,6 +101,25 @@ async function deleteLcDocument(lcNumber, docPath, storedName) {
   }
   const sanitizedLcNumber = sanitizeForPath(lcNumber);
   const filePath = path.join(LC_DOCUMENTS_DIR, docPath, sanitizedLcNumber, storedName);
+  try {
+    await fs.unlink(filePath);
+    logger.info(`Successfully deleted document: ${filePath}`);
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      logger.error(`Failed to delete document file: ${filePath}`, err);
+      throw new Error("Could not delete the document file from storage.");
+    }
+    logger.warn(`Document file not found for deletion: ${filePath}`);
+  }
+}
+
+async function deleteCustomerDocument(customerId, docPath, storedName) {
+  if (!customerId || !docPath || !storedName) {
+    logger.error("Attempted to delete a document without a valid customerId, path, or stored name.");
+    return;
+  }
+  const sanitizedCustomerId = sanitizeForPath(customerId);
+  const filePath = path.join(CUSTOMER_DOCUMENTS_DIR, docPath, sanitizedCustomerId, storedName);
   try {
     await fs.unlink(filePath);
     logger.info(`Successfully deleted document: ${filePath}`);
@@ -113,6 +149,23 @@ async function cleanupEmptyLcDirectory(lcNumber, docPath) {
   }
 }
 
+async function cleanupEmptyCustomerDirectory(customerId, docPath) {
+  const sanitizedCustomerId = sanitizeForPath(customerId);
+  const customerSpecificDir = path.join(CUSTOMER_DOCUMENTS_DIR, docPath, sanitizedCustomerId);
+
+  try {
+    const files = await fs.readdir(customerSpecificDir);
+    if (files.length === 0) {
+      logger.info(`Cleaning up empty directory: ${customerSpecificDir}`);
+      await fs.rmdir(customerSpecificDir);
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      logger.error(`Error during empty directory cleanup for ${customerSpecificDir}:`, error);
+    }
+  }
+}
+
 async function cleanupTempFiles(tempFiles = []) {
   for (const file of tempFiles) {
     try {
@@ -128,10 +181,14 @@ async function cleanupTempFiles(tempFiles = []) {
 module.exports = {
   TEMP_DIR,
   LC_DOCUMENTS_DIR,
+  CUSTOMER_DOCUMENTS_DIR,
   initializeStorage,
   prepareDocumentData,
   commitDocument,
+  commitCustomerDocument,
   deleteLcDocument,
+  deleteCustomerDocument,
   cleanupEmptyLcDirectory,
+  cleanupEmptyCustomerDirectory,
   cleanupTempFiles
 };
