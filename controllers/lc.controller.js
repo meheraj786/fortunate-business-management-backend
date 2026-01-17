@@ -761,7 +761,6 @@ async function deleteLC(req, res, next) {
   }
 }
 
-
 async function getAllCompletedLCs(_, res, next) {
   try {
     const lcs = await LC.find({
@@ -1107,6 +1106,10 @@ async function getLCSummary(req, res, next) {
       sort["shippingCustomsInfo.expectedArrivalDate"] = sortOrderValue;
     } else if (sortBy === "totalCost") {
       sort["totalCost"] = sortOrderValue;
+    } else if (sortBy === "lcNumber") {
+      sort["basicInfo.lcNumber"] = sortOrderValue;
+    } else if (sortBy === "supplierName") {
+      sort["basicInfo.supplierName"] = sortOrderValue;
     } else {
       sort["createdAt"] = -1;
     }
@@ -1321,6 +1324,10 @@ async function searchLCSummary(req, res, next) {
       sort["shippingCustomsInfo.expectedArrivalDate"] = sortOrderValue;
     } else if (sortBy === "totalCost") {
       sort["totalCost"] = sortOrderValue;
+    } else if (sortBy === "lcNumber") {
+      sort["basicInfo.lcNumber"] = sortOrderValue;
+    } else if (sortBy === "supplierName") {
+      sort["basicInfo.supplierName"] = sortOrderValue;
     } else {
       sort["createdAt"] = -1;
     }

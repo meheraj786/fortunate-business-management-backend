@@ -11,33 +11,15 @@ const mongoose = require("mongoose");
 const Transaction = require("../models/transaction.model");
 const Trash = require("../models/trash.model");
 const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
+const SalesService = require("../services/sales.service");
 
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    // Generate saleId
-    const currentYear = new Date().getFullYear();
-    const shortYear = currentYear.toString().slice(-2);
-    
-    // Find the last sale for the current year to get the highest sequential number
-    const lastSale = await Sales.findOne({
-      saleId: new RegExp(`^SALE-${shortYear}-`, "i"),
-    }).sort({ saleId: -1 });
-
-    let lastSaleIdNumber = 0;
-    if (lastSale && lastSale.saleId) {
-      const match = lastSale.saleId.match(/(\d+)$/);
-      if (match) {
-        lastSaleIdNumber = parseInt(match[1], 10);
-      }
-    }
-
-    const newSaleId = `SALE-${shortYear}-${(lastSaleIdNumber + 1)
-      .toString()
-      .padStart(6, "0")}`; // Pad with 6 zeros for up to 999,999 sales per year
-
-    req.body.saleId = newSaleId; // Assign the generated saleId to the request body
+    // Generate saleId using service
+    const newSaleId = await SalesService.generateSaleId();
+    req.body.saleId = newSaleId;
 
     const {
       product: productId,
@@ -47,35 +29,19 @@ async function createSale(req, res, next) {
       quantity,
       unit,
       pricePerUnit,
-      costs = [], // Replaces deliveryCharge and otherCharges
-      charges = [], // User-facing charges like service fees
+      costs = [],
+      charges = [],
       discount = 0,
       invoiceStatus,
-      payments: originalPayments = [], // Rename to avoid conflict
+      payments: originalPayments = [],
       notes,
       saleDate,
     } = req.body;
 
-    // Transform payments to ensure accountId is used consistently
-    const transformedPayments = originalPayments.map((p) => ({
-      amount: p.amount,
-      date: p.date,
-      method: p.method,
-      accountId: p.account || p.accountId,
-    }));
+    // Validate Sale Date
+    SalesService.validateSaleDate(saleDate);
 
     const validationErrors = [];
-    if (saleDate) {
-        const today = startOfDay(now());
-        const providedSaleDate = startOfDay(new Date(saleDate));
-
-        if (providedSaleDate > today) {
-            validationErrors.push({
-                field: "saleDate",
-                message: "Sale date cannot be in the future."
-            });
-        }
-    }
     if (!productId)
       validationErrors.push({
         field: "product",
@@ -113,38 +79,14 @@ async function createSale(req, res, next) {
       throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
 
-    const sellingProduct = await Product.findById(productId).session(session).populate('unit');
-    if (!sellingProduct) {
-      throw new ApiError(400, "Product not found");
-    }
-
-    const saleUnit = await Unit.findById(unit).session(session);
-    if (!saleUnit) {
-      throw new ApiError(400, "Sale unit not found");
-    }
-
-    // Check if units are compatible (same type)
-    if (sellingProduct.unit.type !== saleUnit.type) {
-      throw new ApiError(
-        400,
-        `Cannot sell product. Incompatible units: Product is in '${sellingProduct.unit.type}' while sale is in '${saleUnit.type}'.`
+    // Validate Stock logic utilizing service
+    const { quantityToDeductFromProduct } =
+      await SalesService.validateStockAndGetDeduction(
+        productId,
+        quantity,
+        unit,
+        session,
       );
-    }
-
-    // Calculate the quantity to deduct from stock in the product's base unit
-    // First, convert the sale quantity to the common base unit (e.g., grams for weight, pieces for count)
-    const saleQuantityInBaseUnit = quantity * saleUnit.conversionFactor;
-
-    // Then, convert the product's current stock quantity to the common base unit
-    const productStockInBaseUnit = sellingProduct.quantity * sellingProduct.unit.conversionFactor;
-
-    // Now, check if there's enough stock in the common base unit
-    if (productStockInBaseUnit < saleQuantityInBaseUnit) {
-      throw new ApiError(400, "Not enough product in stock");
-    }
-
-    // Calculate the actual quantity to deduct from the product's stock (in its own unit)
-    const quantityToDeductFromProduct = saleQuantityInBaseUnit / sellingProduct.unit.conversionFactor;
 
     const finalCustomerInfo = {
       name: customerInfo.name,
@@ -153,73 +95,47 @@ async function createSale(req, res, next) {
       customerId: null,
     };
 
+    // Transform payments
+    const transformedPayments = originalPayments.map((p) => ({
+      amount: p.amount,
+      date: p.date,
+      method: p.method,
+      accountId: p.account || p.accountId,
+    }));
+
+    // Credit Limit Check
     if (customerInfo.customerId) {
-      const existingCustomer = await Customer.findById(
-        customerInfo.customerId
-      ).session(session);
-      if (!existingCustomer) {
-        throw new ApiError(400, "Customer not found");
-      }
+      const costsTotal = costs.reduce((acc, cost) => acc + cost.amount, 0);
+      const chargesTotal = charges.reduce(
+        (acc, charge) => acc + charge.amount,
+        0,
+      );
+      const totalAmount = quantity * pricePerUnit;
+      const totalPaidInThisTransaction = transformedPayments.reduce(
+        (acc, p) => acc + p.amount,
+        0,
+      );
+
+      const existingCustomer = await SalesService.checkCustomerCreditLimit(
+        customerInfo.customerId,
+        {
+          totalAmount,
+          costsTotal,
+          chargesTotal,
+          discount,
+          totalPaid: totalPaidInThisTransaction,
+        },
+        session,
+      );
+
       finalCustomerInfo.customerId = existingCustomer._id;
       finalCustomerInfo.name = existingCustomer.name;
       finalCustomerInfo.phone = existingCustomer.phone;
       finalCustomerInfo.address = existingCustomer.location;
-
-      // Credit Limit Check
-      // Manually calculate what the new sale's due amount will be
-      const totalAmount = quantity * pricePerUnit;
-      const costsTotal = costs.reduce((acc, cost) => acc + cost.amount, 0);
-      const chargesTotal = charges.reduce(
-        (acc, charge) => acc + charge.amount,
-        0
-      );
-      const prospectiveTotal = totalAmount + costsTotal + chargesTotal - discount;
-      const totalPaidInThisTransaction = transformedPayments.reduce(
-        (acc, p) => acc + p.amount,
-        0
-      );
-      const newSaleDueAmount = prospectiveTotal - totalPaidInThisTransaction;
-
-      // Only proceed with the credit limit check if this new sale itself has a due amount.
-      if (newSaleDueAmount > 0) {
-        const salesPipeline = [
-          {
-            $match: {
-              "customer.customerId": existingCustomer._id,
-              isDeleted: { $ne: true },
-              paymentStatus: "Due payment",
-            },
-          },
-          {
-            $group: {
-              _id: null,
-              totalDue: {
-                $sum: {
-                  $subtract: [
-                    "$totalAmountToBePaid",
-                    { $sum: "$payments.amount" },
-                  ],
-                },
-              },
-            },
-          },
-        ];
-
-        const result = await Sales.aggregate(salesPipeline).session(session);
-        const currentDues = result.length > 0 ? result[0].totalDue : 0;
-
-        // The check should be against the total potential due amount.
-        if (currentDues + newSaleDueAmount > existingCustomer.creditLimit) {
-          throw new ApiError(
-            409, // Conflict
-            `Cannot create sale. This transaction exceeds the customer's credit limit of ${existingCustomer.creditLimit}. Current outstanding due is ${currentDues}.`,
-          );
-        }
-      }
     }
 
     const sale = new Sales({
-      saleId: req.body.saleId, // Explicitly pass saleId
+      saleId: newSaleId,
       product: productId,
       customer: finalCustomerInfo,
       warehouse,
@@ -323,29 +239,35 @@ async function createSale(req, res, next) {
     // Create expense transactions for each cost associated with the sale
     for (const cost of sale.costs) {
       if (cost.accountId) {
-        const costAccount = await Account.findById(cost.accountId).session(session);
+        const costAccount = await Account.findById(cost.accountId).session(
+          session,
+        );
         if (!costAccount) {
           throw new ApiError(404, `Account for cost '${cost.name}' not found.`);
         }
 
         // Validate that the account type matches the payment method for the cost
         const expectedAccountType =
-          cost.paymentMethod === "Mobile Banking" ? "Mobile Banking" : cost.paymentMethod;
+          cost.paymentMethod === "Mobile Banking"
+            ? "Mobile Banking"
+            : cost.paymentMethod;
         if (costAccount.accountType !== expectedAccountType) {
           throw new ApiError(
             400,
-            `For cost '${cost.name}', payment method '${cost.paymentMethod}' requires a '${expectedAccountType}' account, but a '${costAccount.accountType}' account was provided.`
+            `For cost '${cost.name}', payment method '${cost.paymentMethod}' requires a '${expectedAccountType}' account, but a '${costAccount.accountType}' account was provided.`,
           );
         }
 
         // DailyCash check for the cost transaction date
         const saleDateNormalized = startOfDay(new Date(sale.saleDate));
-        const dailyCash = await DailyCash.findOne({ date: saleDateNormalized }).sort({ createdAt: -1 }).session(session);
+        const dailyCash = await DailyCash.findOne({ date: saleDateNormalized })
+          .sort({ createdAt: -1 })
+          .session(session);
 
         if (!dailyCash || dailyCash.status === "Closed") {
           throw new ApiError(
             400,
-            `Daily cash is closed for ${saleDateNormalized.toDateString()}. Cannot record cost transaction.`
+            `Daily cash is closed for ${saleDateNormalized.toDateString()}. Cannot record cost transaction.`,
           );
         }
 
@@ -373,7 +295,7 @@ async function createSale(req, res, next) {
               },
             },
           ],
-          { session }
+          { session },
         );
       }
     }
@@ -381,7 +303,7 @@ async function createSale(req, res, next) {
     await Product.findByIdAndUpdate(
       productId,
       { $inc: { quantity: -quantityToDeductFromProduct } },
-      { new: true, session }
+      { new: true, session },
     );
 
     if (finalCustomerInfo.customerId) {
@@ -390,19 +312,20 @@ async function createSale(req, res, next) {
         {
           $push: { transactions: sale._id },
         },
-        { session }
+        { session },
       );
     }
 
     await session.commitTransaction();
     session.endSession();
 
-    return res.status(201).json(new ApiResponse(201, sale, "Sale created successfully"));
-
+    return res
+      .status(201)
+      .json(new ApiResponse(201, sale, "Sale created successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    
+
     // If the error is already one of our custom ApiErrors, just pass it along.
     if (error instanceof ApiError) {
       return next(error);
@@ -411,10 +334,15 @@ async function createSale(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Specific message for sales
+      return next(
+        new ApiError(
+          409,
+          `A sale with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Specific message for sales
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -423,7 +351,7 @@ async function createSale(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -457,7 +385,7 @@ async function getAllSales(_, res, next) {
         },
       },
       { $unwind: { path: "$product.LC", preserveNullAndEmptyArrays: true } },
-      
+
       // Nested populate product.unit
       {
         $lookup: {
@@ -557,10 +485,15 @@ async function getAllSales(_, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -569,7 +502,7 @@ async function getAllSales(_, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -579,11 +512,16 @@ async function getSaleById(req, res, next) {
     const { id } = req.params;
 
     const results = await Sales.aggregate([
-      { $match: { _id: new mongoose.Types.ObjectId(id), isDeleted: { $ne: true } } },
+      {
+        $match: {
+          _id: new mongoose.Types.ObjectId(id),
+          isDeleted: { $ne: true },
+        },
+      },
 
       // Unwind payments to process them
       { $unwind: { path: "$payments", preserveNullAndEmptyArrays: true } },
-      
+
       // Populate accountId in payments
       {
         $lookup: {
@@ -599,7 +537,7 @@ async function getSaleById(req, res, next) {
           preserveNullAndEmptyArrays: true,
         },
       },
-      
+
       // Group back to reconstruct the sales document with populated payments
       {
         $group: {
@@ -619,9 +557,9 @@ async function getSaleById(req, res, next) {
                   $filter: {
                     input: "$payments",
                     as: "payment",
-                    cond: { $ifNull: ["$$payment._id", false] }
-                  }
-                }
+                    cond: { $ifNull: ["$$payment._id", false] },
+                  },
+                },
               },
             ],
           },
@@ -703,16 +641,10 @@ async function getSaleById(req, res, next) {
       {
         $addFields: {
           balanceDue: {
-            $max: [
-              0,
-              { $subtract: ["$totalAmountToBePaid", "$paymentsMade"] },
-            ],
+            $max: [0, { $subtract: ["$totalAmountToBePaid", "$paymentsMade"] }],
           },
           overPayment: {
-            $max: [
-              0,
-              { $subtract: ["$paymentsMade", "$totalAmountToBePaid"] },
-            ],
+            $max: [0, { $subtract: ["$paymentsMade", "$totalAmountToBePaid"] }],
           },
         },
       },
@@ -782,7 +714,7 @@ async function getSaleById(req, res, next) {
     if (results.length === 0) {
       return next(new ApiError(404, "Sale not found"));
     }
-    
+
     const sale = results[0];
 
     return res
@@ -796,10 +728,15 @@ async function getSaleById(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -808,7 +745,7 @@ async function getSaleById(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -818,18 +755,21 @@ async function updateSale(req, res, next) {
     const { id } = req.params;
     const updateData = req.body;
 
-
-    const sale = await Sales.findById(id).populate('unit').populate({
-      path: 'product',
-      populate: {
-        path: 'unit'
-      }
-    });
+    const sale = await Sales.findById(id)
+      .populate("unit")
+      .populate({
+        path: "product",
+        populate: {
+          path: "unit",
+        },
+      });
     if (!sale) {
       return next(new ApiError(404, "Sale not found"));
     }
     if (sale.isDeleted) {
-      return next(new ApiError(400, "Cannot update a sale that is in the trash."));
+      return next(
+        new ApiError(400, "Cannot update a sale that is in the trash."),
+      );
     }
 
     // Adjust product stock if quantity changes
@@ -844,27 +784,37 @@ async function updateSale(req, res, next) {
         return next(
           new ApiError(
             400,
-            `Cannot update sale. Incompatible units: Product is in '${product.unit.type}' while sale is in '${sale.unit.type}'.`
-          )
+            `Cannot update sale. Incompatible units: Product is in '${product.unit.type}' while sale is in '${sale.unit.type}'.`,
+          ),
         );
       }
 
       // Calculate old and new sale quantities in a common base unit
-      const oldSaleQuantityInBaseUnit = sale.quantity * sale.unit.conversionFactor;
-      const newSaleQuantityInBaseUnit = updateData.quantity * sale.unit.conversionFactor;
+      const oldSaleQuantityInBaseUnit =
+        sale.quantity * sale.unit.conversionFactor;
+      const newSaleQuantityInBaseUnit =
+        updateData.quantity * sale.unit.conversionFactor;
 
       // Determine the net change in base units
-      const netChangeInBaseUnit = newSaleQuantityInBaseUnit - oldSaleQuantityInBaseUnit;
+      const netChangeInBaseUnit =
+        newSaleQuantityInBaseUnit - oldSaleQuantityInBaseUnit;
 
       // Convert this net change to the product's unit
-      const quantityChangeInProductUnit = netChangeInBaseUnit / product.unit.conversionFactor;
+      const quantityChangeInProductUnit =
+        netChangeInBaseUnit / product.unit.conversionFactor;
 
       // If quantityChangeInProductUnit is positive, it means we are increasing the sale quantity,
       // so we need to check if there's enough stock to deduct more.
       // If it's negative, we are decreasing the sale quantity, so stock will be returned.
-      if (quantityChangeInProductUnit > 0 && product.quantity < quantityChangeInProductUnit) {
+      if (
+        quantityChangeInProductUnit > 0 &&
+        product.quantity < quantityChangeInProductUnit
+      ) {
         return next(
-          new ApiError(400, "Not enough product in stock for this quantity increase")
+          new ApiError(
+            400,
+            "Not enough product in stock for this quantity increase",
+          ),
         );
       }
 
@@ -877,19 +827,19 @@ async function updateSale(req, res, next) {
     // 'charges' are an exception and can be updated directly on the sale.
     // Financial arrays like 'costs' and 'payments' must be managed via dedicated endpoints.
     const immutableFields = [
-      'paymentStatus', 
-      'product', 
-      'warehouse', 
-      'category', 
-      'customer', 
-      'costs', 
-      'payments',
-      'saleId',
-      'totalAmount',
-      'totalAmountToBePaid'
+      "paymentStatus",
+      "product",
+      "warehouse",
+      "category",
+      "customer",
+      "costs",
+      "payments",
+      "saleId",
+      "totalAmount",
+      "totalAmountToBePaid",
     ];
-    
-    immutableFields.forEach(field => {
+
+    immutableFields.forEach((field) => {
       if (updateData.hasOwnProperty(field)) {
         delete updateData[field];
       }
@@ -910,10 +860,15 @@ async function updateSale(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -922,7 +877,7 @@ async function updateSale(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -970,11 +925,10 @@ async function deleteSale(req, res, next) {
         await Product.findByIdAndUpdate(
           product._id,
           { $inc: { quantity: quantityToRestoreToProduct } },
-          { session }
+          { session },
         );
       }
     }
-
 
     // Only reverse financial transactions if there were actual payments made.
     // This also implies that the DailyCash check is only needed in this case
@@ -989,14 +943,14 @@ async function deleteSale(req, res, next) {
       if (!dailyCash || dailyCash.status === "Closed") {
         throw new ApiError(
           400,
-          `Daily cash is closed for ${today.toDateString()}. Cannot delete sale with existing payments, as reversals cannot be processed.`
+          `Daily cash is closed for ${today.toDateString()}. Cannot delete sale with existing payments, as reversals cannot be processed.`,
         );
       }
       // Reverse financial transactions for payments
       for (const payment of saleToDelete.payments) {
         if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
           const account = await Account.findById(payment.accountId).session(
-            session
+            session,
           );
           if (account) {
             account.balance -= payment.amount;
@@ -1018,13 +972,11 @@ async function deleteSale(req, res, next) {
                   referenceModel: "Sale",
                 },
               ],
-              { session }
+              { session },
             );
           }
         }
       }
-
-
     }
 
     // Mark the sale as deleted
@@ -1044,9 +996,7 @@ async function deleteSale(req, res, next) {
 
     return res
       .status(200)
-      .json(
-        new ApiResponse(200, null, "Sale moved to trash successfully")
-      );
+      .json(new ApiResponse(200, null, "Sale moved to trash successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -1135,10 +1085,15 @@ async function getSalesSummary(_, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -1147,7 +1102,7 @@ async function getSalesSummary(_, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -1199,8 +1154,8 @@ async function getAll_invoices_status_count(req, res, next) {
         new ApiResponse(
           200,
           counts,
-          "Invoice status count fetched successfully"
-        )
+          "Invoice status count fetched successfully",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -1210,10 +1165,15 @@ async function getAll_invoices_status_count(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -1222,7 +1182,7 @@ async function getAll_invoices_status_count(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -1240,8 +1200,11 @@ async function addPartialPayment(req, res, next) {
     if (!date)
       validationErrors.push({ field: "date", message: "Date is required" });
     if (!paymentMethod)
-      validationErrors.push({ field: "paymentMethod", message: "Payment method is required" });
-    
+      validationErrors.push({
+        field: "paymentMethod",
+        message: "Payment method is required",
+      });
+
     // Account is required for all payment methods now as per new schema
     if (!accountId) {
       validationErrors.push({
@@ -1259,66 +1222,76 @@ async function addPartialPayment(req, res, next) {
       throw new ApiError(404, "Sale not found");
     }
     if (sale.isDeleted) {
-      throw new ApiError(400, "Cannot add payment to a sale that is in the trash.");
+      throw new ApiError(
+        400,
+        "Cannot add payment to a sale that is in the trash.",
+      );
     }
 
-    const payment = { amount, date,  method: paymentMethod, accountId: accountId };
+    const payment = {
+      amount,
+      date,
+      method: paymentMethod,
+      accountId: accountId,
+    };
 
     // For any account-based payment, we need an account ID
     if (["Bank", "Mobile Banking", "Cash"].includes(paymentMethod)) {
-        // 1. DailyCash Gatekeeper Check
-        const paymentDateNormalized = startOfDay(new Date(date));
-        const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized }).sort({ createdAt: -1 }).session(session);
+      // 1. DailyCash Gatekeeper Check
+      const paymentDateNormalized = startOfDay(new Date(date));
+      const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized })
+        .sort({ createdAt: -1 })
+        .session(session);
 
-        if (!dailyCash || dailyCash.status === "Closed") {
-          throw new ApiError(
-            400,
-            `Daily cash is closed for ${paymentDateNormalized.toDateString()}. Cannot record payment.`
-          );
-        }
-
-        const account = await Account.findById(accountId).session(session);
-        if (!account) {
-            throw new ApiError(404, "Account not found");
-        }
-
-        // Validate that the account type matches the payment method
-        const expectedAccountType =
-            paymentMethod === "Mobile Banking" ? "Mobile Banking" : paymentMethod;
-        if (account.accountType !== expectedAccountType) {
-            throw new ApiError(
-                400,
-                `Payment method '${paymentMethod}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`
-            );
-        }
-
-        account.balance += amount;
-        await account.save({ session });
-
-        await Transaction.create(
-            [
-                {
-                    accountId: accountId,
-                    date,
-                    description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${paymentMethod}.`,
-                    transactionType: "Income",
-                    amount,
-                    name: "Sales Partial Payment",
-                    source: "Auto",
-                    category: "Sales",
-                    paymentMethod: paymentMethod,
-                    reference: sale._id,
-                    referenceModel: "Sale",
-                    miscReference: {
-                        saleId: sale.saleId,
-                        customerName: sale.customer.name,
-                        paymentAmount: amount,
-                        paymentMethod: paymentMethod,
-                    },
-                },
-            ],
-            { session }
+      if (!dailyCash || dailyCash.status === "Closed") {
+        throw new ApiError(
+          400,
+          `Daily cash is closed for ${paymentDateNormalized.toDateString()}. Cannot record payment.`,
         );
+      }
+
+      const account = await Account.findById(accountId).session(session);
+      if (!account) {
+        throw new ApiError(404, "Account not found");
+      }
+
+      // Validate that the account type matches the payment method
+      const expectedAccountType =
+        paymentMethod === "Mobile Banking" ? "Mobile Banking" : paymentMethod;
+      if (account.accountType !== expectedAccountType) {
+        throw new ApiError(
+          400,
+          `Payment method '${paymentMethod}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`,
+        );
+      }
+
+      account.balance += amount;
+      await account.save({ session });
+
+      await Transaction.create(
+        [
+          {
+            accountId: accountId,
+            date,
+            description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${paymentMethod}.`,
+            transactionType: "Income",
+            amount,
+            name: "Sales Partial Payment",
+            source: "Auto",
+            category: "Sales",
+            paymentMethod: paymentMethod,
+            reference: sale._id,
+            referenceModel: "Sale",
+            miscReference: {
+              saleId: sale.saleId,
+              customerName: sale.customer.name,
+              paymentAmount: amount,
+              paymentMethod: paymentMethod,
+            },
+          },
+        ],
+        { session },
+      );
     } // Correctly close the if block here
 
     // These operations should happen regardless of the payment method specific logic
@@ -1331,7 +1304,8 @@ async function addPartialPayment(req, res, next) {
     return res
       .status(200)
       .json(new ApiResponse(200, sale, "Partial payment added successfully"));
-  } catch (error) { // The catch block now properly follows the try block
+  } catch (error) {
+    // The catch block now properly follows the try block
     await session.abortTransaction();
     session.endSession();
 
@@ -1343,10 +1317,15 @@ async function addPartialPayment(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Generic message for sales
+      return next(
+        new ApiError(
+          409,
+          `A sale with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message for sales
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -1363,17 +1342,12 @@ async function addPartialPayment(req, res, next) {
 async function getSalesByCustomerId(req, res, next) {
   try {
     const { customerId } = req.params;
-    const { 
-      invoiceStatus, 
-      paymentStatus, 
-      page = 1, 
-      limit = 10 
-    } = req.query;
+    const { invoiceStatus, paymentStatus, page = 1, limit = 10 } = req.query;
 
     if (!mongoose.Types.ObjectId.isValid(customerId)) {
       return next(new ApiError(400, "Invalid customer ID"));
     }
-    
+
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
     const skip = (pageNum - 1) * limitNum;
@@ -1381,9 +1355,9 @@ async function getSalesByCustomerId(req, res, next) {
     const pipeline = [];
 
     // Stage 1: Match by customer and other filters
-    const matchQuery = { 
+    const matchQuery = {
       "customer.customerId": new mongoose.Types.ObjectId(customerId),
-      isDeleted: { $ne: true } 
+      isDeleted: { $ne: true },
     };
     if (invoiceStatus) matchQuery.invoiceStatus = invoiceStatus;
     if (paymentStatus) matchQuery.paymentStatus = paymentStatus;
@@ -1424,7 +1398,9 @@ async function getSalesByCustomerId(req, res, next) {
               as: "product.LC",
             },
           },
-          { $unwind: { path: "$product.LC", preserveNullAndEmptyArrays: true } },
+          {
+            $unwind: { path: "$product.LC", preserveNullAndEmptyArrays: true },
+          },
           // Final projection to shape the data
           {
             $project: {
@@ -1456,23 +1432,22 @@ async function getSalesByCustomerId(req, res, next) {
     const results = await Sales.aggregate(pipeline);
     const salesResult = results[0];
 
-    const totalDocs = salesResult.totalDocs.length > 0 ? salesResult.totalDocs[0].count : 0;
+    const totalDocs =
+      salesResult.totalDocs.length > 0 ? salesResult.totalDocs[0].count : 0;
     const totalPages = Math.ceil(totalDocs / limitNum);
 
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          {
-            sales: salesResult.docs,
-            totalPages: totalPages,
-            currentPage: pageNum,
-            totalItems: totalDocs,
-          },
-          "Customer sales fetched successfully"
-        )
-      );
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          sales: salesResult.docs,
+          totalPages: totalPages,
+          currentPage: pageNum,
+          totalItems: totalDocs,
+        },
+        "Customer sales fetched successfully",
+      ),
+    );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -1481,10 +1456,15 @@ async function getSalesByCustomerId(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -1493,7 +1473,7 @@ async function getSalesByCustomerId(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -1505,12 +1485,12 @@ async function cancelSale(req, res, next) {
     const { id } = req.params;
 
     const saleToCancel = await Sales.findById(id, { session })
-      .populate('unit')
+      .populate("unit")
       .populate({
-        path: 'product',
+        path: "product",
         populate: {
-          path: 'unit'
-        }
+          path: "unit",
+        },
       });
 
     if (!saleToCancel) {
@@ -1518,7 +1498,10 @@ async function cancelSale(req, res, next) {
     }
 
     if (saleToCancel.isDeleted) {
-      throw new ApiError(400, "Cannot cancel a sale that is already in the trash.");
+      throw new ApiError(
+        400,
+        "Cannot cancel a sale that is already in the trash.",
+      );
     }
 
     if (saleToCancel.invoiceStatus === "Cancelled") {
@@ -1527,39 +1510,51 @@ async function cancelSale(req, res, next) {
 
     // DailyCash Gatekeeper Check for reversal transactions
     const today = startOfDay(now());
-    const dailyCash = await DailyCash.findOne({ date: today }).sort({ createdAt: -1 }).session(session);
+    const dailyCash = await DailyCash.findOne({ date: today })
+      .sort({ createdAt: -1 })
+      .session(session);
 
     if (!dailyCash || dailyCash.status === "Closed") {
-        throw new ApiError(400, `Daily cash is closed for ${today.toDateString()}. Cannot cancel sales payments.`);
+      throw new ApiError(
+        400,
+        `Daily cash is closed for ${today.toDateString()}. Cannot cancel sales payments.`,
+      );
     }
 
     // Reverse financial transactions by creating counter-transactions
     for (const payment of saleToCancel.payments) {
       if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
-        const account = await Account.findById(payment.accountId).session(session);
+        const account = await Account.findById(payment.accountId).session(
+          session,
+        );
         if (account) {
           account.balance -= payment.amount;
           await account.save({ session });
 
-          await Transaction.create([{
-            name: "Sales Cancellation Reversal",
-            accountId: payment.accountId,
-            date: now(),
-            description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}.`,
-            transactionType: "Expense", // To reverse the Income
-            amount: payment.amount,
-            source: "Auto", // Auto generated reversal
-            category: "Sales Reversal (Cancelled)",
-            paymentMethod: payment.method,
-            reference: saleToCancel._id,
-            referenceModel: "Sale",
-            miscReference: {
-              saleId: saleToCancel.saleId,
-              customerName: saleToCancel.customer.name,
-              originalPaymentAmount: payment.amount,
-              originalPaymentMethod: payment.method,
-            },
-          }], { session });
+          await Transaction.create(
+            [
+              {
+                name: "Sales Cancellation Reversal",
+                accountId: payment.accountId,
+                date: now(),
+                description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}.`,
+                transactionType: "Expense", // To reverse the Income
+                amount: payment.amount,
+                source: "Auto", // Auto generated reversal
+                category: "Sales Reversal (Cancelled)",
+                paymentMethod: payment.method,
+                reference: saleToCancel._id,
+                referenceModel: "Sale",
+                miscReference: {
+                  saleId: saleToCancel.saleId,
+                  customerName: saleToCancel.customer.name,
+                  originalPaymentAmount: payment.amount,
+                  originalPaymentMethod: payment.method,
+                },
+              },
+            ],
+            { session },
+          );
         }
       }
     }
@@ -1591,7 +1586,7 @@ async function cancelSale(req, res, next) {
                 },
               },
             ],
-            { session }
+            { session },
           );
         }
       }
@@ -1605,26 +1600,40 @@ async function cancelSale(req, res, next) {
       // Check if units are compatible (same type)
       if (product.unit.type !== saleUnit.type) {
         console.error(
-          `Data inconsistency: Product unit type (${product.unit.type}) does not match sale unit type (${saleUnit.type}) during sale cancellation.`
+          `Data inconsistency: Product unit type (${product.unit.type}) does not match sale unit type (${saleUnit.type}) during sale cancellation.`,
         );
-        await Product.findByIdAndUpdate(product._id, {
-          $inc: { quantity: saleToCancel.quantity },
-        }, { session });
+        await Product.findByIdAndUpdate(
+          product._id,
+          {
+            $inc: { quantity: saleToCancel.quantity },
+          },
+          { session },
+        );
       } else {
-        const cancelledSaleQuantityInBaseUnit = saleToCancel.quantity * saleUnit.conversionFactor;
-        const quantityToRestoreToProduct = cancelledSaleQuantityInBaseUnit / product.unit.conversionFactor;
+        const cancelledSaleQuantityInBaseUnit =
+          saleToCancel.quantity * saleUnit.conversionFactor;
+        const quantityToRestoreToProduct =
+          cancelledSaleQuantityInBaseUnit / product.unit.conversionFactor;
 
-        await Product.findByIdAndUpdate(product._id, {
-          $inc: { quantity: quantityToRestoreToProduct },
-        }, { session });
+        await Product.findByIdAndUpdate(
+          product._id,
+          {
+            $inc: { quantity: quantityToRestoreToProduct },
+          },
+          { session },
+        );
       }
     }
 
     // Remove sale from customer's transactions if it's a registered customer
     if (saleToCancel.customer && saleToCancel.customer.customerId) {
-      await Customer.findByIdAndUpdate(saleToCancel.customer.customerId, {
-        $pull: { transactions: saleToCancel._id },
-      }, { session });
+      await Customer.findByIdAndUpdate(
+        saleToCancel.customer.customerId,
+        {
+          $pull: { transactions: saleToCancel._id },
+        },
+        { session },
+      );
     }
 
     saleToCancel.invoiceStatus = "Cancelled";
@@ -1647,10 +1656,15 @@ async function cancelSale(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A sale with the same ${field} '${value}' already exists.`)); // Generic message for sales
+      return next(
+        new ApiError(
+          409,
+          `A sale with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message for sales
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -1659,7 +1673,7 @@ async function cancelSale(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -1733,7 +1747,7 @@ async function getPaginatedSalesSummary(req, res, next) {
 
     // Stage 2: Filtering
     const matchConditions = {
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
     };
     if (invoiceStatus) {
       matchConditions.invoiceStatus = invoiceStatus;
@@ -1756,7 +1770,7 @@ async function getPaginatedSalesSummary(req, res, next) {
         matchConditions.$or.push({ totalAmountToBePaid: parseFloat(search) });
       }
     }
-    
+
     if (Object.keys(matchConditions).length > 0) {
       pipeline.push({ $match: matchConditions });
     }
@@ -1779,11 +1793,14 @@ async function getPaginatedSalesSummary(req, res, next) {
       if (sortBy === "saleDate") {
         sort.saleDate = sortOrder === "asc" ? 1 : -1;
       } else if (sortBy === "totalAmountToBePaid") {
-        sort.totalAmountToBePaid = sortOrder === "bigger" ? -1 : 1;
+        sort.totalAmountToBePaid =
+          sortOrder === "bigger" || sortOrder === "desc" ? -1 : 1;
       } else if (sortBy === "quantity") {
         sort.convertedQuantity = sortOrder === "asc" ? 1 : -1;
       } else if (sortBy === "customerName") {
         sort.finalCustomerName = sortOrder === "asc" ? 1 : -1;
+      } else if (sortBy === "productName") {
+        sort["productDetails.name"] = sortOrder === "asc" ? 1 : -1;
       }
     } else {
       sort.saleDate = -1;
@@ -1799,6 +1816,7 @@ async function getPaginatedSalesSummary(req, res, next) {
           {
             $project: {
               _id: 1,
+              saleId: 1,
               "customer.name": "$finalCustomerName",
               "product.name": "$productDetails.name",
               "product.id": "$productDetails._id",
@@ -1821,23 +1839,23 @@ async function getPaginatedSalesSummary(req, res, next) {
     const result = await Sales.aggregate(pipeline);
 
     const sales = result[0].data;
-    const totalSales = result[0].metadata[0] ? result[0].metadata[0].totalSales : 0;
-    
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          {
-            sales,
-            totalSales,
-            page: pageNum,
-            limit: limitNum,
-            totalPages: Math.ceil(totalSales / limitNum),
-          },
-          "Sales summary fetched successfully"
-        )
-      );
+    const totalSales = result[0].metadata[0]
+      ? result[0].metadata[0].totalSales
+      : 0;
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          sales,
+          totalSales,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(totalSales / limitNum),
+        },
+        "Sales summary fetched successfully",
+      ),
+    );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -1846,10 +1864,15 @@ async function getPaginatedSalesSummary(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -1858,7 +1881,7 @@ async function getPaginatedSalesSummary(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
