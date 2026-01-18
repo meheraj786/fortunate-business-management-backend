@@ -1417,8 +1417,9 @@ async function searchLCSummary(req, res, next) {
  * @param {object} originalLC The original LC document from DB
  * @param {object} updateData The data being updated
  * @param {mongoose.ClientSession} session
+ * @param {string} timezone
  */
-async function _reconcileLCCosts(originalLC, updateData, session) {
+async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
   const sectionsWithCosts = [
     "financialInfo",
     "shippingCustomsInfo",
@@ -1427,7 +1428,7 @@ async function _reconcileLCCosts(originalLC, updateData, session) {
   ];
 
   // 1. Check Daily Cash Status (Gatekeeper)
-  const today = startOfDay(now(), req.businessTimezone);
+  const today = startOfDay(now(), timezone);
   const dailyCash = await DailyCash.findOne({
     date: today,
     status: "Open",
