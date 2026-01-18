@@ -66,8 +66,8 @@ async function createAccount(req, res, next) {
       throw new ApiError(
         400,
         `'${accountType}' is not a valid value for 'accountType'. Allowed values are: ${validAccountTypes.join(
-          ", "
-        )}.`
+          ", ",
+        )}.`,
       );
     }
 
@@ -130,13 +130,13 @@ async function createAccount(req, res, next) {
     }
 
     const existingArchivedAccount = await Account.findOne(
-      existingArchivedAccountQuery
+      existingArchivedAccountQuery,
     ).session(session);
 
     if (existingArchivedAccount) {
       throw new ApiError(
         400,
-        `An archived account with similar details already exists for ${accountType} type.`
+        `An archived account with similar details already exists for ${accountType} type.`,
       );
     }
 
@@ -164,7 +164,7 @@ async function createAccount(req, res, next) {
         const todayString = formatInTimeZone(currentTime, "PPP");
         throw new ApiError(
           400,
-          `Daily cash is closed for ${todayString}. Cannot create account with initial balance. Open daily cash first.`
+          `Daily cash is closed for ${todayString}. Cannot create account with initial balance. Open daily cash first.`,
         );
       }
 
@@ -188,7 +188,7 @@ async function createAccount(req, res, next) {
             },
           },
         ],
-        { session }
+        { session },
       );
     }
 
@@ -198,7 +198,7 @@ async function createAccount(req, res, next) {
     return res
       .status(201)
       .json(
-        new ApiResponse(201, createdAccount, "Account created successfully")
+        new ApiResponse(201, createdAccount, "Account created successfully"),
       );
   } catch (error) {
     await session.abortTransaction();
@@ -207,15 +207,18 @@ async function createAccount(req, res, next) {
       return next(error);
     }
     // Handle duplicate account errors from model's pre-save hook
-    if (error.name === 'DuplicateAccountError') {
+    if (error.name === "DuplicateAccountError") {
       return next(new ApiError(409, error.message)); // 409 Conflict
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       // Prioritize accountType enum error
-      if (error.errors.accountType && error.errors.accountType.kind === 'enum') {
+      if (
+        error.errors.accountType &&
+        error.errors.accountType.kind === "enum"
+      ) {
         const errorDetail = error.errors.accountType;
-        const userFriendlyMessage = `'${errorDetail.value}' is not a valid value for 'accountType'. Allowed values are: ${errorDetail.properties.enumValues.join(', ')}.`;
+        const userFriendlyMessage = `'${errorDetail.value}' is not a valid value for 'accountType'. Allowed values are: ${errorDetail.properties.enumValues.join(", ")}.`;
         return next(new ApiError(400, userFriendlyMessage, error.errors));
       }
 
@@ -225,9 +228,9 @@ async function createAccount(req, res, next) {
 
       if (firstErrorField) {
         const errorDetail = error.errors[firstErrorField];
-        if (errorDetail.kind === 'enum') {
-          userFriendlyMessage = `'${errorDetail.value}' is not a valid value for the field '${firstErrorField}'. Allowed values are: ${errorDetail.properties.enumValues.join(', ')}.`;
-        } else if (errorDetail.kind === 'required') {
+        if (errorDetail.kind === "enum") {
+          userFriendlyMessage = `'${errorDetail.value}' is not a valid value for the field '${firstErrorField}'. Allowed values are: ${errorDetail.properties.enumValues.join(", ")}.`;
+        } else if (errorDetail.kind === "required") {
           userFriendlyMessage = `The field '${firstErrorField}' is required.`;
         } else {
           userFriendlyMessage = errorDetail.message;
@@ -235,7 +238,11 @@ async function createAccount(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error("Account creation failed:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -245,16 +252,20 @@ async function getAllAccounts(req, res, next) {
     const accounts = await Account.find({ status: "Active" });
     return res
       .status(200)
-      .json(new ApiResponse(200, accounts, "Active accounts fetched successfully"));
+      .json(
+        new ApiResponse(200, accounts, "Active accounts fetched successfully"),
+      );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
     }
-        logger.error(error);
+    logger.error("Get all accounts failed:", {
+      message: error.message,
+      stack: error.stack,
+    });
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
-
 
 async function getAccountById(req, res, next) {
   try {
@@ -268,7 +279,13 @@ async function getAccountById(req, res, next) {
     if (account.status === "Archived") {
       return res
         .status(200)
-        .json(new ApiResponse(200, account, "Archived account fetched successfully"));
+        .json(
+          new ApiResponse(
+            200,
+            account,
+            "Archived account fetched successfully",
+          ),
+        );
     }
 
     return res
@@ -278,7 +295,10 @@ async function getAccountById(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-        logger.error(error);
+    logger.error("Get account by ID failed:", {
+      message: error.message,
+      stack: error.stack,
+    });
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -306,13 +326,22 @@ async function updateAccount(req, res, next) {
         const updatedAccount = await Account.findByIdAndUpdate(
           id,
           { status: "Active" }, // Only update status for reactivation
-          { new: true, runValidators: true }
+          { new: true, runValidators: true },
         );
         return res
           .status(200)
-          .json(new ApiResponse(200, updatedAccount, "Account reactivated successfully"));
+          .json(
+            new ApiResponse(
+              200,
+              updatedAccount,
+              "Account reactivated successfully",
+            ),
+          );
       } else {
-        throw new ApiError(400, "Cannot update an archived account. Reactivate it first if you wish to modify its details.");
+        throw new ApiError(
+          400,
+          "Cannot update an archived account. Reactivate it first if you wish to modify its details.",
+        );
       }
     }
 
@@ -346,12 +375,17 @@ async function updateAccount(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, updatedAccount, "Account updated successfully"));
+      .json(
+        new ApiResponse(200, updatedAccount, "Account updated successfully"),
+      );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
     }
-        logger.error(error);
+    logger.error("Update account failed:", {
+      message: error.message,
+      stack: error.stack,
+    });
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -369,38 +403,50 @@ async function deleteAccount(req, res, next) {
     }
 
     if (account.balance !== 0) {
-      throw new ApiError(400, "Cannot archive account with a non-zero balance.");
+      throw new ApiError(
+        400,
+        "Cannot archive account with a non-zero balance.",
+      );
     }
 
-    const lcWithAccount = await mongoose.model('LC').findOne({
-      $or: [
-        { "basicInfo.accountId": id },
-        { "financialInfo.costs.accountId": id },
-        { "shippingCustomsInfo.costs.accountId": id },
-        { "agentTransportInfo.costs.accountId": id },
-        { "otherExpenses.costs.accountId": id }
-      ]
-    }).session(session);
+    const lcWithAccount = await mongoose
+      .model("LC")
+      .findOne({
+        $or: [
+          { "basicInfo.accountId": id },
+          { "financialInfo.costs.accountId": id },
+          { "shippingCustomsInfo.costs.accountId": id },
+          { "agentTransportInfo.costs.accountId": id },
+          { "otherExpenses.costs.accountId": id },
+        ],
+      })
+      .session(session);
 
     if (lcWithAccount) {
-      throw new ApiError(400, "Cannot archive account. It is associated with an LC.");
+      throw new ApiError(
+        400,
+        "Cannot archive account. It is associated with an LC.",
+      );
     }
 
-    const saleWithAccount = await mongoose.model('Sales').findOne({
-      $or: [
-        { "costs.accountId": id },
-        { "payments.accountId": id }
-      ]
-    }).session(session);
+    const saleWithAccount = await mongoose
+      .model("Sales")
+      .findOne({
+        $or: [{ "costs.accountId": id }, { "payments.accountId": id }],
+      })
+      .session(session);
 
     if (saleWithAccount) {
-      throw new ApiError(400, "Cannot archive account. It is associated with a sale.");
+      throw new ApiError(
+        400,
+        "Cannot archive account. It is associated with a sale.",
+      );
     }
 
     const archivedAccount = await Account.findByIdAndUpdate(
       id,
       { status: "Archived" },
-      { new: true, session }
+      { new: true, session },
     );
 
     if (!archivedAccount) {
@@ -413,14 +459,19 @@ async function deleteAccount(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, archivedAccount, "Account archived successfully"));
+      .json(
+        new ApiResponse(200, archivedAccount, "Account archived successfully"),
+      );
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
     if (error instanceof ApiError) {
       return next(error);
     }
-        logger.error(error);
+    logger.error("Delete account failed:", {
+      message: error.message,
+      stack: error.stack,
+    });
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -428,7 +479,6 @@ async function deleteAccount(req, res, next) {
 async function getAccountDetails(req, res, next) {
   try {
     const { id } = req.params;
-
 
     const results = await Account.aggregate([
       {
@@ -497,15 +547,25 @@ async function getAccountDetails(req, res, next) {
           },
           totalIncomingTransactionsCount: {
             $sum: {
-              $cond: [{ $eq: ["$transactions.transactionType", "Income"] }, 1, 0],
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Income"] },
+                1,
+                0,
+              ],
             },
           },
           totalOutgoingTransactionsCount: {
             $sum: {
-              $cond: [{ $eq: ["$transactions.transactionType", "Expense"] }, 1, 0],
+              $cond: [
+                { $eq: ["$transactions.transactionType", "Expense"] },
+                1,
+                0,
+              ],
             },
           },
-          totalTransactionAmount: { $sum: { $ifNull: ["$transactions.amount", 0] } },
+          totalTransactionAmount: {
+            $sum: { $ifNull: ["$transactions.amount", 0] },
+          },
         },
       },
       {
@@ -537,14 +597,17 @@ async function getAccountDetails(req, res, next) {
               $cond: [
                 { $eq: ["$totalTransactionsCount", 0] },
                 0,
-                { $divide: ["$totalTransactionAmount", "$totalTransactionsCount"] },
+                {
+                  $divide: [
+                    "$totalTransactionAmount",
+                    "$totalTransactionsCount",
+                  ],
+                },
               ],
             },
             totalTransactionsCount: "$totalTransactionsCount",
-            totalIncomingTransactionsCount:
-              "$totalIncomingTransactionsCount",
-            totalOutgoingTransactionsCount:
-              "$totalOutgoingTransactionsCount",
+            totalIncomingTransactionsCount: "$totalIncomingTransactionsCount",
+            totalOutgoingTransactionsCount: "$totalOutgoingTransactionsCount",
           },
           _id: 0,
         },
@@ -565,14 +628,17 @@ async function getAccountDetails(req, res, next) {
         new ApiResponse(
           200,
           accountDetails,
-          "Account details fetched successfully"
-        )
+          "Account details fetched successfully",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
     }
-        logger.error(error);
+    logger.error("Get account details failed:", {
+      message: error.message,
+      stack: error.stack,
+    });
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
