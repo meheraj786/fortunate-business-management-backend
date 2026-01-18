@@ -51,6 +51,11 @@ const customerSchema = new Schema(
 customerSchema.index({ isDeleted: 1, joinDate: -1 });
 customerSchema.index({ isDeleted: 1, customerStatus: 1 });
 
+// Additional indexes for search and filtering
+customerSchema.index({ name: "text", phone: "text", customerId: "text" });
+customerSchema.index({ customerType: 1, isDeleted: 1 });
+customerSchema.index({ createdAt: -1 });
+
 const Customer = mongoose.model("Customer", customerSchema);
 
 module.exports = Customer;

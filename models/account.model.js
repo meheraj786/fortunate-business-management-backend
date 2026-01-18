@@ -9,18 +9,48 @@ const accountSchema = new mongoose.Schema(
     },
     accountName: { type: String, required: true, trim: true },
     accountHolderName: { type: String, trim: true, required: true },
-    bankName: { type: String, trim: true, required: function () { return this.accountType === "Bank"; } },
-    branchName: { type: String, trim: true, required: function () { return this.accountType === "Bank"; } },
-    accountNumber: { type: String, trim: true, required: function () { return this.accountType === "Bank"; } },
+    bankName: {
+      type: String,
+      trim: true,
+      required: function () {
+        return this.accountType === "Bank";
+      },
+    },
+    branchName: {
+      type: String,
+      trim: true,
+      required: function () {
+        return this.accountType === "Bank";
+      },
+    },
+    accountNumber: {
+      type: String,
+      trim: true,
+      required: function () {
+        return this.accountType === "Bank";
+      },
+    },
     swiftCode: { type: String, trim: true },
     routingNumber: { type: String, trim: true },
-    serviceName: { type: String, trim: true, required: function () { return this.accountType === "Mobile Banking"; } },
-    mobileNumber: { type: String, trim: true, required: function () { return this.accountType === "Mobile Banking"; } },
+    serviceName: {
+      type: String,
+      trim: true,
+      required: function () {
+        return this.accountType === "Mobile Banking";
+      },
+    },
+    mobileNumber: {
+      type: String,
+      trim: true,
+      required: function () {
+        return this.accountType === "Mobile Banking";
+      },
+    },
     balance: { type: Number, default: 0 },
     status: { type: String, enum: ["Active", "Archived"], default: "Active" },
     isDeleted: { type: Boolean, default: false, index: true },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // --- QUERY MIDDLEWARE (Soft Delete Filter) ---
@@ -30,7 +60,7 @@ accountSchema.pre(/^find/, function (next) {
   if (query.isDeleted !== undefined) {
     return next();
   }
-  
+
   this.where({ isDeleted: { $ne: true } });
   next();
 });
@@ -47,7 +77,7 @@ accountSchema.pre("save", async function (next) {
         });
         if (existingAccount) {
           const err = new Error(
-            "A bank account with the same bank name and account number already exists."
+            "A bank account with the same bank name and account number already exists.",
           );
           return next(err);
         }
@@ -58,7 +88,7 @@ accountSchema.pre("save", async function (next) {
         });
         if (existingAccount) {
           const err = new Error(
-            "A mobile banking account with the same service name and mobile number already exists."
+            "A mobile banking account with the same service name and mobile number already exists.",
           );
           return next(err);
         }
@@ -69,7 +99,7 @@ accountSchema.pre("save", async function (next) {
         });
         if (existingAccount) {
           const err = new Error(
-            "A cash account with the same account name and account holder name already exists."
+            "A cash account with the same account name and account holder name already exists.",
           );
           return next(err);
         }
@@ -82,6 +112,10 @@ accountSchema.pre("save", async function (next) {
 });
 
 accountSchema.index({ status: 1 });
+
+// Additional indexes to support pre-query middleware and filtering
+accountSchema.index({ isDeleted: 1, accountType: 1 });
+accountSchema.index({ isDeleted: 1, status: 1 });
 
 const Account = mongoose.model("Account", accountSchema);
 module.exports = Account;

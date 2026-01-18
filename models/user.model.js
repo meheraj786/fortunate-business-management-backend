@@ -106,6 +106,10 @@ userSchema.methods.generateToken = function () {
 userSchema.index({ access: 1 });
 userSchema.index({ warehouse: 1 });
 
+// Additional indexes for authentication and authorization
+userSchema.index({ email: 1, isDeleted: 1 });
+userSchema.index({ roleName: 1 });
+
 const User = mongoose.model("User", userSchema);
 
 module.exports = User;

@@ -16,7 +16,7 @@ const storage = multer.diskStorage({
     cb(null, storageUtil.TEMP_DIR);
   },
   filename: function (req, file, cb) {
-    const uniqueSuffix = path.parse(file.originalname).name + '-' + Date.now();
+    const uniqueSuffix = path.parse(file.originalname).name + "-" + Date.now();
     const extension = path.extname(file.originalname);
     cb(null, `${uniqueSuffix}${extension}`);
   },
@@ -49,9 +49,11 @@ async function createCustomer(req, res, next) {
       .padStart(4, "0")}`;
 
     customerData.customerId = newCustomerId;
-    
+
     // 1. Prepare document metadata
-    const preparedDocs = uploadedFiles.map((file) => storageUtil.prepareDocumentData(file));
+    const preparedDocs = uploadedFiles.map((file) =>
+      storageUtil.prepareDocumentData(file),
+    );
     customerData.documents = preparedDocs.map((p) => p.docData);
 
     const [customer] = await Customer.create([customerData], { session });
@@ -60,14 +62,14 @@ async function createCustomer(req, res, next) {
     const { openingDue } = customerData;
     if (openingDue && openingDue > 0) {
       const openingBalanceSaleId = `OPEN-BAL-${customer.customerId.toString()}`;
-      
+
       const openingBalanceSale = {
         saleId: openingBalanceSaleId,
         customer: {
           customerId: customer._id,
           name: customer.name,
           phone: customer.phone,
-          address: customer.billingAddress, 
+          address: customer.billingAddress,
         },
         product: null,
         warehouse: null,
@@ -78,11 +80,11 @@ async function createCustomer(req, res, next) {
         costs: [],
         charges: [],
         discount: 0,
-        invoiceStatus: "Invoiced", 
+        invoiceStatus: "Invoiced",
         paymentStatus: "Due payment",
         payments: [],
         notes: `Automated entry for customer's opening due balance: ${openingDue}.`,
-        saleDate: customer.joinDate || now(), 
+        saleDate: customer.joinDate || now(),
         totalAmount: openingDue,
         totalAmountToBePaid: openingDue,
       };
@@ -95,7 +97,7 @@ async function createCustomer(req, res, next) {
       await storageUtil.commitCustomerDocument(
         preparedDoc.tempPath,
         preparedDoc.docData,
-        customer.customerId
+        customer.customerId,
       );
     }
 
@@ -119,10 +121,15 @@ async function createCustomer(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`,
+        ),
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -138,7 +145,7 @@ async function createCustomer(req, res, next) {
 
 async function getAllCustomers(_, res, next) {
   try {
-    const customers = await Customer.find({ isDeleted: { $ne: true } });
+    const customers = await Customer.find({ isDeleted: { $ne: true } }).lean();
 
     return res
       .status(200)
@@ -150,9 +157,14 @@ async function getAllCustomers(_, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`,
+        ),
+      );
     }
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -161,16 +173,16 @@ async function getAllCustomers(_, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
 
 async function getAllActiveCustomers(_, res, next) {
   try {
-    const customers = await Customer.find({ isDeleted: false }).select(
-      "_id name customerId phone"
-    );
+    const customers = await Customer.find({ isDeleted: false })
+      .select("_id name customerId phone")
+      .lean();
 
     return res
       .status(200)
@@ -178,8 +190,8 @@ async function getAllActiveCustomers(_, res, next) {
         new ApiResponse(
           200,
           customers,
-          "Active customers fetched successfully"
-        )
+          "Active customers fetched successfully",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -258,7 +270,7 @@ async function getCustomerById(req, res, next) {
       },
       {
         $project: {
-          sales: 0, 
+          sales: 0,
         },
       },
     ];
@@ -274,7 +286,7 @@ async function getCustomerById(req, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(200, customerData, "Customer fetched successfully")
+        new ApiResponse(200, customerData, "Customer fetched successfully"),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -283,9 +295,14 @@ async function getCustomerById(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`,
+        ),
+      );
     }
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -362,7 +379,7 @@ async function updateCustomer(req, res, next) {
       }
       customerUpdateData.openingDue = newOpeningDue;
     }
-    
+
     // --- Document Management ---
     const existingDocs = customer.documents || [];
     const incomingDocs = customerUpdateData.documents || [];
@@ -385,7 +402,9 @@ async function updateCustomer(req, res, next) {
     }
 
     finalDocs = existingDocs.filter((doc) =>
-      incomingDocs.some((inDoc) => inDoc._id && inDoc._id.toString() === doc._id.toString()),
+      incomingDocs.some(
+        (inDoc) => inDoc._id && inDoc._id.toString() === doc._id.toString(),
+      ),
     );
 
     if (uploadedFiles.length > 0) {
@@ -405,7 +424,7 @@ async function updateCustomer(req, res, next) {
         await storageUtil.commitCustomerDocument(
           preparedDoc.tempPath,
           preparedDoc.docData,
-          customer.customerId
+          customer.customerId,
         );
       }
     }
@@ -415,7 +434,9 @@ async function updateCustomer(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, updatedCustomer, "Customer updated successfully"));
+      .json(
+        new ApiResponse(200, updatedCustomer, "Customer updated successfully"),
+      );
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -425,7 +446,10 @@ async function updateCustomer(req, res, next) {
     }
     if (error.code === 11000) {
       return next(
-        new ApiError(409, "A customer with the same phone number already exists.")
+        new ApiError(
+          409,
+          "A customer with the same phone number already exists.",
+        ),
       );
     }
     if (error.name === "ValidationError") {
@@ -461,8 +485,8 @@ async function deleteCustomer(req, res, next) {
       return next(
         new ApiError(
           400,
-          `Cannot delete customer with outstanding dues of ${outstandingDues}.`
-        )
+          `Cannot delete customer with outstanding dues of ${outstandingDues}.`,
+        ),
       );
     }
 
@@ -482,7 +506,7 @@ async function deleteCustomer(req, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(200, deleted, "Customer moved to trash successfully")
+        new ApiResponse(200, deleted, "Customer moved to trash successfully"),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -494,8 +518,8 @@ async function deleteCustomer(req, res, next) {
       return next(
         new ApiError(
           409,
-          `A customer with the same ${field} '${value}' already exists.`
-        )
+          `A customer with the same ${field} '${value}' already exists.`,
+        ),
       );
     }
     if (error.name === "ValidationError") {
@@ -610,7 +634,7 @@ async function getCustomerStats(_, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(200, stats, "Customer statistics fetched successfully")
+        new ApiResponse(200, stats, "Customer statistics fetched successfully"),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -620,10 +644,15 @@ async function getCustomerStats(_, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`,
+        ),
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -632,7 +661,7 @@ async function getCustomerStats(_, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -710,7 +739,11 @@ async function getCustomersSummary(req, res, next) {
               input: "$sales",
               as: "sale",
               in: {
-                $cond: [{ $eq: ["$$sale.invoiceStatus", "Not-invoiced"] }, 1, 0],
+                $cond: [
+                  { $eq: ["$$sale.invoiceStatus", "Not-invoiced"] },
+                  1,
+                  0,
+                ],
               },
             },
           },
@@ -741,8 +774,13 @@ async function getCustomersSummary(req, res, next) {
     // Stage 4: Sorting
     const sortStage = {};
     const validSortBy = [
-      "creditLimit", "joinDate", "totalPurchases",
-      "totalSpent", "totalDue", "totalNotInvoiced", "lastPurchaseDate"
+      "creditLimit",
+      "joinDate",
+      "totalPurchases",
+      "totalSpent",
+      "totalDue",
+      "totalNotInvoiced",
+      "lastPurchaseDate",
     ];
     if (validSortBy.includes(sortBy)) {
       sortStage[sortBy] = sortOrderNum;
@@ -782,8 +820,8 @@ async function getCustomersSummary(req, res, next) {
           currentPage: pageNum,
           totalItems: totalCustomers,
         },
-        "Customers summary fetched successfully"
-      )
+        "Customers summary fetched successfully",
+      ),
     );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -793,10 +831,15 @@ async function getCustomersSummary(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A customer with the same ${field} '${value}' already exists.`));
+      return next(
+        new ApiError(
+          409,
+          `A customer with the same ${field} '${value}' already exists.`,
+        ),
+      );
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -805,11 +848,10 @@ async function getCustomersSummary(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
-
 
 module.exports = {
   createCustomer,

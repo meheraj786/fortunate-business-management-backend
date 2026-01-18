@@ -201,7 +201,9 @@ async function createSale(req, res, next) {
           date: paymentDateNormalized,
         })
           .sort({ createdAt: -1 })
-          .session(session);
+          .select("_id status date")
+          .session(session)
+          .lean();
 
         if (!dailyCash || dailyCash.status === "Closed") {
           throw new ApiError(
@@ -268,7 +270,9 @@ async function createSale(req, res, next) {
         );
         const dailyCash = await DailyCash.findOne({ date: saleDateNormalized })
           .sort({ createdAt: -1 })
-          .session(session);
+          .select("_id status date")
+          .session(session)
+          .lean();
 
         if (!dailyCash || dailyCash.status === "Closed") {
           throw new ApiError(
@@ -1250,7 +1254,9 @@ async function addPartialPayment(req, res, next) {
       );
       const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized })
         .sort({ createdAt: -1 })
-        .session(session);
+        .select("_id status date")
+        .session(session)
+        .lean();
 
       if (!dailyCash || dailyCash.status === "Closed") {
         throw new ApiError(

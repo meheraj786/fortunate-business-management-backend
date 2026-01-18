@@ -73,6 +73,10 @@ transactionSchema.index({ date: -1 });
 transactionSchema.index({ accountId: 1 });
 transactionSchema.index({ category: 1 });
 
+// Additional indexes for common queries
+transactionSchema.index({ transactionType: 1, date: -1 });
+transactionSchema.index({ referenceModel: 1, reference: 1 });
+
 const Transaction = mongoose.model("Transaction", transactionSchema);
 
 module.exports = Transaction;

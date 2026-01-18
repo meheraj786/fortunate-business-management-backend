@@ -284,7 +284,8 @@ async function getAllLCs(_, res, next) {
       .populate("financialInfo.costs.accountId")
       .populate("shippingCustomsInfo.costs.accountId")
       .populate("agentTransportInfo.costs.accountId")
-      .populate("otherExpenses.costs.accountId");
+      .populate("otherExpenses.costs.accountId")
+      .lean();
     return res
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
@@ -776,7 +777,8 @@ async function getAllCompletedLCs(_, res, next) {
       .populate("productInfo.quantityUnit", "name type conversionFactor")
       .select(
         "_id basicInfo.lcNumber basicInfo.status productInfo basicInfo.supplierName basicInfo.supplierCountry",
-      );
+      )
+      .lean();
     return res
       .status(200)
       .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));

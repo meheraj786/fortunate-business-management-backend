@@ -180,5 +180,10 @@ salesSchema.index({ "customer.name": 1 });
 salesSchema.index({ saleDate: -1 });
 salesSchema.index({ totalAmountToBePaid: 1 });
 
+// Additional indexes for common query patterns
+salesSchema.index({ warehouse: 1, isDeleted: 1 });
+salesSchema.index({ paymentStatus: 1, isDeleted: 1 });
+salesSchema.index({ createdAt: -1 });
+
 const Sale = mongoose.model("Sale", salesSchema);
 module.exports = Sale;
