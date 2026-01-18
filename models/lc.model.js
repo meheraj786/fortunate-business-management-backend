@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const costSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   amount: { type: Number, required: true },
-  date: { type: Date, required: true, default: Date.now }, // date and time 
+  date: { type: Date, required: true, default: Date.now }, // date and time
   paymentMethod: {
     type: String,
     required: true,
@@ -84,16 +84,18 @@ const lcSchema = new mongoose.Schema(
       costs: [costSchema],
     },
     totalCost: { type: Number, default: 0 },
-      isDeleted: {
-    type: Boolean,
-    default: false,
-    index: true,
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
-  },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 lcSchema.index({ "basicInfo.lcNumber": 1 }, { unique: true }); // Ensure lcNumber is unique
+lcSchema.index({ isDeleted: 1, "basicInfo.lcOpeningDate": -1 });
+lcSchema.index({ isDeleted: 1, "basicInfo.status": 1 });
 
 // Mongoose 'pre-save' middleware to calculate totalCost
 lcSchema.pre("save", function (next) {
@@ -102,25 +104,25 @@ lcSchema.pre("save", function (next) {
   if (this.financialInfo && this.financialInfo.costs) {
     calculatedCost += this.financialInfo.costs.reduce(
       (sum, cost) => sum + (cost.amount || 0),
-      0
+      0,
     );
   }
   if (this.shippingCustomsInfo && this.shippingCustomsInfo.costs) {
     calculatedCost += this.shippingCustomsInfo.costs.reduce(
       (sum, cost) => sum + (cost.amount || 0),
-      0
+      0,
     );
   }
   if (this.agentTransportInfo && this.agentTransportInfo.costs) {
     calculatedCost += this.agentTransportInfo.costs.reduce(
       (sum, cost) => sum + (cost.amount || 0),
-      0
+      0,
     );
   }
   if (this.otherExpenses && this.otherExpenses.costs) {
     calculatedCost += this.otherExpenses.costs.reduce(
       (sum, cost) => sum + (cost.amount || 0),
-      0
+      0,
     );
   }
 

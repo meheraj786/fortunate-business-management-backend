@@ -56,18 +56,19 @@ const transactionSchema = new mongoose.Schema(
     miscReference: {
       type: mongoose.Schema.Types.Mixed,
     },
-      isDeleted: {
-    type: Boolean,
-    default: false,
-    index: true,
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
-  },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 transactionSchema.plugin(mongoosePaginate);
 
 // Indexes for performance
+transactionSchema.index({ isDeleted: 1, date: -1, accountId: 1 });
 transactionSchema.index({ date: -1 });
 transactionSchema.index({ accountId: 1 });
 transactionSchema.index({ category: 1 });

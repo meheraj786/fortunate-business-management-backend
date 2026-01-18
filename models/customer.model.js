@@ -38,15 +38,18 @@ const customerSchema = new Schema(
     },
     joinDate: { type: Date, default: Date.now },
     documents: [documentSchema],
-      isDeleted: {
-    type: Boolean,
-    default: false,
-    index: true,
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
-  },
-  
-  { timestamps: true }
+
+  { timestamps: true },
 );
+
+customerSchema.index({ isDeleted: 1, joinDate: -1 });
+customerSchema.index({ isDeleted: 1, customerStatus: 1 });
 
 const Customer = mongoose.model("Customer", customerSchema);
 

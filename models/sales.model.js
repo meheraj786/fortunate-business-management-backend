@@ -121,7 +121,7 @@ const salesSchema = new mongoose.Schema(
       index: true,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 salesSchema.plugin(mongoosePaginate);
@@ -137,7 +137,7 @@ salesSchema.pre("validate", function (next) {
   const costsTotal = this.costs.reduce((acc, cost) => acc + cost.amount, 0);
   const chargesTotal = this.charges.reduce(
     (acc, charge) => acc + charge.amount,
-    0
+    0,
   );
   this.totalAmountToBePaid =
     this.totalAmount + chargesTotal + costsTotal - this.discount;
@@ -158,7 +158,7 @@ salesSchema.pre("save", function (next) {
   if (this.invoiceStatus === "Invoiced") {
     const totalPaid = this.payments.reduce(
       (acc, payment) => acc + payment.amount,
-      0
+      0,
     );
     if (totalPaid >= this.totalAmountToBePaid) {
       this.paymentStatus = "Paid payment";
@@ -172,6 +172,8 @@ salesSchema.pre("save", function (next) {
 });
 
 // Indexes for performance
+salesSchema.index({ isDeleted: 1, saleDate: -1 });
+salesSchema.index({ invoiceStatus: 1, isDeleted: 1 });
 salesSchema.index({ product: 1 });
 salesSchema.index({ "customer.customerId": 1 });
 salesSchema.index({ "customer.name": 1 });
