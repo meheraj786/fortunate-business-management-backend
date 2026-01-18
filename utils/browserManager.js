@@ -30,7 +30,7 @@ async function getBrowser() {
           "--mute-audio",
           "--no-first-run",
           "--no-default-browser-check",
-          "--single-process", // Use less memory
+          "--no-default-browser-check",
           "--no-zygote",
         ],
       });
@@ -41,7 +41,8 @@ async function getBrowser() {
       });
     } catch (error) {
       logger.error("Failed to launch Puppeteer browser:", error);
-      throw error; // Rethrow to indicate failure
+      // Do not rethrow, just return null so the app can start without PDF generation
+      return null;
     }
   }
   return browserInstance;
