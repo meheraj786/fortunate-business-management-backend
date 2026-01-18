@@ -1,132 +1,186 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Invoice {{invoice.invoiceId}}</title>
     <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body>
+  </head>
+  <body>
     <div class="max-w-5xl mx-auto bg-white" id="invoice-paper">
-        <article class="p-6 sm:p-12 text-sm">
-            <!-- Header -->
-            <div class="flex flex-col sm:flex-row justify-between items-start mb-12">
-                <div class="flex flex-col mb-4 sm:mb-0">
-                    <h1 class="text-3xl font-bold text-black">INVOICE</h1>
-                    <p class="text-gray-600"># {{invoice.invoiceId}}</p>
-                </div>
-                <div class="text-left sm:text-right">
-                    <h2 class="text-xl font-bold text-black">Fortunate Business Management</h2>
-                    <p class="text-gray-600">123 Business Rd, Dhaka, Bangladesh</p>
-                    <p class="text-gray-600">contact@yourcompany.com</p>
-                </div>
+      <article class="p-6 sm:p-12 text-sm">
+        <!-- Header -->
+        <div
+          class="flex flex-col sm:flex-row justify-between items-start mb-12"
+        >
+          <div class="flex flex-col mb-4 sm:mb-0">
+            <h1 class="text-3xl font-bold text-black">INVOICE</h1>
+            <p class="text-gray-600"># {{invoice.invoiceId}}</p>
+          </div>
+          <div class="text-left sm:text-right">
+            <h2 class="text-xl font-bold text-black">
+              {{settings.businessName}}
+            </h2>
+            <p class="text-gray-600">123 Business Rd, Dhaka, Bangladesh</p>
+            <p class="text-gray-600">contact@yourcompany.com</p>
+          </div>
+        </div>
+
+        <!-- Bill To & Invoice Details -->
+        <div class="grid sm:grid-cols-2 gap-8 mb-12">
+          <div>
+            <h3 class="font-semibold text-gray-800 mb-2">Bill To</h3>
+            <p class="font-bold text-black">{{invoice.customerDetails.name}}</p>
+            <p class="text-gray-600">{{invoice.customerDetails.address}}</p>
+            <p class="text-gray-600">{{invoice.customerDetails.phone}}</p>
+          </div>
+          <div class="text-left sm:text-right">
+            <div>
+              <p>
+                <span class="font-semibold text-gray-800">Invoice Date:</span>
+                {{invoice.formattedInvoiceDate}}
+              </p>
+              <p>
+                <span class="font-semibold text-gray-800">Sale Date:</span>
+                {{invoice.formattedSaleDate}}
+              </p>
+              <p>
+                <span class="font-semibold text-gray-800">Sale ID:</span>
+                #{{invoice.shortSalesId}}
+              </p>
             </div>
+          </div>
+        </div>
 
-            <!-- Bill To & Invoice Details -->
-            <div class="grid sm:grid-cols-2 gap-8 mb-12">
-                <div>
-                    <h3 class="font-semibold text-gray-800 mb-2">Bill To</h3>
-                    <p class="font-bold text-black">{{invoice.customerDetails.name}}</p>
-                    <p class="text-gray-600">{{invoice.customerDetails.address}}</p>
-                    <p class="text-gray-600">{{invoice.customerDetails.phone}}</p>
-                </div>
-                <div class="text-left sm:text-right">
-                    <div>
-                        <p><span class="font-semibold text-gray-800">Invoice Date:</span> {{invoice.formattedInvoiceDate}}</p>
-                        <p><span class="font-semibold text-gray-800">Sale Date:</span> {{invoice.formattedSaleDate}}</p>
-                        <p><span class="font-semibold text-gray-800">Sale ID:</span> #{{invoice.shortSalesId}}</p>
-                    </div>
-                </div>
-            </div>
+        <!-- Items Table -->
+        <div class="overflow-x-auto mb-12">
+          <table class="w-full">
+            <thead class="border-b-2 border-black">
+              <tr>
+                <th class="p-1 sm:p-2 text-left font-bold text-black">Item</th>
+                <th class="p-1 sm:p-2 text-center font-bold text-black">Qty</th>
+                <th class="p-1 sm:p-2 text-right font-bold text-black">
+                  Unit Price
+                </th>
+                <th class="p-1 sm:p-2 text-right font-bold text-black">
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-gray-200">
+                <td class="p-1 sm:p-2 align-top">
+                  <p class="font-semibold text-black">
+                    {{invoice.productDetails.name}}
+                  </p>
+                  <p class="text-gray-600">
+                    {{invoice.productDetails.category}}
+                  </p>
+                </td>
+                <td class="p-1 sm:p-2 text-center align-top">
+                  {{invoice.productDetails.quantity}}
+                  {{invoice.productDetails.unit.name}}
+                </td>
+                <td class="p-1 sm:p-2 text-right align-top">
+                  {{currencySymbol}} {{formatNumber
+                  invoice.productDetails.pricePerUnit}}
+                </td>
+                <td class="p-1 sm:p-2 text-right align-top">
+                  {{currencySymbol}} {{formatNumber invoice.productTotal}}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-            <!-- Items Table -->
-            <div class="overflow-x-auto mb-12">
-                <table class="w-full">
-                    <thead class="border-b-2 border-black">
-                        <tr>
-                            <th class="p-1 sm:p-2 text-left font-bold text-black">Item</th>
-                            <th class="p-1 sm:p-2 text-center font-bold text-black">Qty</th>
-                            <th class="p-1 sm:p-2 text-right font-bold text-black">Unit Price</th>
-                            <th class="p-1 sm:p-2 text-right font-bold text-black">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr class="border-b border-gray-200">
-                            <td class="p-1 sm:p-2 align-top">
-                                <p class="font-semibold text-black">{{invoice.productDetails.name}}</p>
-                                <p class="text-gray-600">{{invoice.productDetails.category}}</p>
-                            </td>
-                            <td class="p-1 sm:p-2 text-center align-top">{{invoice.productDetails.quantity}} {{invoice.productDetails.unit.name}}</td>
-                            <td class="p-1 sm:p-2 text-right align-top">BDT {{formatNumber invoice.productDetails.pricePerUnit}}</td>
-                            <td class="p-1 sm:p-2 text-right align-top">BDT {{formatNumber invoice.productTotal}}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Financial Summary -->
-            <div class="grid sm:grid-cols-2 gap-x-6 gap-y-4 sm:gap-x-12 sm:gap-y-8 mb-12">
-                <!-- Payments Section -->
-                <div>
-                    {{#if invoice.paymentAndAmountInfo.payments.length}}
-                    <h3 class="font-semibold text-gray-800 mb-3 border-b pb-1">Payments Received</h3>
-                    <div class="space-y-2">
-                        {{#each invoice.paymentAndAmountInfo.payments}}
-                        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center">
-                            <p class="text-gray-600">{{this.formattedDate}} - {{this.method}} ({{this.accountDetails.accountName}})</p>
-                            <p class="font-semibold text-black text-left sm:text-right">BDT {{formatNumber this.amount}}</p>
-                        </div>
-                        {{/each}}
-                    </div>
-                    {{/if}}
-                </div>
-
-                <!-- Totals Section -->
-                <div class="space-y-2">
-                    <div class="flex justify-between">
-                        <p class="text-gray-600">Subtotal:</p>
-                        <p class="font-semibold text-black">BDT {{formatNumber invoice.paymentAndAmountInfo.totalAmount}}</p>
-                    </div>
-                    {{#each invoice.allChargesAndCosts}}
-                    <div class="flex justify-between">
-                        <p class="text-gray-600">{{this.name}}:</p>
-                        <p class="font-semibold text-black">BDT {{formatNumber this.amount}}</p>
-                    </div>
-                    {{/each}}
-                    {{#if invoice.paymentAndAmountInfo.discount}}
-                    <div class="flex justify-between">
-                        <p class="text-gray-600">Discount:</p>
-                        <p class="font-semibold text-black">-BDT {{formatNumber invoice.paymentAndAmountInfo.discount}}</p>
-                    </div>
-                    {{/if}}
-                    <div class="flex justify-between pt-2 border-t-2 border-black">
-                        <p class="font-bold text-black text-base">Net Amount:</p>
-                        <p class="font-bold text-black text-base">BDT {{formatNumber invoice.paymentAndAmountInfo.totalAmountToBePaid}}</p>
-                    </div>
-                    <div class="flex justify-between">
-                        <p class="text-gray-600">Total Paid:</p>
-                        <p class="font-semibold text-black">BDT {{formatNumber invoice.totalPayments}}</p>
-                    </div>
-                    <div class="flex justify-between bg-gray-100 p-2 rounded-md">
-                        <p class="font-bold text-black text-base">Balance Due:</p>
-                        <p class="font-bold text-black text-base">BDT {{formatNumber invoice.balanceDue}}</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Notes -->
-            {{#if invoice.notes}}
-            <div class="mb-12">
-                <h3 class="font-semibold text-gray-800 mb-2">Notes</h3>
-                <p class="text-gray-600 whitespace-pre-line">{{invoice.notes}}</p>
+        <!-- Financial Summary -->
+        <div
+          class="grid sm:grid-cols-2 gap-x-6 gap-y-4 sm:gap-x-12 sm:gap-y-8 mb-12"
+        >
+          <!-- Payments Section -->
+          <div>
+            {{#if invoice.paymentAndAmountInfo.payments.length}}
+            <h3 class="font-semibold text-gray-800 mb-3 border-b pb-1">
+              Payments Received
+            </h3>
+            <div class="space-y-2">
+              {{#each invoice.paymentAndAmountInfo.payments}}
+              <div
+                class="flex flex-col sm:flex-row sm:justify-between sm:items-center"
+              >
+                <p class="text-gray-600">
+                  {{this.formattedDate}} - {{this.method}}
+                  ({{this.accountDetails.accountName}})
+                </p>
+                <p class="font-semibold text-black text-left sm:text-right">
+                  {{../currencySymbol}} {{formatNumber this.amount}}
+                </p>
+              </div>
+              {{/each}}
             </div>
             {{/if}}
+          </div>
 
-            <!-- Footer -->
-            <footer class="text-center pt-8 border-t">
-                <p class="text-gray-600">Thank you for your business.</p>
-            </footer>
-        </article>
+          <!-- Totals Section -->
+          <div class="space-y-2">
+            <div class="flex justify-between">
+              <p class="text-gray-600">Subtotal:</p>
+              <p class="font-semibold text-black">
+                {{currencySymbol}} {{formatNumber
+                invoice.paymentAndAmountInfo.totalAmount}}
+              </p>
+            </div>
+            {{#each invoice.allChargesAndCosts}}
+            <div class="flex justify-between">
+              <p class="text-gray-600">{{this.name}}:</p>
+              <p class="font-semibold text-black">
+                {{../currencySymbol}} {{formatNumber this.amount}}
+              </p>
+            </div>
+            {{/each}} {{#if invoice.paymentAndAmountInfo.discount}}
+            <div class="flex justify-between">
+              <p class="text-gray-600">Discount:</p>
+              <p class="font-semibold text-black">
+                -{{currencySymbol}} {{formatNumber
+                invoice.paymentAndAmountInfo.discount}}
+              </p>
+            </div>
+            {{/if}}
+            <div class="flex justify-between pt-2 border-t-2 border-black">
+              <p class="font-bold text-black text-base">Net Amount:</p>
+              <p class="font-bold text-black text-base">
+                {{currencySymbol}} {{formatNumber
+                invoice.paymentAndAmountInfo.totalAmountToBePaid}}
+              </p>
+            </div>
+            <div class="flex justify-between">
+              <p class="text-gray-600">Total Paid:</p>
+              <p class="font-semibold text-black">
+                {{currencySymbol}} {{formatNumber invoice.totalPayments}}
+              </p>
+            </div>
+            <div class="flex justify-between bg-gray-100 p-2 rounded-md">
+              <p class="font-bold text-black text-base">Balance Due:</p>
+              <p class="font-bold text-black text-base">
+                {{currencySymbol}} {{formatNumber invoice.balanceDue}}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        {{#if invoice.notes}}
+        <div class="mb-12">
+          <h3 class="font-semibold text-gray-800 mb-2">Notes</h3>
+          <p class="text-gray-600 whitespace-pre-line">{{invoice.notes}}</p>
+        </div>
+        {{/if}}
+
+        <!-- Footer -->
+        <footer class="text-center pt-8 border-t">
+          <p class="text-gray-600">Thank you for your business.</p>
+        </footer>
+      </article>
     </div>
-</body>
+  </body>
 </html>

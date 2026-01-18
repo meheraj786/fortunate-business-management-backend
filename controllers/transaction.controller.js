@@ -34,7 +34,10 @@ async function createTransaction(req, res, next) {
       !paymentMethod ||
       !category
     ) {
-      throw new ApiError(400, "All required transaction fields must be provided.");
+      throw new ApiError(
+        400,
+        "All required transaction fields must be provided.",
+      );
     }
 
     const account = await Account.findById(accountId).session(session);
@@ -43,7 +46,7 @@ async function createTransaction(req, res, next) {
     }
 
     // DailyCash Gatekeeper Check
-    const transactionDate = startOfDay(new Date(date));
+    const transactionDate = startOfDay(new Date(date), req.businessTimezone);
     const dailyCash = await DailyCash.findOne({
       date: transactionDate,
       status: "Open",
@@ -52,7 +55,7 @@ async function createTransaction(req, res, next) {
     if (!dailyCash) {
       throw new ApiError(
         400,
-        `Daily cash is closed for ${transactionDate.toDateString()}. Cannot create transaction.`
+        `Daily cash is closed for ${transactionDate.toDateString()}. Cannot create transaction.`,
       );
     }
 
@@ -64,7 +67,10 @@ async function createTransaction(req, res, next) {
       }
       account.balance -= amount;
     } else {
-      throw new ApiError(400, "Invalid transaction type. Must be 'Income' or 'Expense'.");
+      throw new ApiError(
+        400,
+        "Invalid transaction type. Must be 'Income' or 'Expense'.",
+      );
     }
 
     await account.save({ session });
@@ -84,7 +90,7 @@ async function createTransaction(req, res, next) {
           isDeleted: false,
         },
       ],
-      { session }
+      { session },
     );
 
     await session.commitTransaction();
@@ -96,8 +102,8 @@ async function createTransaction(req, res, next) {
         new ApiResponse(
           201,
           newTransaction[0],
-          "Transaction created successfully."
-        )
+          "Transaction created successfully.",
+        ),
       );
   } catch (error) {
     await session.abortTransaction();
@@ -136,7 +142,7 @@ async function updateTransaction(req, res, next) {
     if (transaction.source === "Auto") {
       throw new ApiError(
         400,
-        "Cannot update an automatically generated transaction. Please update the source (e.g., Sale, LC) instead."
+        "Cannot update an automatically generated transaction. Please update the source (e.g., Sale, LC) instead.",
       );
     }
 
@@ -145,35 +151,47 @@ async function updateTransaction(req, res, next) {
     const oldTransactionType = transaction.transactionType;
 
     // DailyCash Gatekeeper Check for old and new dates if they differ
-    const oldTransactionDate = startOfDay(new Date(transaction.date));
-    const newTransactionDate = startOfDay(new Date(date));
+    const oldTransactionDate = startOfDay(
+      new Date(transaction.date),
+      req.businessTimezone,
+    );
+    const newTransactionDate = startOfDay(new Date(date), req.businessTimezone);
     if (oldTransactionDate.getTime() !== newTransactionDate.getTime()) {
-        const newDailyCash = await DailyCash.findOne({ date: newTransactionDate, status: "Open" }).session(session);
-        if (!newDailyCash) {
-            throw new ApiError(
-                400,
-                `Daily cash is closed for ${newTransactionDate.toDateString()}. Cannot update transaction date.`
-            );
-        }
-        const oldDailyCash = await DailyCash.findOne({ date: oldTransactionDate, status: "Open" }).session(session);
-         if (!oldDailyCash) {
-            throw new ApiError(
-                400,
-                `Daily cash is closed for ${oldTransactionDate.toDateString()}. Cannot update transaction as it affects a closed daily cash.`
-            );
-        }
+      const newDailyCash = await DailyCash.findOne({
+        date: newTransactionDate,
+        status: "Open",
+      }).session(session);
+      if (!newDailyCash) {
+        throw new ApiError(
+          400,
+          `Daily cash is closed for ${newTransactionDate.toDateString()}. Cannot update transaction date.`,
+        );
+      }
+      const oldDailyCash = await DailyCash.findOne({
+        date: oldTransactionDate,
+        status: "Open",
+      }).session(session);
+      if (!oldDailyCash) {
+        throw new ApiError(
+          400,
+          `Daily cash is closed for ${oldTransactionDate.toDateString()}. Cannot update transaction as it affects a closed daily cash.`,
+        );
+      }
     } else {
-         const dailyCash = await DailyCash.findOne({ date: newTransactionDate, status: "Open" }).session(session);
-         if (!dailyCash) {
-            throw new ApiError(
-                400,
-                `Daily cash is closed for ${newTransactionDate.toDateString()}. Cannot update transaction.`
-            );
-        }
+      const dailyCash = await DailyCash.findOne({
+        date: newTransactionDate,
+        status: "Open",
+      }).session(session);
+      if (!dailyCash) {
+        throw new ApiError(
+          400,
+          `Daily cash is closed for ${newTransactionDate.toDateString()}. Cannot update transaction.`,
+        );
+      }
     }
 
-
-    const currentAccount = await Account.findById(oldAccountId).session(session);
+    const currentAccount =
+      await Account.findById(oldAccountId).session(session);
     if (!currentAccount) {
       throw new ApiError(404, "Original account not found.");
     }
@@ -183,7 +201,7 @@ async function updateTransaction(req, res, next) {
       if (currentAccount.balance < oldAmount) {
         throw new ApiError(
           400,
-          `Insufficient balance in ${currentAccount.accountName} to reverse old income.`
+          `Insufficient balance in ${currentAccount.accountName} to reverse old income.`,
         );
       }
       currentAccount.balance -= oldAmount;
@@ -206,7 +224,10 @@ async function updateTransaction(req, res, next) {
       }
       newAccount.balance -= amount;
     } else {
-      throw new ApiError(400, "Invalid transaction type. Must be 'Income' or 'Expense'.");
+      throw new ApiError(
+        400,
+        "Invalid transaction type. Must be 'Income' or 'Expense'.",
+      );
     }
     await newAccount.save({ session });
 
@@ -227,7 +248,9 @@ async function updateTransaction(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, transaction, "Transaction updated successfully."));
+      .json(
+        new ApiResponse(200, transaction, "Transaction updated successfully."),
+      );
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -246,9 +269,13 @@ async function getTransactionDetails(req, res, next) {
       return next(new ApiError(400, "Transaction ID is required."));
     }
 
-
     const results = await Transaction.aggregate([
-      { $match: { _id: new mongoose.Types.ObjectId(id), isDeleted: { $ne: true } } },
+      {
+        $match: {
+          _id: new mongoose.Types.ObjectId(id),
+          isDeleted: { $ne: true },
+        },
+      },
       {
         $lookup: {
           from: "accounts",
@@ -298,7 +325,11 @@ async function getTransactionDetails(req, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(200, transaction, "Transaction details fetched successfully.")
+        new ApiResponse(
+          200,
+          transaction,
+          "Transaction details fetched successfully.",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -308,10 +339,15 @@ async function getTransactionDetails(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -320,7 +356,7 @@ async function getTransactionDetails(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -419,7 +455,7 @@ async function getAllTransactions(req, res, next) {
 
     const transactions = result[0].data;
     const totalCount = result[0].metadata[0] ? result[0].metadata[0].total : 0;
-    const categories = result[0].categories.map(c => c.category);
+    const categories = result[0].categories.map((c) => c.category);
 
     const response = {
       transactions: {
@@ -436,7 +472,11 @@ async function getAllTransactions(req, res, next) {
     return res
       .status(200)
       .json(
-        new ApiResponse(200, response, "All transactions fetched successfully.")
+        new ApiResponse(
+          200,
+          response,
+          "All transactions fetched successfully.",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -449,8 +489,8 @@ async function getAllTransactions(req, res, next) {
       return next(
         new ApiError(
           409,
-          `A document with the same ${field} '${value}' already exists.`
-        )
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
       ); // Generic message
     }
     // Handle Mongoose validation errors
@@ -463,7 +503,7 @@ async function getAllTransactions(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -483,8 +523,16 @@ async function getTransactionStats(req, res, next) {
 
     if (startDate || endDate) {
       matchQuery.date = {};
-      if (startDate) matchQuery.date.$gte = startOfDay(new Date(startDate));
-      if (endDate) matchQuery.date.$lte = endOfDay(new Date(endDate));
+      if (startDate)
+        matchQuery.date.$gte = startOfDay(
+          new Date(startDate),
+          req.businessTimezone,
+        );
+      if (endDate)
+        matchQuery.date.$lte = endOfDay(
+          new Date(endDate),
+          req.businessTimezone,
+        );
     }
     if (transactionType) matchQuery.transactionType = transactionType;
     if (category) matchQuery.category = category;
@@ -507,15 +555,15 @@ async function getTransactionStats(req, res, next) {
               },
             },
             {
-                $project: {
-                    _id: 0,
-                    totalTransactionsCount: 1,
-                    totalAmount: 1,
-                    averageTransactionAmount: 1,
-                    maxTransactionAmount: 1,
-                    minTransactionAmount: 1,
-                }
-            }
+              $project: {
+                _id: 0,
+                totalTransactionsCount: 1,
+                totalAmount: 1,
+                averageTransactionAmount: 1,
+                maxTransactionAmount: 1,
+                minTransactionAmount: 1,
+              },
+            },
           ],
           paymentMethodStats: [
             {
@@ -526,13 +574,13 @@ async function getTransactionStats(req, res, next) {
               },
             },
             {
-                $project: {
-                    _id: 0, // Exclude _id
-                    paymentMethod: "$_id",
-                    count: 1,
-                    totalAmount: 1,
-                }
-            }
+              $project: {
+                _id: 0, // Exclude _id
+                paymentMethod: "$_id",
+                count: 1,
+                totalAmount: 1,
+              },
+            },
           ],
         },
       },
@@ -548,7 +596,8 @@ async function getTransactionStats(req, res, next) {
     const formattedStats = {
       totalTransactionsCount: stats[0]?.overall?.totalTransactionsCount || 0,
       totalAmount: stats[0]?.overall?.totalAmount || 0,
-      averageTransactionAmount: stats[0]?.overall?.averageTransactionAmount || 0,
+      averageTransactionAmount:
+        stats[0]?.overall?.averageTransactionAmount || 0,
       maxTransactionAmount: stats[0]?.overall?.maxTransactionAmount || 0,
       minTransactionAmount: stats[0]?.overall?.minTransactionAmount || 0,
       totalBankTransactionCount: 0,
@@ -565,7 +614,8 @@ async function getTransactionStats(req, res, next) {
         formattedStats.totalBankTransactionsAmount = pmStat.totalAmount;
       } else if (pmStat.paymentMethod === "Mobile Banking") {
         formattedStats.totalMobileBankingTransactionCount = pmStat.count;
-        formattedStats.totalMobileBankingTransactionsAmount = pmStat.totalAmount;
+        formattedStats.totalMobileBankingTransactionsAmount =
+          pmStat.totalAmount;
       } else if (pmStat.paymentMethod === "Cash") {
         formattedStats.totalCashTransactionCount = pmStat.count;
         formattedStats.totalCashTransactionsAmount = pmStat.totalAmount;
@@ -578,8 +628,8 @@ async function getTransactionStats(req, res, next) {
         new ApiResponse(
           200,
           formattedStats,
-          "Transaction statistics fetched successfully."
-        )
+          "Transaction statistics fetched successfully.",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
@@ -589,10 +639,15 @@ async function getTransactionStats(req, res, next) {
     if (error.code === 11000 && error.keyPattern && error.keyValue) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
-      return next(new ApiError(409, `A document with the same ${field} '${value}' already exists.`)); // Generic message
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
     }
     // Handle Mongoose validation errors
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       let userFriendlyMessage = "Validation failed.";
 
@@ -601,7 +656,7 @@ async function getTransactionStats(req, res, next) {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -624,7 +679,6 @@ async function getTransactionsByAccount(req, res, next) {
     const limitNum = parseInt(limit, 10);
     const skip = (pageNum - 1) * limitNum;
 
-
     const pipeline = [];
 
     // --- Main Filtering Stage ---
@@ -638,7 +692,7 @@ async function getTransactionsByAccount(req, res, next) {
     if (search) matchQuery.description = { $regex: search, $options: "i" };
 
     pipeline.push({ $match: matchQuery });
-    
+
     const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
 
     // --- Facet Stage for Parallel Execution ---
@@ -703,7 +757,7 @@ async function getTransactionsByAccount(req, res, next) {
 
     const transactions = result[0].data;
     const totalCount = result[0].metadata[0] ? result[0].metadata[0].total : 0;
-    const categories = result[0].categories.map(c => c.category);
+    const categories = result[0].categories.map((c) => c.category);
 
     const response = {
       transactions: {
@@ -722,14 +776,14 @@ async function getTransactionsByAccount(req, res, next) {
         new ApiResponse(
           200,
           response,
-          "Transactions for the account fetched successfully."
-        )
+          "Transactions for the account fetched successfully.",
+        ),
       );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 }
@@ -752,21 +806,26 @@ async function deleteTransaction(req, res, next) {
     if (transaction.source === "Auto") {
       throw new ApiError(
         400,
-        "Cannot delete an automatically generated transaction. Please delete the source (e.g., Sale, LC) instead."
+        "Cannot delete an automatically generated transaction. Please delete the source (e.g., Sale, LC) instead.",
       );
     }
 
     // DailyCash Gatekeeper Check
-    const today = startOfDay(now());
-    const dailyCash = await DailyCash.findOne({ date: today, status: "Open" }).session(session);
+    const today = startOfDay(now(), req.businessTimezone);
+    const dailyCash = await DailyCash.findOne({
+      date: today,
+      status: "Open",
+    }).session(session);
     if (!dailyCash) {
       throw new ApiError(
         400,
-        `Daily cash is closed for ${today.toDateString()}. Cannot delete transaction.`
+        `Daily cash is closed for ${today.toDateString()}. Cannot delete transaction.`,
       );
     }
 
-    const account = await Account.findById(transaction.accountId).session(session);
+    const account = await Account.findById(transaction.accountId).session(
+      session,
+    );
     if (!account) {
       throw new ApiError(404, "Associated account not found");
     }
@@ -776,7 +835,7 @@ async function deleteTransaction(req, res, next) {
       if (account.balance < transaction.amount) {
         throw new ApiError(
           400,
-          `Insufficient balance in ${account.accountName} to reverse this income transaction.`
+          `Insufficient balance in ${account.accountName} to reverse this income transaction.`,
         );
       }
       account.balance -= transaction.amount;
@@ -802,7 +861,9 @@ async function deleteTransaction(req, res, next) {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, null, "Transaction moved to trash successfully"));
+      .json(
+        new ApiResponse(200, null, "Transaction moved to trash successfully"),
+      );
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -810,7 +871,12 @@ async function deleteTransaction(req, res, next) {
       return next(error);
     }
     logger.error("DeleteTransaction Error:", error);
-    next(new ApiError(500, "Failed to move transaction to trash. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "Failed to move transaction to trash. Please try again.",
+      ),
+    );
   }
 }
 

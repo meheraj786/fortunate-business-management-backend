@@ -39,7 +39,7 @@ async function createSale(req, res, next) {
     } = req.body;
 
     // Validate Sale Date
-    SalesService.validateSaleDate(saleDate);
+    SalesService.validateSaleDate(saleDate, req.businessTimezone);
 
     const validationErrors = [];
     if (!productId)
@@ -193,7 +193,10 @@ async function createSale(req, res, next) {
 
         // Create a corresponding transaction record
         // 1. DailyCash Gatekeeper Check
-        const paymentDateNormalized = startOfDay(new Date(payment.date));
+        const paymentDateNormalized = startOfDay(
+          new Date(payment.date),
+          req.businessTimezone,
+        );
         const dailyCash = await DailyCash.findOne({
           date: paymentDateNormalized,
         })
@@ -259,7 +262,10 @@ async function createSale(req, res, next) {
         }
 
         // DailyCash check for the cost transaction date
-        const saleDateNormalized = startOfDay(new Date(sale.saleDate));
+        const saleDateNormalized = startOfDay(
+          new Date(sale.saleDate),
+          req.businessTimezone,
+        );
         const dailyCash = await DailyCash.findOne({ date: saleDateNormalized })
           .sort({ createdAt: -1 })
           .session(session);
@@ -1238,7 +1244,10 @@ async function addPartialPayment(req, res, next) {
     // For any account-based payment, we need an account ID
     if (["Bank", "Mobile Banking", "Cash"].includes(paymentMethod)) {
       // 1. DailyCash Gatekeeper Check
-      const paymentDateNormalized = startOfDay(new Date(date));
+      const paymentDateNormalized = startOfDay(
+        new Date(date),
+        req.businessTimezone,
+      );
       const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized })
         .sort({ createdAt: -1 })
         .session(session);
@@ -1509,7 +1518,7 @@ async function cancelSale(req, res, next) {
     }
 
     // DailyCash Gatekeeper Check for reversal transactions
-    const today = startOfDay(now());
+    const today = startOfDay(now(), req.businessTimezone);
     const dailyCash = await DailyCash.findOne({ date: today })
       .sort({ createdAt: -1 })
       .session(session);

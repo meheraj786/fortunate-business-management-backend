@@ -146,10 +146,11 @@ async function createAccount(req, res, next) {
 
     // If there's an initial balance, create a corresponding transaction
     if (initialBalance && initialBalance > 0) {
-      // 1. DailyCash Gatekeeper Check
+      // 1. DailyCash Gatekeeper Check (use request timezone)
+      const timezone = req.businessTimezone; // Get timezone from middleware
       const currentTime = now();
-      const startOfToday = startOfDay(currentTime);
-      const endOfToday = endOfDay(currentTime);
+      const startOfToday = startOfDay(currentTime, timezone);
+      const endOfToday = endOfDay(currentTime, timezone);
 
       const dailyCash = await DailyCash.findOne({
         date: {
@@ -161,7 +162,7 @@ async function createAccount(req, res, next) {
         .session(session);
 
       if (!dailyCash || dailyCash.status === "Closed") {
-        const todayString = formatInTimeZone(currentTime, "PPP");
+        const todayString = formatInTimeZone(currentTime, "PPP", timezone);
         throw new ApiError(
           400,
           `Daily cash is closed for ${todayString}. Cannot create account with initial balance. Open daily cash first.`,

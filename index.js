@@ -23,6 +23,7 @@ const {
   autoCloseDailyCashForCron,
   closeMissedDailyCashEntries,
 } = require("./controllers/dailyCash.controller"); // Cron controllers
+const { attachTimezone } = require("./middleware/timezone.middleware"); // Timezone middleware
 
 // Create express app
 const app = express(); // Initialize express app
@@ -83,6 +84,9 @@ const limiter = rateLimit({
   message: "Too many requests!!", // Message
 });
 app.use(limiter);
+
+// Attach timezone to all requests (must be before routes)
+app.use(attachTimezone);
 
 // Register routes
 app.use(routers); // Use all API routes

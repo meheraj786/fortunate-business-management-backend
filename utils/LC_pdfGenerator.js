@@ -1,43 +1,46 @@
 const PDFDocument = require("pdfkit");
-const { format } = require('date-fns');
+const { format } = require("date-fns");
+const SystemSettings = require("../models/systemSettings.model");
 
-function generateLCPDF(lc, res) {
+async function generateLCPDF(lc, res) {
   // Validate input data - FIXED: Use camelCase
   if (!lc || !lc.basicInfo) {
-    return res.status(400).json({ error: 'Invalid LC data provided' });
+    return res.status(400).json({ error: "Invalid LC data provided" });
   }
 
   try {
-    const doc = new PDFDocument({ 
-      size: "A4", 
+    const settings = await SystemSettings.getSingleton();
+
+    const doc = new PDFDocument({
+      size: "A4",
       margin: 40,
       info: {
         Title: `LC Document - ${lc.basicInfo.lcNumber}`,
-        Author: 'LC Management System',
-        Creator: 'LC Management System'
-      }
+        Author: "LC Management System",
+        Creator: "LC Management System",
+      },
     });
 
     // Set response headers
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="lc_${lc.basicInfo.lcNumber}_${format(new Date(), 'yyyy-MM-dd')}.pdf"`
+      `attachment; filename="lc_${lc.basicInfo.lcNumber}_${format(new Date(), "yyyy-MM-dd")}.pdf"`,
     );
 
     // Handle stream errors properly
-    doc.on('error', (error) => {
-      console.error('PDF Stream Error:', error);
+    doc.on("error", (error) => {
+      console.error("PDF Stream Error:", error);
       if (!res.headersSent) {
-        res.status(500).json({ 
-          error: 'PDF generation failed', 
-          details: error.message 
+        res.status(500).json({
+          error: "PDF generation failed",
+          details: error.message,
         });
       }
     });
 
-    res.on('error', (error) => {
-      console.error('Response Stream Error:', error);
+    res.on("error", (error) => {
+      console.error("Response Stream Error:", error);
     });
 
     doc.pipe(res);
@@ -51,121 +54,157 @@ function generateLCPDF(lc, res) {
       warningColor: [255, 193, 7],
       lineHeight: 1.2,
       sectionSpacing: 15,
-      paragraphSpacing: 8
+      paragraphSpacing: 8,
     };
 
     // Generate content
-    generatePDFContent(doc, lc, config);
+    generatePDFContent(doc, lc, config, settings);
 
     doc.end();
-
   } catch (error) {
-    console.error('PDF Generation Error:', error);
+    console.error("PDF Generation Error:", error);
     if (!res.headersSent) {
-      res.status(500).json({ 
-        error: 'Failed to generate PDF', 
-        details: error.message 
+      res.status(500).json({
+        error: "Failed to generate PDF",
+        details: error.message,
       });
     }
   }
 }
 
 // Helper functions
-function formatCurrency(amount, currency = 'BDT') {
-  if (amount === null || amount === undefined || isNaN(amount)) return 'N/A';
-  return new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(amount) + ` ${currency}`;
+function formatCurrency(amount, currency = "BDT") {
+  if (amount === null || amount === undefined || isNaN(amount)) return "N/A";
+
+  const symbols = {
+    USD: "$",
+    BDT: "৳",
+    EUR: "€",
+    GBP: "£",
+    INR: "₹",
+    JPY: "¥",
+    CAD: "C$",
+    AUD: "A$",
+    CNY: "¥",
+    AED: "AED",
+    SAR: "SAR",
+  };
+  const symbol = symbols[currency] || currency;
+
+  return (
+    new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount) + ` ${symbol}`
+  );
 }
 
-function formatDate(dateString) {
-  if (!dateString) return 'N/A';
+function formatDate(dateString, dateFormat = "dd MMM yyyy") {
+  if (!dateString) return "N/A";
   try {
-    return format(new Date(dateString), 'dd MMM yyyy');
+    // Map common format strings to date-fns format tokens if needed,
+    // but date-fns tokens are standard: dd, MM, yyyy etc.
+    // If settings come as "MM/DD/YYYY" (which is common in date pickers), we need to adapt.
+    // However, for PDF generation with date-fns, we need valid date-fns tokens.
+    // Let's assume settings.dateFormat might be "DD/MM/YYYY" or "MM/DD/YYYY" from standard pickers.
+    // We can do a quick mapping or just use a robust generic format.
+    // For now, let's stick to the passed format or default.
+
+    // Quick mapping for standard formats if they differ from date-fns
+    let finalFormat = dateFormat
+      .replace("DD", "dd")
+      .replace("YYYY", "yyyy")
+      .replace("MM", "MM");
+
+    return format(new Date(dateString), finalFormat);
   } catch (error) {
-    return 'Invalid Date';
+    console.error("Date formatting error:", error);
+    return "Invalid Date";
   }
 }
 
 function drawSectionHeader(doc, config, title) {
   const startY = doc.y;
-  
-  doc.fillColor(config.primaryColor)
-     .fontSize(16)
-     .font("Helvetica-Bold")
-     .text(title, { underline: false });
-  
+
+  doc
+    .fillColor(config.primaryColor)
+    .fontSize(16)
+    .font("Helvetica-Bold")
+    .text(title, { underline: false });
+
   doc.moveDown(0.3);
-  doc.strokeColor(config.primaryColor)
-     .lineWidth(1)
-     .moveTo(40, doc.y)
-     .lineTo(555, doc.y)
-     .stroke();
-  
+  doc
+    .strokeColor(config.primaryColor)
+    .lineWidth(1)
+    .moveTo(40, doc.y)
+    .lineTo(555, doc.y)
+    .stroke();
+
   doc.moveDown(0.8);
   return startY;
 }
 
 function drawTable(doc, config, title, headers, data, columnWidths = null) {
   const startY = doc.y;
-  
+
   if (title) {
-    doc.fillColor(config.secondaryColor)
-       .fontSize(12)
-       .font("Helvetica-Bold")
-       .text(title);
+    doc
+      .fillColor(config.secondaryColor)
+      .fontSize(12)
+      .font("Helvetica-Bold")
+      .text(title);
     doc.moveDown(0.5);
   }
 
   const tableTop = doc.y;
   const columnCount = headers.length;
   const pageWidth = 555 - 40;
-  const columnSpacing = columnWidths 
-    ? columnWidths 
+  const columnSpacing = columnWidths
+    ? columnWidths
     : Array(columnCount).fill(pageWidth / columnCount);
 
   // Draw table headers with background
   doc.fontSize(9).font("Helvetica-Bold");
   let x = 40;
-  
+
   headers.forEach((header, i) => {
     // Draw header background
-    doc.fillColor(config.primaryColor)
-       .rect(x, tableTop, columnSpacing[i], 20)
-       .fill();
-    
+    doc
+      .fillColor(config.primaryColor)
+      .rect(x, tableTop, columnSpacing[i], 20)
+      .fill();
+
     // Draw header text
-    doc.fillColor([255, 255, 255])
-       .text(header, x + 5, tableTop + 5, { 
-         width: columnSpacing[i] - 10,
-         align: 'left'
-       });
+    doc.fillColor([255, 255, 255]).text(header, x + 5, tableTop + 5, {
+      width: columnSpacing[i] - 10,
+      align: "left",
+    });
     x += columnSpacing[i];
   });
 
   // Draw table rows
   doc.font("Helvetica");
   let y = tableTop + 20;
-  
+
   data.forEach((row, rowIndex) => {
     // Check for page break before drawing row
     if (y > 700) {
       doc.addPage();
       y = 100;
-      
+
       // Redraw headers on new page
       x = 40;
       headers.forEach((header, i) => {
-        doc.fillColor(config.primaryColor)
-           .rect(x, y, columnSpacing[i], 20)
-           .fill()
-           .fillColor([255, 255, 255])
-           .font("Helvetica-Bold")
-           .text(header, x + 5, y + 5, { 
-             width: columnSpacing[i] - 10,
-             align: 'left'
-           });
+        doc
+          .fillColor(config.primaryColor)
+          .rect(x, y, columnSpacing[i], 20)
+          .fill()
+          .fillColor([255, 255, 255])
+          .font("Helvetica-Bold")
+          .text(header, x + 5, y + 5, {
+            width: columnSpacing[i] - 10,
+            align: "left",
+          });
         x += columnSpacing[i];
       });
       y += 20;
@@ -173,34 +212,36 @@ function drawTable(doc, config, title, headers, data, columnWidths = null) {
 
     // Alternate row colors
     const rowColor = rowIndex % 2 === 0 ? [248, 249, 250] : [255, 255, 255];
-    
+
     x = 40;
     let maxCellHeight = 0;
-    
+
     // Calculate cell heights
     const cellHeights = row.map((cell, i) => {
-      return doc.heightOfString(cell.toString(), { 
-        width: columnSpacing[i] - 10 
-      }) + 10;
+      return (
+        doc.heightOfString(cell.toString(), {
+          width: columnSpacing[i] - 10,
+        }) + 10
+      );
     });
     maxCellHeight = Math.max(...cellHeights);
 
     // Draw cell backgrounds
     row.forEach((_, i) => {
-      doc.fillColor(rowColor)
-         .rect(x, y, columnSpacing[i], maxCellHeight)
-         .fill();
+      doc
+        .fillColor(rowColor)
+        .rect(x, y, columnSpacing[i], maxCellHeight)
+        .fill();
       x += columnSpacing[i];
     });
 
     // Draw cell text
     x = 40;
     row.forEach((cell, i) => {
-      doc.fillColor([0, 0, 0])
-         .text(cell.toString(), x + 5, y + 5, { 
-           width: columnSpacing[i] - 10,
-           align: 'left'
-         });
+      doc.fillColor([0, 0, 0]).text(cell.toString(), x + 5, y + 5, {
+        width: columnSpacing[i] - 10,
+        align: "left",
+      });
       x += columnSpacing[i];
     });
 
@@ -212,63 +253,75 @@ function drawTable(doc, config, title, headers, data, columnWidths = null) {
 }
 
 function drawKeyValuePair(doc, config, key, value, indent = 0) {
-  const xPos = 40 + (indent * 15);
-  
-  doc.fillColor(config.secondaryColor)
-     .fontSize(10)
-     .font("Helvetica-Bold")
-     .text(`${key}:`, xPos, doc.y, { continued: true })
-     .fillColor([0, 0, 0])
-     .font("Helvetica")
-     .text(` ${value || 'N/A'}`);
-  
+  const xPos = 40 + indent * 15;
+
+  doc
+    .fillColor(config.secondaryColor)
+    .fontSize(10)
+    .font("Helvetica-Bold")
+    .text(`${key}:`, xPos, doc.y, { continued: true })
+    .fillColor([0, 0, 0])
+    .font("Helvetica")
+    .text(` ${value || "N/A"}`);
+
   doc.moveDown(0.5);
 }
 
 function drawStatusBadge(doc, config, status) {
   const statusColors = {
-    'draft': config.secondaryColor,
-    'active': config.successColor,
-    'completed': config.primaryColor,
-    'cancelled': config.accentColor
+    draft: config.secondaryColor,
+    active: config.successColor,
+    completed: config.primaryColor,
+    cancelled: config.accentColor,
   };
-  
-  const statusColor = statusColors[status?.toLowerCase()] || config.secondaryColor;
-  
-  doc.fillColor(statusColor)
-     .fontSize(10)
-     .font("Helvetica-Bold")
-     .text(`Status: ${status?.toUpperCase() || 'UNKNOWN'}`, { 
-       align: 'right'
-     });
+
+  const statusColor =
+    statusColors[status?.toLowerCase()] || config.secondaryColor;
+
+  doc
+    .fillColor(statusColor)
+    .fontSize(10)
+    .font("Helvetica-Bold")
+    .text(`Status: ${status?.toUpperCase() || "UNKNOWN"}`, {
+      align: "right",
+    });
 }
 
 function addFooter(doc, config, pageNumber, totalPages) {
   const bottomY = 800;
-  
-  doc.save()
-     .fontSize(8)
-     .fillColor(config.secondaryColor)
-     .text(`Page ${pageNumber} of ${totalPages} - Generated on ${format(new Date(), 'dd MMM yyyy, HH:mm')}`, 40, bottomY, {
-       align: 'center',
-       width: 555 - 40
-     })
-     .restore();
+
+  doc
+    .save()
+    .fontSize(8)
+    .fillColor(config.secondaryColor)
+    .text(
+      `Page ${pageNumber} of ${totalPages} - Generated on ${format(new Date(), "dd MMM yyyy, HH:mm")}`,
+      40,
+      bottomY,
+      {
+        align: "center",
+        width: 555 - 40,
+      },
+    )
+    .restore();
 }
 
-function generatePDFContent(doc, lc, config) {
+function generatePDFContent(doc, lc, config, settings) {
+  const currencyCode = settings.currency || "BDT";
   let currentPage = 1;
-  
+
   // Header
-  doc.fillColor(config.primaryColor)
-     .fontSize(20)
-     .font("Helvetica-Bold")
-     .text('LETTER OF CREDIT DOCUMENT', { align: 'center' });
-  
-  doc.fontSize(12)
-     .font("Helvetica")
-     .text(`LC Number: ${lc.basicInfo.lcNumber}`, { align: 'center' });
-  
+  doc
+    .fillColor(config.primaryColor)
+    .fontSize(20)
+    .font("Helvetica-Bold")
+    .text("LETTER OF CREDIT DOCUMENT", { align: "center" });
+
+  doc
+    .fontSize(12)
+    .font("Helvetica")
+    .text(`LC Number: ${lc.basicInfo.lcNumber}`, { align: "center" });
+
   doc.moveDown(1);
 
   // Status
@@ -276,24 +329,54 @@ function generatePDFContent(doc, lc, config) {
   doc.moveDown(1.5);
 
   // Basic Information Section
-  drawSectionHeader(doc, config, 'Basic Information');
-  
-  drawKeyValuePair(doc, config, 'LC Number', lc.basicInfo.lcNumber);
-  drawKeyValuePair(doc, config, 'LC Opening Date', formatDate(lc.basicInfo.lcOpeningDate));
-  drawKeyValuePair(doc, config, 'Status', lc.basicInfo.status);
-  drawKeyValuePair(doc, config, 'Bank Name', lc.basicInfo.accountId?.bankName);
-  drawKeyValuePair(doc, config, 'Account Holder', lc.basicInfo.accountId?.accountHolderName);
-  drawKeyValuePair(doc, config, 'Supplier Name', lc.basicInfo.supplierName);
-  drawKeyValuePair(doc, config, 'Supplier Country', lc.basicInfo.supplierCountry);
+  drawSectionHeader(doc, config, "Basic Information");
+
+  drawKeyValuePair(doc, config, "LC Number", lc.basicInfo.lcNumber);
+  drawKeyValuePair(
+    doc,
+    config,
+    "LC Opening Date",
+    formatDate(lc.basicInfo.lcOpeningDate, settings.dateFormat),
+  );
+  drawKeyValuePair(doc, config, "Status", lc.basicInfo.status);
+  drawKeyValuePair(doc, config, "Bank Name", lc.basicInfo.accountId?.bankName);
+  drawKeyValuePair(
+    doc,
+    config,
+    "Account Holder",
+    lc.basicInfo.accountId?.accountHolderName,
+  );
+  drawKeyValuePair(doc, config, "Supplier Name", lc.basicInfo.supplierName);
+  drawKeyValuePair(
+    doc,
+    config,
+    "Supplier Country",
+    lc.basicInfo.supplierCountry,
+  );
 
   doc.moveDown(config.sectionSpacing / 2);
 
   // Financial Information Section
-  drawSectionHeader(doc, config, 'Financial Information');
-  
-  drawKeyValuePair(doc, config, 'LC Amount (USD)', formatCurrency(lc.financialInfo.lcAmountUsd, 'USD'));
-  drawKeyValuePair(doc, config, 'Exchange Rate', lc.financialInfo.exchangeRate?.toFixed(4));
-  drawKeyValuePair(doc, config, 'LC Amount (BDT)', formatCurrency(lc.financialInfo.lcAmountBdt));
+  drawSectionHeader(doc, config, "Financial Information");
+
+  drawKeyValuePair(
+    doc,
+    config,
+    "LC Amount (USD)",
+    formatCurrency(lc.financialInfo.lcAmountUsd, "USD"),
+  );
+  drawKeyValuePair(
+    doc,
+    config,
+    "Exchange Rate",
+    lc.financialInfo.exchangeRate?.toFixed(4),
+  );
+  drawKeyValuePair(
+    doc,
+    config,
+    `LC Amount (${currencyCode})`,
+    formatCurrency(lc.financialInfo.lcAmountBdt, currencyCode),
+  );
 
   // Financial Costs
   if (lc.financialInfo.costs && lc.financialInfo.costs.length > 0) {
@@ -302,14 +385,14 @@ function generatePDFContent(doc, lc, config) {
       doc,
       config,
       "Financial Costs",
-      ["Date", "Description", "Payment Method", "Amount (BDT)"],
-      lc.financialInfo.costs.map(e => [
-        formatDate(e.date),
+      ["Date", "Description", "Payment Method", `Amount (${currencyCode})`],
+      lc.financialInfo.costs.map((e) => [
+        formatDate(e.date, settings.dateFormat),
         e.name,
-        e.paymentMethod || 'N/A',
-        formatCurrency(e.amount)
+        e.paymentMethod || "N/A",
+        formatCurrency(e.amount, currencyCode),
       ]),
-      [80, 180, 100, 90]
+      [80, 180, 100, 90],
     );
   }
 
@@ -317,72 +400,114 @@ function generatePDFContent(doc, lc, config) {
 
   // Product Information Section
   if (lc.productInfo && lc.productInfo.length > 0) {
-    drawSectionHeader(doc, config, 'Product Information');
-    
+    drawSectionHeader(doc, config, "Product Information");
+
     lc.productInfo.forEach((product, index) => {
-      doc.fillColor(config.primaryColor)
-         .fontSize(12)
-         .font("Helvetica-Bold")
-         .text(`Product ${index + 1}: ${product.itemName}`);
+      doc
+        .fillColor(config.primaryColor)
+        .fontSize(12)
+        .font("Helvetica-Bold")
+        .text(`Product ${index + 1}: ${product.itemName}`);
       doc.moveDown(0.3);
-      
-      drawKeyValuePair(doc, config, 'Item Name', product.itemName, 1);
-      
-      const quantityUnit = product.quantityUnit?.name || 'units';
-      drawKeyValuePair(doc, config, 'Quantity', `${product.quantity} ${quantityUnit}`, 1);
-      drawKeyValuePair(doc, config, 'Unit Price (USD)', formatCurrency(product.unitPriceUsd, 'USD'), 1);
-      drawKeyValuePair(doc, config, 'Total Value (USD)', formatCurrency(product.totalValueUsd, 'USD'), 1);
-      
-      if (product.thickness || product.width || product.length || product.grade) {
+
+      drawKeyValuePair(doc, config, "Item Name", product.itemName, 1);
+
+      const quantityUnit = product.quantityUnit?.name || "units";
+      drawKeyValuePair(
+        doc,
+        config,
+        "Quantity",
+        `${product.quantity} ${quantityUnit}`,
+        1,
+      );
+      drawKeyValuePair(
+        doc,
+        config,
+        "Unit Price (USD)",
+        formatCurrency(product.unitPriceUsd, "USD"),
+        1,
+      );
+      drawKeyValuePair(
+        doc,
+        config,
+        "Total Value (USD)",
+        formatCurrency(product.totalValueUsd, "USD"),
+        1,
+      );
+
+      if (
+        product.thickness ||
+        product.width ||
+        product.length ||
+        product.grade
+      ) {
         const specs = [];
         if (product.thickness) specs.push(`Thickness: ${product.thickness}`);
         if (product.width) specs.push(`Width: ${product.width}`);
         if (product.length) specs.push(`Length: ${product.length}`);
         if (product.grade) specs.push(`Grade: ${product.grade}`);
-        
-        drawKeyValuePair(doc, config, 'Specification', specs.join(', '), 1);
+
+        drawKeyValuePair(doc, config, "Specification", specs.join(", "), 1);
       }
-      
+
       if (index < lc.productInfo.length - 1) {
         doc.moveDown(0.5);
-        doc.strokeColor([200, 200, 200])
-           .lineWidth(0.5)
-           .moveTo(55, doc.y)
-           .lineTo(555, doc.y)
-           .stroke();
+        doc
+          .strokeColor([200, 200, 200])
+          .lineWidth(0.5)
+          .moveTo(55, doc.y)
+          .lineTo(555, doc.y)
+          .stroke();
         doc.moveDown(0.5);
       }
     });
-    
+
     doc.moveDown(config.sectionSpacing / 2);
   }
 
   // Shipping & Customs Information Section
-  if (lc.shippingCustomsInfo && (
-    lc.shippingCustomsInfo.portOfShipment ||
-    lc.shippingCustomsInfo.expectedArrivalDate ||
-    (lc.shippingCustomsInfo.costs && lc.shippingCustomsInfo.costs.length > 0)
-  )) {
-    drawSectionHeader(doc, config, 'Shipping & Customs Information');
-    
-    drawKeyValuePair(doc, config, 'Port of Shipment', lc.shippingCustomsInfo.portOfShipment);
-    drawKeyValuePair(doc, config, 'Expected Arrival Date', formatDate(lc.shippingCustomsInfo.expectedArrivalDate));
+  if (
+    lc.shippingCustomsInfo &&
+    (lc.shippingCustomsInfo.portOfShipment ||
+      lc.shippingCustomsInfo.expectedArrivalDate ||
+      (lc.shippingCustomsInfo.costs && lc.shippingCustomsInfo.costs.length > 0))
+  ) {
+    drawSectionHeader(doc, config, "Shipping & Customs Information");
+
+    drawKeyValuePair(
+      doc,
+      config,
+      "Port of Shipment",
+      lc.shippingCustomsInfo.portOfShipment,
+    );
+    drawKeyValuePair(
+      doc,
+      config,
+      "Expected Arrival Date",
+      formatDate(
+        lc.shippingCustomsInfo.expectedArrivalDate,
+        settings.dateFormat,
+      ),
+    );
 
     // Shipping Costs
-    if (lc.shippingCustomsInfo.costs && lc.shippingCustomsInfo.costs.length > 0) {
+    if (
+      lc.shippingCustomsInfo.costs &&
+      lc.shippingCustomsInfo.costs.length > 0
+    ) {
       doc.moveDown(0.5);
       drawTable(
         doc,
         config,
         "Shipping & Customs Costs",
-        ["Date", "Description", "Payment Method", "Amount (BDT)"],
-        lc.shippingCustomsInfo.costs.map(e => [
-          formatDate(e.date),
+        ["Date", "Description", "Payment Method", `Amount (${currencyCode})`],
+        lc.shippingCustomsInfo.costs.map((e) => [
+          formatDate(e.date, settings.dateFormat),
           e.name,
-          e.paymentMethod || 'N/A',
-          formatCurrency(e.amount)
+          e.paymentMethod || "N/A",
+          formatCurrency(e.amount, currencyCode),
         ]),
-        [80, 180, 100, 90]
+        [80, 180, 100, 90],
       );
     }
 
@@ -390,53 +515,65 @@ function generatePDFContent(doc, lc, config) {
   }
 
   // Agent & Transport Information Section
-  if (lc.agentTransportInfo && lc.agentTransportInfo.costs && lc.agentTransportInfo.costs.length > 0) {
-    drawSectionHeader(doc, config, 'Agent & Transport Information');
-    
+  if (
+    lc.agentTransportInfo &&
+    lc.agentTransportInfo.costs &&
+    lc.agentTransportInfo.costs.length > 0
+  ) {
+    drawSectionHeader(doc, config, "Agent & Transport Information");
+
     drawTable(
       doc,
       config,
       "Agent & Transport Costs",
-      ["Date", "Description", "Payment Method", "Amount (BDT)"],
-      lc.agentTransportInfo.costs.map(e => [
-        formatDate(e.date),
+      ["Date", "Description", "Payment Method", `Amount (${currencyCode})`],
+      lc.agentTransportInfo.costs.map((e) => [
+        formatDate(e.date, settings.dateFormat),
         e.name,
-        e.paymentMethod || 'N/A',
-        formatCurrency(e.amount)
+        e.paymentMethod || "N/A",
+        formatCurrency(e.amount, currencyCode),
       ]),
-      [80, 180, 100, 90]
+      [80, 180, 100, 90],
     );
 
     doc.moveDown(config.sectionSpacing / 2);
   }
 
   // Documents & Notes Section
-  if (lc.documentsNotes && (
-    lc.documentsNotes.note ||
-    (lc.documentsNotes.uploadedDocuments && lc.documentsNotes.uploadedDocuments.length > 0)
-  )) {
-    drawSectionHeader(doc, config, 'Documents & Notes');
-    
-    if (lc.documentsNotes.note && lc.documentsNotes.note !== 'No notes given') {
-      drawKeyValuePair(doc, config, 'Notes', lc.documentsNotes.note);
+  if (
+    lc.documentsNotes &&
+    (lc.documentsNotes.note ||
+      (lc.documentsNotes.uploadedDocuments &&
+        lc.documentsNotes.uploadedDocuments.length > 0))
+  ) {
+    drawSectionHeader(doc, config, "Documents & Notes");
+
+    if (lc.documentsNotes.note && lc.documentsNotes.note !== "No notes given") {
+      drawKeyValuePair(doc, config, "Notes", lc.documentsNotes.note);
     }
-    
-    if (lc.documentsNotes.uploadedDocuments && lc.documentsNotes.uploadedDocuments.length > 0) {
+
+    if (
+      lc.documentsNotes.uploadedDocuments &&
+      lc.documentsNotes.uploadedDocuments.length > 0
+    ) {
       doc.moveDown(0.5);
-      doc.fillColor(config.secondaryColor)
-         .fontSize(11)
-         .font("Helvetica-Bold")
-         .text('Uploaded Documents:');
+      doc
+        .fillColor(config.secondaryColor)
+        .fontSize(11)
+        .font("Helvetica-Bold")
+        .text("Uploaded Documents:");
       doc.moveDown(0.3);
-      
+
       lc.documentsNotes.uploadedDocuments.forEach((docFile, index) => {
-        const sizeInKB = docFile.sizeBytes ? (docFile.sizeBytes / 1024).toFixed(2) : 'N/A';
+        const sizeInKB = docFile.sizeBytes
+          ? (docFile.sizeBytes / 1024).toFixed(2)
+          : "N/A";
         drawKeyValuePair(
           doc,
           config,
           `${index + 1}. ${docFile.originalName}`,
           `${sizeInKB} KB`,
-          1
+          1,
         );
       });
     }
@@ -445,30 +582,37 @@ function generatePDFContent(doc, lc, config) {
   }
 
   // Other Expenses Section
-  if (lc.otherExpenses && lc.otherExpenses.costs && lc.otherExpenses.costs.length > 0) {
-    drawSectionHeader(doc, config, 'Other Miscellaneous Expenses');
+  if (
+    lc.otherExpenses &&
+    lc.otherExpenses.costs &&
+    lc.otherExpenses.costs.length > 0
+  ) {
+    drawSectionHeader(doc, config, "Other Miscellaneous Expenses");
     drawTable(
       doc,
       config,
       null,
-      ["Date", "Description", "Payment Method", "Amount (BDT)"],
-      lc.otherExpenses.costs.map(e => [
-        formatDate(e.date),
+      ["Date", "Description", "Payment Method", `Amount (${currencyCode})`],
+      lc.otherExpenses.costs.map((e) => [
+        formatDate(e.date, settings.dateFormat),
         e.name,
-        e.paymentMethod || 'N/A',
-        formatCurrency(e.amount)
+        e.paymentMethod || "N/A",
+        formatCurrency(e.amount, currencyCode),
       ]),
-      [80, 180, 100, 90]
+      [80, 180, 100, 90],
     );
   }
 
   // Total Cost Summary
   if (lc.totalCost) {
     doc.moveDown(1);
-    doc.fillColor(config.primaryColor)
-       .fontSize(14)
-       .font("Helvetica-Bold")
-       .text(`Total LC Cost: ${formatCurrency(lc.totalCost)}`, { align: 'right' });
+    doc
+      .fillColor(config.primaryColor)
+      .fontSize(14)
+      .font("Helvetica-Bold")
+      .text(`Total LC Cost: ${formatCurrency(lc.totalCost, currencyCode)}`, {
+        align: "right",
+      });
   }
 
   // Add footer

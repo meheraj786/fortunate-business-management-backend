@@ -32,10 +32,10 @@ exports.generateSaleId = async () => {
 /**
  * Validates that the sale date is not in the future
  */
-exports.validateSaleDate = (saleDate) => {
+exports.validateSaleDate = (saleDate, timezone) => {
   if (!saleDate) return;
-  const today = startOfDay(now());
-  const providedSaleDate = startOfDay(new Date(saleDate));
+  const today = startOfDay(now(), timezone);
+  const providedSaleDate = startOfDay(new Date(saleDate), timezone);
 
   if (providedSaleDate > today) {
     throw new ApiError(400, "Sale date cannot be in the future.");

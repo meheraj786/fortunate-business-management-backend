@@ -144,7 +144,12 @@ async function createLC(req, res, next) {
     for (const section of sectionsWithCosts) {
       if (lcData[section] && lcData[section].costs) {
         for (const cost of lcData[section].costs) {
-          await _handleLCCostTransaction(cost, lc, session);
+          await _handleLCCostTransaction(
+            cost,
+            lc,
+            session,
+            req.businessTimezone,
+          );
         }
       }
     }
@@ -201,8 +206,9 @@ async function createLC(req, res, next) {
  * @param {object} cost The cost object from the LC
  * @param {mongoose.Model} lc The LC document
  * @param {mongoose.ClientSession} session The mongoose session for the transaction
+ * @param {string} timezone The business timezone
  */
-async function _handleLCCostTransaction(cost, lc, session) {
+async function _handleLCCostTransaction(cost, lc, session, timezone) {
   // Only process costs that have an account and a valid amount
   if (!cost.accountId || !cost.amount || cost.amount <= 0) {
     return;
@@ -210,7 +216,7 @@ async function _handleLCCostTransaction(cost, lc, session) {
 
   // 1. DailyCash Gatekeeper Check
   const costDate = cost.date || now();
-  const costDateNormalized = startOfDay(new Date(costDate));
+  const costDateNormalized = startOfDay(new Date(costDate), timezone);
 
   const openSession = await DailyCash.findOne({
     date: costDateNormalized,
@@ -490,7 +496,7 @@ async function updateLC(req, res, next) {
 
     // Apply all updates
     // Critical: Reconcile financial costs BEFORE saving
-    await _reconcileLCCosts(lc, updateData, session);
+    await _reconcileLCCosts(lc, updateData, session, req.businessTimezone);
 
     lc.set(updateData);
 
@@ -639,7 +645,7 @@ async function deleteLC(req, res, next) {
     });
 
     // Daily cash check before reversing LC costs
-    const today = startOfDay(now());
+    const today = startOfDay(now(), req.businessTimezone);
     const dailyCash = await DailyCash.findOne({
       date: today,
       status: "Open",
@@ -1421,7 +1427,7 @@ async function _reconcileLCCosts(originalLC, updateData, session) {
   ];
 
   // 1. Check Daily Cash Status (Gatekeeper)
-  const today = startOfDay(now());
+  const today = startOfDay(now(), req.businessTimezone);
   const dailyCash = await DailyCash.findOne({
     date: today,
     status: "Open",
