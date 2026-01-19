@@ -190,6 +190,7 @@ async function createAccount(req, res, next) {
               accountName: createdAccount.accountName,
               accountType: createdAccount.accountType,
             },
+            createdBy: req.user?._id || null, // Add audit trail field
           },
         ],
         { session },
@@ -247,7 +248,7 @@ async function createAccount(req, res, next) {
       stack: error.stack,
       name: error.name,
     });
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(new ApiError(500, `DEBUG: ${error.message}`));
   }
 }
 
