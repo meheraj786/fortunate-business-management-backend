@@ -22,7 +22,7 @@ accountRoutes.post(
 accountRoutes.get(
   "/get-all-accounts",
   authenticate,
-  authorize(PERMISSIONS.ACCOUNT_VIEW_ALL),
+  // authorize(PERMISSIONS.ACCOUNT_VIEW_ALL),
   getAllAccounts
 );
 accountRoutes.get(
