@@ -276,48 +276,6 @@ async function _handleLCCostTransaction(cost, lc, session, timezone) {
   );
 }
 
-async function getAllLCs(_, res, next) {
-  try {
-    const lcs = await LC.find({ isDeleted: false })
-      .populate("productInfo.quantityUnit", "name type conversionFactor")
-      .populate("basicInfo.accountId")
-      .populate("financialInfo.costs.accountId")
-      .populate("shippingCustomsInfo.costs.accountId")
-      .populate("agentTransportInfo.costs.accountId")
-      .populate("otherExpenses.costs.accountId")
-      .lean();
-    return res
-      .status(200)
-      .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `A document with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
-  }
-}
-
 async function getLCById(req, res, next) {
   try {
     const { id } = req.params;
@@ -327,7 +285,8 @@ async function getLCById(req, res, next) {
       .populate("financialInfo.costs.accountId")
       .populate("shippingCustomsInfo.costs.accountId")
       .populate("agentTransportInfo.costs.accountId")
-      .populate("otherExpenses.costs.accountId");
+      .populate("otherExpenses.costs.accountId")
+      .lean();
     if (!lc || lc.isDeleted) return next(new ApiError(404, "LC not found"));
     return res
       .status(200)
@@ -771,7 +730,7 @@ async function deleteLC(req, res, next) {
 async function getAllCompletedLCs(_, res, next) {
   try {
     const lcs = await LC.find({
-      "basicInfo.status": /^Completed$/i,
+      "basicInfo.status": { $in: ["Active", "Completed"] },
       isDeleted: false,
     })
       .populate("productInfo.quantityUnit", "name type conversionFactor")
@@ -842,48 +801,6 @@ async function getLCCountsByStatus(req, res, next) {
           200,
           statusCounts,
           "LC counts by status fetched successfully",
-        ),
-      );
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `A document with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
-  }
-}
-
-async function getTotalLCCount(req, res, next) {
-  try {
-    const totalCount = await LC.countDocuments({ isDeleted: false });
-
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          { total: totalCount },
-          "Total LC count fetched successfully",
         ),
       );
   } catch (error) {
@@ -1052,45 +969,6 @@ async function exportLCAsPDF(req, res, next) {
     next(new ApiError(500, "Failed to generate PDF. Please try again."));
   }
 }
-async function getActiveLcs(req, res, next) {
-  try {
-    const lcs = await LC.find({
-      "basicInfo.status": /^Active$/i,
-      isDeleted: false,
-    })
-      .populate("productInfo.quantityUnit", "name type conversionFactor")
-      .select("_id basicInfo.lcNumber basicInfo.status productInfo");
-    return res
-      .status(200)
-      .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `A document with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    next(new ApiError(500, error.message || "Something went wrong"));
-  }
-}
 
 async function getLCSummary(req, res, next) {
   try {
@@ -1129,7 +1007,8 @@ async function getLCSummary(req, res, next) {
         .populate("productInfo.quantityUnit", "name")
         .sort(sort)
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
     ]);
 
     // 4. Map to summary format
@@ -1347,7 +1226,8 @@ async function searchLCSummary(req, res, next) {
         .populate("productInfo.quantityUnit", "name")
         .sort(sort)
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
     ]);
 
     // 4. Map to summary format
@@ -1573,21 +1453,61 @@ async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
   }
 }
 
+async function getActiveLcs(req, res, next) {
+  try {
+    const lcs = await LC.find({
+      "basicInfo.status": /^Active$/i,
+      isDeleted: false,
+    })
+      .populate("productInfo.quantityUnit", "name type conversionFactor")
+      .select("_id basicInfo.lcNumber basicInfo.status productInfo")
+      .lean();
+    return res
+      .status(200)
+      .json(new ApiResponse(200, lcs, "All LCs fetched successfully"));
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    // Handle MongoServerError for duplicate key (unique: true)
+    if (error.code === 11000 && error.keyPattern && error.keyValue) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      return next(
+        new ApiError(
+          409,
+          `A document with the same ${field} '${value}' already exists.`,
+        ),
+      ); // Generic message
+    }
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      let userFriendlyMessage = "Validation failed.";
+
+      if (firstErrorField) {
+        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+      }
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong"));
+  }
+}
+
 module.exports = {
   createLC,
-  getAllLCs,
   getLCById,
   updateLC,
   deleteLC,
   getAllCompletedLCs,
   upload,
   getLCCountsByStatus,
-  getTotalLCCount,
   downloadDocument,
   exportLCAsPDF,
   getLCSummary,
-  getActiveLcs,
   addExpenseToLC,
   searchLCSummary,
+  _reconcileLCCosts,
   deleteDocument,
+  getActiveLcs,
 };

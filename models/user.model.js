@@ -2,85 +2,103 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
-const userSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true,
-  },
-  isDeleted: {
-    type: Boolean,
-    default: false,
-    index: true,
-  },
-  avatar: {
-    type: String,
-    default:
-      "https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png",
-  },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    lowercase: true,
-    trim: true,
-    match: [/^\S+@\S+\.\S+$/, "Please enter a valid email address"],
-  },
-  password: {
-    type: String,
-    required: true,
-    select: false,
-    minlength: [8, "Password must be at least 8 characters"],
-  },
-  phone: {
-    type: String,
-    default: "Not Provided",
-  },
-
-  roleName: {
-    type: String,
-    default: "No Role",
-  },
-  description: {
-    type: String,
-    default: "No description provided.",
-  },
-  location: {
-    type: String,
-    required: true,
-    default: "Center",
-  },
-  access: [
-    {
-      module: {
-        type: String,
-        required: true,
-        enum: [
-          "USER",
-          "WAREHOUSE",
-          "PRODUCT",
-          "LC",
-          "SALE",
-          "CASH",
-          "ACCOUNT",
-          "TRANSACTION",
-          "CUSTOMER",
-          "CATEGORY",
-          "UNIT",
-          "TRASH",
-        ],
-      },
-      permissions: [String],
+const userSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
     },
-  ],
-  warehouse: [
-    {
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    avatar: {
+      type: String,
+      default:
+        "https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png",
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+      match: [/^\S+@\S+\.\S+$/, "Please enter a valid email address"],
+    },
+    password: {
+      type: String,
+      required: true,
+      select: false,
+      minlength: [8, "Password must be at least 8 characters"],
+    },
+    phone: {
+      type: String,
+      default: "Not Provided",
+    },
+
+    roleName: {
+      type: String,
+      default: "No Role",
+    },
+    description: {
+      type: String,
+      default: "No description provided.",
+    },
+    location: {
+      type: String,
+      required: true,
+      default: "Center",
+    },
+    access: [
+      {
+        module: {
+          type: String,
+          required: true,
+          enum: [
+            "USER",
+            "WAREHOUSE",
+            "PRODUCT",
+            "LC",
+            "SALE",
+            "CASH",
+            "ACCOUNT",
+            "TRANSACTION",
+            "CUSTOMER",
+            "CATEGORY",
+            "UNIT",
+            "TRASH",
+          ],
+        },
+        permissions: [String],
+      },
+    ],
+    warehouse: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Warehouse",
+        default: null,
+      },
+    ],
+    createdBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Warehouse",
+      ref: "User",
       default: null,
     },
-  ],
-});
+    modifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+  },
+  { timestamps: true },
+);
 
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();

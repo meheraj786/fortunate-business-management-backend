@@ -49,6 +49,21 @@ const accountSchema = new mongoose.Schema(
     balance: { type: Number, default: 0 },
     status: { type: String, enum: ["Active", "Archived"], default: "Active" },
     isDeleted: { type: Boolean, default: false, index: true },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    modifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   { timestamps: true },
 );

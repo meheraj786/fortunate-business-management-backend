@@ -11,10 +11,25 @@ const warehouseSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
-    isDeleted: {
+  isDeleted: {
     type: Boolean,
     default: false,
     index: true,
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+  },
+  modifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+  },
+  deletedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
   },
   manager: [
     {

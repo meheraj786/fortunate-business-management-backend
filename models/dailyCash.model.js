@@ -28,13 +28,23 @@ const dailyCashSchema = new mongoose.Schema(
     closedAt: {
       type: Date,
     },
-      isDeleted: {
-    type: Boolean,
-    default: false,
-    index: true,
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    modifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
-  },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 dailyCashSchema.plugin(mongoosePaginate);

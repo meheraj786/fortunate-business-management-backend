@@ -29,32 +29,26 @@ lcRoutes.post(
   authenticate,
   authorize(PERMISSIONS.LC_CREATE),
   upload.array("documents"),
-  createLC
-);
-lcRoutes.get(
-  "/get-all-lc",
-  authenticate,
-  authorize(PERMISSIONS.LC_VIEW_TABLE),
-  getAllLCs
+  createLC,
 );
 lcRoutes.get(
   "/get-lc/:id",
   authenticate,
   authorize(PERMISSIONS.LC_VIEW_DETAILS),
-  getLCById
+  getLCById,
 );
 lcRoutes.patch(
   "/update-lc/:id",
   authenticate,
   authorize(PERMISSIONS.LC_UPDATE),
   upload.array("documents"),
-  updateLC
+  updateLC,
 );
 lcRoutes.delete(
   "/delete-lc/:id",
   authenticate,
   authorize(PERMISSIONS.LC_DELETE),
-  deleteLC
+  deleteLC,
 );
 
 // --- Document Management Routes ---
@@ -62,13 +56,13 @@ lcRoutes.get(
   "/:lcId/documents/:storedName",
   authenticate,
   authorize(PERMISSIONS.LC_VIEW_DETAILS),
-  downloadDocument
+  downloadDocument,
 );
 lcRoutes.delete(
   "/delete-document/:lcId/:docId",
   authenticate,
   authorize(PERMISSIONS.LC_DELETE),
-  deleteDocument
+  deleteDocument,
 );
 
 // --- Other LC-related Routes ---
@@ -76,24 +70,14 @@ lcRoutes.post(
   "/add-expense",
   authenticate,
   authorize(PERMISSIONS.LC_UPDATE),
-  addExpenseToLC
+  addExpenseToLC,
 );
-lcRoutes.get(
-  "/completed-lc",
-  authenticate,
-  getAllCompletedLCs
-);
+lcRoutes.get("/completed-lc", authenticate, getAllCompletedLCs);
 lcRoutes.get(
   "/export-lc/:id",
   authenticate,
   authorize(PERMISSIONS.LC_EXPORT_PDF),
-  exportLCAsPDF
-);
-lcRoutes.get(
-  "/active-lc",
-  authenticate,
-  authorize(PERMISSIONS.LC_VIEW_TABLE),
-  getActiveLcs
+  exportLCAsPDF,
 );
 
 // --- Analytics & Summary Routes ---
@@ -101,25 +85,25 @@ lcRoutes.get(
   "/summary",
   authenticate,
   authorize(PERMISSIONS.LC_VIEW_TABLE),
-  getLCSummary
+  getLCSummary,
 );
 lcRoutes.get(
   "/summary/search",
   authenticate,
   authorize(PERMISSIONS.LC_VIEW_TABLE),
-  searchLCSummary
+  searchLCSummary,
 );
 lcRoutes.get(
   "/counts/status",
   authenticate,
   authorize(PERMISSIONS.LC_VIEW_TABLE),
-  getLCCountsByStatus
+  getLCCountsByStatus,
 );
 lcRoutes.get(
-  "/counts/total",
+  "/active-lc",
   authenticate,
   authorize(PERMISSIONS.LC_VIEW_TABLE),
-  getTotalLCCount
+  getActiveLcs,
 );
 
 module.exports = lcRoutes;
