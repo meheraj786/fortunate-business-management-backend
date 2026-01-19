@@ -17,7 +17,14 @@ async function getSettings(req, res, next) {
       message: error.message,
       stack: error.stack,
     });
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -111,7 +118,14 @@ async function updateSettings(req, res, next) {
       message: error.message,
       stack: error.stack,
     });
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 

@@ -84,7 +84,14 @@ const registerUser = async (req, res, next) => {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -159,7 +166,14 @@ const loginUser = async (req, res, next) => {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 const logoutUser = async (_, res, next) => {
@@ -201,7 +215,14 @@ const logoutUser = async (_, res, next) => {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -245,7 +266,14 @@ const getUser = async (req, res, next) => {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 const getProfile = async (req, res, next) => {
@@ -288,7 +316,14 @@ const getProfile = async (req, res, next) => {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 const getAllUser = async (req, res, next) => {
@@ -341,7 +376,14 @@ const getAllUser = async (req, res, next) => {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -425,7 +467,14 @@ const updateUser = async (req, res, next) => {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -455,7 +504,14 @@ const deleteUser = async (req, res, next) => {
       );
   } catch (error) {
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 

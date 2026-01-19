@@ -402,7 +402,14 @@ async function getTransactionDetails(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -549,7 +556,14 @@ async function getAllTransactions(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -702,7 +716,14 @@ async function getTransactionStats(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -829,7 +850,14 @@ async function getTransactionsByAccount(req, res, next) {
       return next(error);
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 

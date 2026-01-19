@@ -198,7 +198,14 @@ async function generateInvoice(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -271,7 +278,14 @@ async function getAllInvoices(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -531,7 +545,14 @@ async function getInvoiceById(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -611,7 +632,14 @@ async function getInvoicesBySaleId(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 

@@ -24,6 +24,7 @@ const {
   closeMissedDailyCashEntries,
 } = require("./controllers/dailyCash.controller"); // Cron controllers
 const { attachTimezone } = require("./middleware/timezone.middleware"); // Timezone middleware
+const { checkDbStatus } = require("./middleware/dbStatus.middleware"); // DB status middleware
 
 // Create express app
 const app = express(); // Initialize express app
@@ -88,6 +89,9 @@ app.use(limiter);
 // Attach timezone to all requests (must be before routes)
 app.use(attachTimezone);
 
+// Check database status before processing routes
+app.use(checkDbStatus);
+
 // Register routes
 app.use(routers); // Use all API routes
 
@@ -98,6 +102,7 @@ app.use((err, req, res, next) => {
     success: false,
     message: err.message || "Something went wrong",
     errors: err.errors || [],
+    debug: err.debug, // Exposed for developer debugging
   };
 
   if (!(err instanceof ApiError)) {

@@ -40,7 +40,14 @@ exports.createUnit = async (req, res, next) => {
       return next(new ApiError(400, "Validation failed", error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -56,7 +63,14 @@ exports.getUnits = async (_, res, next) => {
       .json(new ApiResponse(200, units, "Units fetched successfully"));
   } catch (error) {
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -74,7 +88,14 @@ exports.getUnitById = async (req, res, next) => {
       .json(new ApiResponse(200, unit, "Unit fetched successfully"));
   } catch (error) {
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -116,7 +137,14 @@ exports.updateUnit = async (req, res, next) => {
       return next(new ApiError(409, "A unit with this name already exists."));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -188,6 +216,13 @@ exports.deleteUnit = async (req, res, next) => {
       .json(new ApiResponse(200, unit, "Unit moved to trash successfully"));
   } catch (error) {
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };

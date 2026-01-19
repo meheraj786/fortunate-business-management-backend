@@ -41,7 +41,14 @@ exports.createCategory = async (req, res, next) => {
     }
 
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -59,7 +66,14 @@ exports.getCategories = async (_, res, next) => {
       );
   } catch (error) {
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -80,7 +94,14 @@ exports.getCategoryById = async (req, res, next) => {
       .json(new ApiResponse(200, category, "Category fetched successfully"));
   } catch (error) {
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -114,7 +135,14 @@ exports.updateCategory = async (req, res, next) => {
     }
 
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };
 
@@ -167,6 +195,13 @@ exports.deleteCategory = async (req, res, next) => {
       );
   } catch (error) {
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 };

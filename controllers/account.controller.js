@@ -248,7 +248,14 @@ async function createAccount(req, res, next) {
       stack: error.stack,
       name: error.name,
     });
-    next(new ApiError(500, `DEBUG: ${error.message}`));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -268,7 +275,14 @@ async function getAllAccounts(req, res, next) {
       message: error.message,
       stack: error.stack,
     });
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -304,7 +318,14 @@ async function getAccountById(req, res, next) {
       message: error.message,
       stack: error.stack,
     });
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -395,7 +416,14 @@ async function updateAccount(req, res, next) {
       message: error.message,
       stack: error.stack,
     });
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -485,7 +513,14 @@ async function deleteAccount(req, res, next) {
       message: error.message,
       stack: error.stack,
     });
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -695,7 +730,14 @@ async function getAccountDetails(req, res, next) {
       message: error.message,
       stack: error.stack,
     });
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 

@@ -140,7 +140,14 @@ async function createCustomer(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -164,7 +171,14 @@ async function getAllActiveCustomers(_, res, next) {
       return next(error);
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -319,7 +333,14 @@ async function getCustomerById(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -465,7 +486,14 @@ async function updateCustomer(req, res, next) {
       return next(new ApiError(400, "Validation failed.", error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 async function deleteCustomer(req, res, next) {
@@ -544,7 +572,14 @@ async function deleteCustomer(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 // Other functions remain unchanged
@@ -814,7 +849,14 @@ async function getCustomersSummary(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 

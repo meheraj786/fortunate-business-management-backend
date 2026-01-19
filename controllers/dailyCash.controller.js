@@ -150,7 +150,14 @@ async function openCash(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -236,7 +243,14 @@ async function closeCash(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -306,7 +320,14 @@ async function getDailyCashStatus(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -535,7 +556,14 @@ async function getDailyCashSummary(req, res, next) {
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -717,7 +745,14 @@ async function addIncome(req, res, next) {
     }
     // Fallback for any other unexpected errors
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
@@ -947,7 +982,14 @@ async function addExpense(req, res, next) {
     }
     // Fallback for any other unexpected errors
     logger.error(error);
-    next(new ApiError(500, "An unexpected error occurred. Please try again."));
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
   }
 }
 
