@@ -150,6 +150,7 @@ async function createSale(req, res, next) {
       payments: transformedPayments,
       notes,
       saleDate,
+      createdBy: req.user?._id || null,
     });
 
     if (sale.totalAmountToBePaid < 0) {
@@ -597,6 +598,49 @@ async function getSaleById(req, res, next) {
       },
       { $unwind: { path: "$product.LC", preserveNullAndEmptyArrays: true } },
 
+      // Populate Audit Fields
+      {
+        $lookup: {
+          from: "users",
+          localField: "createdBy",
+          foreignField: "_id",
+          as: "creator",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "modifiedBy",
+          foreignField: "_id",
+          as: "modifier",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "deletedBy",
+          foreignField: "_id",
+          as: "deleter",
+        },
+      },
+      {
+        $addFields: {
+          createdBy: { $arrayElemAt: ["$creator", 0] },
+          modifiedBy: { $arrayElemAt: ["$modifier", 0] },
+          deletedBy: { $arrayElemAt: ["$deleter", 0] },
+        },
+      },
+      {
+        $project: {
+          creator: 0,
+          modifier: 0,
+          deleter: 0,
+          "createdBy.password": 0,
+          "modifiedBy.password": 0,
+          "deletedBy.password": 0,
+        },
+      },
+
       {
         $lookup: {
           from: "units",
@@ -717,6 +761,21 @@ async function getSaleById(req, res, next) {
           paymentsMade: 1,
           balanceDue: 1,
           overPayment: 1,
+          createdBy: {
+            name: "$createdBy.name",
+            email: "$createdBy.email",
+          },
+          modifiedBy: {
+            name: "$modifiedBy.name",
+            email: "$modifiedBy.email",
+          },
+          deletedBy: {
+            name: "$deletedBy.name",
+            email: "$deletedBy.email",
+          },
+          createdAt: 1,
+          updatedAt: 1,
+          isDeleted: 1,
         },
       },
     ]);
@@ -855,6 +914,8 @@ async function updateSale(req, res, next) {
       }
     });
 
+    // Apply updates
+    updateData.modifiedBy = req.user?._id || null;
     Object.assign(sale, updateData);
 
     const updatedSale = await sale.save();
@@ -992,6 +1053,7 @@ async function deleteSale(req, res, next) {
     // Mark the sale as deleted
     saleToDelete.isDeleted = true;
     saleToDelete.status = "Deleted";
+    saleToDelete.deletedBy = user?._id || null;
     await saleToDelete.save({ session });
 
     // Move to trash
@@ -1311,6 +1373,7 @@ async function addPartialPayment(req, res, next) {
 
     // These operations should happen regardless of the payment method specific logic
     sale.payments.push(payment);
+    sale.modifiedBy = req.user?._id || null;
     await sale.save({ session });
 
     await session.commitTransaction();

@@ -49,6 +49,7 @@ async function createCustomer(req, res, next) {
       .padStart(4, "0")}`;
 
     customerData.customerId = newCustomerId;
+    customerData.createdBy = req.user?._id || null;
 
     // 1. Prepare document metadata
     const preparedDocs = uploadedFiles.map((file) =>
@@ -177,6 +178,47 @@ async function getCustomerById(req, res, next) {
 
     const pipeline = [
       { $match: { _id: new mongoose.Types.ObjectId(id) } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "createdBy",
+          foreignField: "_id",
+          as: "creator",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "modifiedBy",
+          foreignField: "_id",
+          as: "modifier",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "deletedBy",
+          foreignField: "_id",
+          as: "deleter",
+        },
+      },
+      {
+        $addFields: {
+          createdBy: { $arrayElemAt: ["$creator", 0] },
+          modifiedBy: { $arrayElemAt: ["$modifier", 0] },
+          deletedBy: { $arrayElemAt: ["$deleter", 0] },
+        },
+      },
+      {
+        $project: {
+          creator: 0,
+          modifier: 0,
+          deleter: 0,
+          "createdBy.password": 0,
+          "modifiedBy.password": 0,
+          "deletedBy.password": 0,
+        },
+      },
       {
         $lookup: {
           from: "sales",
@@ -381,6 +423,8 @@ async function updateCustomer(req, res, next) {
 
     customerUpdateData.documents = finalDocs;
 
+    // Update customer document with new data
+    customerUpdateData.modifiedBy = req.user?._id || null;
     Object.assign(customer, customerUpdateData);
     const updatedCustomer = await customer.save({ session });
 
@@ -455,7 +499,10 @@ async function deleteCustomer(req, res, next) {
       );
     }
 
-    const deleted = await Customer.findByIdAndUpdate(id, { isDeleted: true });
+    const deleted = await Customer.findByIdAndUpdate(id, {
+      isDeleted: true,
+      deletedBy: req.user?._id || null,
+    });
 
     if (!deleted) {
       return next(new ApiError(404, "Customer not found"));

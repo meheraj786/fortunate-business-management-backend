@@ -135,6 +135,7 @@ async function createLC(req, res, next) {
       (p) => p.docData,
     );
     lcData._id = newLcId;
+    lcData.createdBy = req.user?._id || null;
 
     // 3. Create and save the LC document
     const lc = new LC(lcData);
@@ -285,7 +286,11 @@ async function getLCById(req, res, next) {
       .populate("financialInfo.costs.accountId")
       .populate("shippingCustomsInfo.costs.accountId")
       .populate("agentTransportInfo.costs.accountId")
+      .populate("agentTransportInfo.costs.accountId")
       .populate("otherExpenses.costs.accountId")
+      .populate("createdBy", "name email")
+      .populate("modifiedBy", "name email")
+      .populate("deletedBy", "name email")
       .lean();
     if (!lc || lc.isDeleted) return next(new ApiError(404, "LC not found"));
     return res
@@ -453,6 +458,7 @@ async function updateLC(req, res, next) {
       updateData.documentsNotes = {};
     }
     updateData.documentsNotes.uploadedDocuments = finalDocs;
+    updateData.modifiedBy = req.user?._id || null;
 
     // Apply all updates
     // Critical: Reconcile financial costs BEFORE saving
@@ -588,7 +594,10 @@ async function deleteLC(req, res, next) {
     // Soft delete the LC
     const deletedLC = await LC.findByIdAndUpdate(
       id,
-      { isDeleted: true },
+      {
+        isDeleted: true,
+        deletedBy: req.user?._id || null,
+      },
       { session, new: true },
     );
 

@@ -14,6 +14,7 @@ exports.createCategory = async (req, res, next) => {
     const category = await Category.create({
       name: name.trim(),
       description,
+      createdBy: req.user?._id || null,
     });
 
     res
@@ -28,17 +29,15 @@ exports.createCategory = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A category with the ${field} '${value}' already exists.`
-        )
+          `A category with the ${field} '${value}' already exists.`,
+        ),
       );
     }
 
     if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
       const userFriendlyMessage = error.errors[firstErrorField].message;
-      return next(
-        new ApiError(400, userFriendlyMessage, error.errors)
-      );
+      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
 
     logger.error(error);
@@ -56,7 +55,7 @@ exports.getCategories = async (_, res, next) => {
     res
       .status(200)
       .json(
-        new ApiResponse(200, categories, "Categories fetched successfully")
+        new ApiResponse(200, categories, "Categories fetched successfully"),
       );
   } catch (error) {
     logger.error(error);
@@ -93,8 +92,8 @@ exports.updateCategory = async (req, res, next) => {
 
     const category = await Category.findOneAndUpdate(
       { _id: id, isDeleted: { $ne: true } },
-      { name: name.trim(), description },
-      { new: true, runValidators: true }
+      { name: name.trim(), description, modifiedBy: req.user?._id || null },
+      { new: true, runValidators: true },
     );
 
     if (!category) return next(new ApiError(404, "Category not found"));
@@ -109,8 +108,8 @@ exports.updateCategory = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A category with the ${field} '${value}' already exists.`
-        )
+          `A category with the ${field} '${value}' already exists.`,
+        ),
       );
     }
 
@@ -131,7 +130,12 @@ exports.deleteCategory = async (req, res, next) => {
     });
 
     if (productsCount > 0) {
-      return next(new ApiError(400, `Cannot delete category: it is currently assigned to ${productsCount} product(s).`));
+      return next(
+        new ApiError(
+          400,
+          `Cannot delete category: it is currently assigned to ${productsCount} product(s).`,
+        ),
+      );
     }
 
     const deletedBy = req.user?._id || null;
@@ -140,10 +144,10 @@ exports.deleteCategory = async (req, res, next) => {
       { _id: id, isDeleted: { $ne: true } },
       {
         isDeleted: true,
-deletedAt: now(),
+        deletedAt: now(),
         deletedBy,
       },
-      { new: true }
+      { new: true },
     );
 
     if (!category) return next(new ApiError(404, "Category not found"));
@@ -159,7 +163,7 @@ deletedAt: now(),
     res
       .status(200)
       .json(
-        new ApiResponse(200, category, "Category moved to trash successfully")
+        new ApiResponse(200, category, "Category moved to trash successfully"),
       );
   } catch (error) {
     logger.error(error);

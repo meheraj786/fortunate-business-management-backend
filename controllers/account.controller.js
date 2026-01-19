@@ -116,6 +116,9 @@ async function createAccount(req, res, next) {
       };
     }
 
+    // Add createdBy field
+    accountData.createdBy = req.user?._id || null;
+
     // Check for existing archived accounts with similar details
     let existingArchivedAccountQuery = { status: "Archived" };
     if (accountType === "Cash") {
@@ -365,10 +368,14 @@ async function updateAccount(req, res, next) {
         .json(new ApiResponse(200, existingAccount, "No changes made"));
     }
 
-    const updatedAccount = await Account.findByIdAndUpdate(id, updateData, {
-      new: true,
-      runValidators: true,
-    });
+    const updatedAccount = await Account.findByIdAndUpdate(
+      id,
+      { ...updateData, modifiedBy: req.user?._id || null },
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
 
     if (!updatedAccount) {
       return next(new ApiError(404, "Account not found"));
@@ -446,7 +453,11 @@ async function deleteAccount(req, res, next) {
 
     const archivedAccount = await Account.findByIdAndUpdate(
       id,
-      { status: "Archived" },
+      {
+        status: "Archived",
+        deletedBy: req.user?._id || null,
+        isDeleted: true, // Ensuring consistency with other soft deletes if applicable
+      },
       { new: true, session },
     );
 
@@ -485,6 +496,37 @@ async function getAccountDetails(req, res, next) {
       {
         $match: {
           _id: new mongoose.Types.ObjectId(id),
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "createdBy",
+          foreignField: "_id",
+          as: "creator",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "modifiedBy",
+          foreignField: "_id",
+          as: "modifier",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "deletedBy",
+          foreignField: "_id",
+          as: "deleter",
+        },
+      },
+      {
+        $addFields: {
+          createdBy: { $arrayElemAt: ["$creator", 0] },
+          modifiedBy: { $arrayElemAt: ["$modifier", 0] },
+          deletedBy: { $arrayElemAt: ["$deleter", 0] },
         },
       },
       {
@@ -587,6 +629,18 @@ async function getAccountDetails(req, res, next) {
             status: "$doc.status",
             createdAt: "$doc.createdAt",
             updatedAt: "$doc.updatedAt",
+            createdBy: {
+              name: "$doc.createdBy.name",
+              email: "$doc.createdBy.email",
+            },
+            modifiedBy: {
+              name: "$doc.modifiedBy.name",
+              email: "$doc.modifiedBy.email",
+            },
+            deletedBy: {
+              name: "$doc.deletedBy.name",
+              email: "$doc.deletedBy.email",
+            },
           },
           stats: {
             currentBalance: "$doc.balance",

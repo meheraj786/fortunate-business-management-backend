@@ -87,7 +87,10 @@ async function createTransaction(req, res, next) {
           paymentMethod,
           description,
           category,
+          description,
+          category,
           isDeleted: false,
+          createdBy: req.user?._id || null,
         },
       ],
       { session },
@@ -240,6 +243,7 @@ async function updateTransaction(req, res, next) {
     transaction.paymentMethod = paymentMethod;
     transaction.description = description;
     transaction.category = category;
+    transaction.modifiedBy = req.user?._id || null;
 
     await transaction.save({ session });
 
@@ -290,6 +294,47 @@ async function getTransactionDetails(req, res, next) {
           localField: "reference",
           foreignField: "_id",
           as: "saleRef",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "createdBy",
+          foreignField: "_id",
+          as: "creator",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "modifiedBy",
+          foreignField: "_id",
+          as: "modifier",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "deletedBy",
+          foreignField: "_id",
+          as: "deleter",
+        },
+      },
+      {
+        $addFields: {
+          createdBy: { $arrayElemAt: ["$creator", 0] },
+          modifiedBy: { $arrayElemAt: ["$modifier", 0] },
+          deletedBy: { $arrayElemAt: ["$deleter", 0] },
+        },
+      },
+      {
+        $project: {
+          creator: 0,
+          modifier: 0,
+          deleter: 0,
+          "createdBy.password": 0,
+          "modifiedBy.password": 0,
+          "deletedBy.password": 0,
         },
       },
       {
@@ -847,15 +892,16 @@ async function deleteTransaction(req, res, next) {
 
     // Mark the transaction as deleted
     transaction.isDeleted = true;
+    transaction.deletedBy = user?._id || null;
     await transaction.save({ session });
 
     // Move to trash
-    await moveToTrash({
+    await Trash.create({
       docId: transaction._id,
-      modelName: "Transaction",
-      deletedBy: user?._id,
+      model: "Transaction",
+      deletedBy: user?._id || null,
+      deletedAt: now(),
     });
-
     await session.commitTransaction();
     session.endSession();
 

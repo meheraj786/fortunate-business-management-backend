@@ -69,9 +69,10 @@ const createProduct = async (data, warehouseId) => {
  * @param {string} productId - Product ID
  * @param {string} warehouseId - Warehouse ID
  * @param {Object} data - Update data
+ * @param {string} userId - User ID performing the update
  * @returns {Promise<Object>} - Updated product
  */
-const updateProduct = async (productId, warehouseId, data) => {
+const updateProduct = async (productId, warehouseId, data, userId) => {
   // Prevent changing the warehouse via this endpoint
   if (data.warehouse && data.warehouse !== warehouseId) {
     throw new ApiError(
@@ -87,7 +88,7 @@ const updateProduct = async (productId, warehouseId, data) => {
 
   const updatedProduct = await Product.findOneAndUpdate(
     { _id: productId, warehouse: warehouseId },
-    data,
+    { ...data, modifiedBy: userId },
     { new: true, runValidators: true },
   );
 
@@ -128,6 +129,7 @@ const deleteProduct = async (productId, warehouseId, userId) => {
 
   const deleted = await Product.findByIdAndUpdate(productId, {
     isDeleted: true,
+    deletedBy: userId,
   });
 
   await Trash.create({
@@ -197,6 +199,36 @@ const getProductsWithStats = async (warehouseId, query) => {
       },
     },
     { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "createdBy",
+        foreignField: "_id",
+        as: "creator",
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "modifiedBy",
+        foreignField: "_id",
+        as: "modifier",
+      },
+    },
+    {
+      $addFields: {
+        createdBy: { $arrayElemAt: ["$creator", 0] },
+        modifiedBy: { $arrayElemAt: ["$modifier", 0] },
+      },
+    },
+    {
+      $project: {
+        creator: 0,
+        modifier: 0,
+        "createdBy.password": 0,
+        "modifiedBy.password": 0,
+      },
+    },
   ];
 
   if (search) {
@@ -276,6 +308,11 @@ const getProductsWithStats = async (warehouseId, query) => {
             updatedAt: 1,
             stockStatus: 1,
             category: { _id: "$category._id", name: "$category.name" },
+            createdBy: { name: "$createdBy.name", email: "$createdBy.email" },
+            modifiedBy: {
+              name: "$modifiedBy.name",
+              email: "$modifiedBy.email",
+            },
             LC: {
               _id: "$LC._id",
               basicInfo: { lcNumber: "$LC.basicInfo.lcNumber" },
@@ -401,6 +438,36 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         as: "unit",
       },
     },
+    {
+      $lookup: {
+        from: "users",
+        localField: "createdBy",
+        foreignField: "_id",
+        as: "creator",
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "modifiedBy",
+        foreignField: "_id",
+        as: "modifier",
+      },
+    },
+    {
+      $addFields: {
+        createdBy: { $arrayElemAt: ["$creator", 0] },
+        modifiedBy: { $arrayElemAt: ["$modifier", 0] },
+      },
+    },
+    {
+      $project: {
+        creator: 0,
+        modifier: 0,
+        "createdBy.password": 0,
+        "modifiedBy.password": 0,
+      },
+    },
     { $unwind: { path: "$LC", preserveNullAndEmptyArrays: true } },
     { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
     { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
@@ -516,6 +583,8 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         },
         createdAt: 1,
         updatedAt: 1,
+        createdBy: { name: "$createdBy.name", email: "$createdBy.email" },
+        modifiedBy: { name: "$modifiedBy.name", email: "$modifiedBy.email" },
       },
     },
   ];

@@ -12,7 +12,12 @@ const createWarehouse = async (req, res, next) => {
   try {
     const { name, location } = req.body;
 
-    const warehouse = await Warehouse.create({ name, location });
+    // Create warehouse with createdBy field
+    const warehouse = await Warehouse.create({
+      name,
+      location,
+      createdBy: req.user?._id || null,
+    });
 
     // Automatically assign the newly created warehouse to the creator
     if (req.user && req.user._id) {
@@ -37,8 +42,8 @@ const createWarehouse = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A warehouse with the same ${field} '${value}' already exists.`
-        )
+          `A warehouse with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
@@ -51,7 +56,7 @@ const createWarehouse = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -70,7 +75,11 @@ const getAllWarehouses = async (req, res, next) => {
         ? [
             {
               $match: {
-                _id: { $in: req.user.warehouse.map((id) => new mongoose.Types.ObjectId(id)) },
+                _id: {
+                  $in: req.user.warehouse.map(
+                    (id) => new mongoose.Types.ObjectId(id),
+                  ),
+                },
               },
             },
           ]
@@ -155,7 +164,11 @@ const getAllWarehouses = async (req, res, next) => {
         ? [
             {
               $match: {
-                warehouse: { $in: req.user.warehouse.map((id) => new mongoose.Types.ObjectId(id)) },
+                warehouse: {
+                  $in: req.user.warehouse.map(
+                    (id) => new mongoose.Types.ObjectId(id),
+                  ),
+                },
               },
             },
           ]
@@ -172,10 +185,7 @@ const getAllWarehouses = async (req, res, next) => {
             $sum: {
               $cond: [
                 {
-                  $and: [
-                    { $gt: ["$quantity", 0] },
-                    { $lt: ["$quantity", 20] },
-                  ],
+                  $and: [{ $gt: ["$quantity", 0] }, { $lt: ["$quantity", 20] }],
                 },
                 1,
                 0,
@@ -221,8 +231,8 @@ const getAllWarehouses = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A warehouse with the same ${field} '${value}' already exists.`
-        )
+          `A warehouse with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
@@ -235,7 +245,7 @@ const getAllWarehouses = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -347,8 +357,8 @@ const getWarehouseById = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A warehouse with the same ${field} '${value}' already exists.`
-        )
+          `A warehouse with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
@@ -361,7 +371,7 @@ const getWarehouseById = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -371,10 +381,14 @@ const updateWarehouse = async (req, res, next) => {
     const { id } = req.params;
     const updates = req.body;
 
-    const warehouse = await Warehouse.findByIdAndUpdate(id, updates, {
-      new: true,
-      runValidators: true,
-    })
+    const warehouse = await Warehouse.findByIdAndUpdate(
+      id,
+      { ...updates, modifiedBy: req.user?._id || null },
+      {
+        new: true,
+        runValidators: true,
+      },
+    )
       .populate("manager")
       .populate("product");
 
@@ -396,8 +410,8 @@ const updateWarehouse = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A warehouse with the same ${field} '${value}' already exists.`
-        )
+          `A warehouse with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
@@ -410,7 +424,7 @@ const updateWarehouse = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -425,17 +439,23 @@ const deleteWarehouse = async (req, res, next) => {
     }
 
     // Check if any ACTIVE products are still in this warehouse
-    const activeProduct = await Product.findOne({ warehouse: id, isDeleted: { $ne: true } });
+    const activeProduct = await Product.findOne({
+      warehouse: id,
+      isDeleted: { $ne: true },
+    });
     if (activeProduct) {
       return next(
         new ApiError(
           400,
-          `Cannot delete warehouse: it still contains active products like "${activeProduct.name}". Please move or delete them first.`
-        )
+          `Cannot delete warehouse: it still contains active products like "${activeProduct.name}". Please move or delete them first.`,
+        ),
       );
     }
 
-    await Warehouse.findByIdAndUpdate(id, { isDeleted: true });
+    await Warehouse.findByIdAndUpdate(id, {
+      isDeleted: true,
+      deletedBy: req.user?._id || null,
+    });
 
     // move to trash
     await Trash.create({
@@ -460,8 +480,8 @@ const deleteWarehouse = async (req, res, next) => {
       return next(
         new ApiError(
           409,
-          `A warehouse with the same ${field} '${value}' already exists.`
-        )
+          `A warehouse with the same ${field} '${value}' already exists.`,
+        ),
       ); // Specific message for warehouse
     }
     // Handle Mongoose validation errors
@@ -474,7 +494,7 @@ const deleteWarehouse = async (req, res, next) => {
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };

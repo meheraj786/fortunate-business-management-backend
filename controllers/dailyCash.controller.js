@@ -112,6 +112,7 @@ async function openCash(req, res, next) {
       status: "Open",
       openingBalance: openingBalance,
       openedAt: now(),
+      createdBy: req.user?._id || null, // Opened by
     });
 
     return res
@@ -191,6 +192,7 @@ async function closeCash(req, res, next) {
     openSession.status = "Closed";
     openSession.closedAt = now();
     openSession.closingBalance = finalRunningBalance;
+    openSession.modifiedBy = req.user?._id || null; // Closed by
     await openSession.save();
 
     // 4. Recalculate metrics to get the final state with the closed session
@@ -659,6 +661,7 @@ async function addIncome(req, res, next) {
 
     // 3. Update Account Balance
     account.balance += amount;
+    account.modifiedBy = req.user?._id || null;
     await account.save({ session });
 
     const newTransaction = new Transaction({
@@ -674,6 +677,7 @@ async function addIncome(req, res, next) {
       reference,
       referenceModel,
       miscReference,
+      createdBy: req.user?._id || null,
     });
     await newTransaction.save({ session });
 
@@ -886,6 +890,7 @@ async function addExpense(req, res, next) {
 
     // 4. Update Account Balance and Create Transaction
     account.balance -= amount;
+    account.modifiedBy = req.user?._id || null;
     await account.save({ session });
 
     const newTransaction = new Transaction({

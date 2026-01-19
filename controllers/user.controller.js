@@ -4,7 +4,10 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const jwt = require("jsonwebtoken");
 const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
-const { BUNDLED_PERMISSIONS, PERMISSIONS } = require("../utils/permissions.constants");
+const {
+  BUNDLED_PERMISSIONS,
+  PERMISSIONS,
+} = require("../utils/permissions.constants");
 const Trash = require("../models/trash.model");
 
 const registerUser = async (req, res, next) => {
@@ -14,6 +17,11 @@ const registerUser = async (req, res, next) => {
     // Ensure access array exists
     if (!user.access) {
       user.access = [];
+    }
+
+    // Set createdBy if a user is logged in (e.g. admin creating a user)
+    if (req.user) {
+      user.createdBy = req.user._id;
     }
 
     // Add CATEGORY_VIEW permission
@@ -199,9 +207,11 @@ const logoutUser = async (_, res, next) => {
 
 const getUser = async (req, res, next) => {
   try {
-    const fetchedUser = await User.findById(req.params.id).populate(
-      "warehouse",
-    );
+    const fetchedUser = await User.findById(req.params.id)
+      .populate("warehouse")
+      .populate("createdBy", "name email")
+      .populate("modifiedBy", "name email")
+      .populate("deletedBy", "name email");
     if (!fetchedUser || fetchedUser.isDeleted) {
       return next(new ApiError(404, "User not found"));
     }
@@ -240,7 +250,11 @@ const getUser = async (req, res, next) => {
 };
 const getProfile = async (req, res, next) => {
   try {
-    const fetchedUser = await User.findById(req.user._id).populate("warehouse");
+    const fetchedUser = await User.findById(req.user._id)
+      .populate("warehouse")
+      .populate("createdBy", "name email")
+      .populate("modifiedBy", "name email")
+      .populate("deletedBy", "name email");
     if (!fetchedUser || fetchedUser.isDeleted) {
       return next(new ApiError(404, "User not found"));
     }
@@ -376,6 +390,8 @@ const updateUser = async (req, res, next) => {
       user[key] = updates[key];
     });
 
+    user.modifiedBy = req.user._id;
+
     await user.save();
 
     const updatedUser = await User.findById(id).populate("warehouse");
@@ -419,7 +435,7 @@ const deleteUser = async (req, res, next) => {
     const deletedBy = req.user?._id || null;
     const deletedUser = await User.findByIdAndUpdate(
       id,
-      { isDeleted: true },
+      { isDeleted: true, deletedBy },
       { new: true },
     );
     if (!deletedUser) {

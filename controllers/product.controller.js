@@ -7,7 +7,14 @@ const logger = require("../utils/logger");
 async function createProductInWarehouse(req, res, next) {
   try {
     const { warehouseId } = req.params;
-    const product = await productService.createProduct(req.body, warehouseId);
+    const productData = {
+      ...req.body,
+      createdBy: req.user?._id || null,
+    };
+    const product = await productService.createProduct(
+      productData,
+      warehouseId,
+    );
 
     return res
       .status(201)
@@ -86,10 +93,12 @@ async function getProductInWarehouse(req, res, next) {
 async function updateProductInWarehouse(req, res, next) {
   try {
     const { warehouseId, productId } = req.params;
+    const userId = req.user?._id || null;
     const updated = await productService.updateProduct(
       productId,
       warehouseId,
       req.body,
+      userId,
     );
 
     return res

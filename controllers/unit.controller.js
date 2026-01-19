@@ -14,13 +14,16 @@ exports.createUnit = async (req, res, next) => {
 
     // Add validation for conversionFactor
     if (conversionFactor <= 0) {
-      return next(new ApiError(400, "Conversion factor must be greater than 0."));
+      return next(
+        new ApiError(400, "Conversion factor must be greater than 0."),
+      );
     }
 
     const unit = await Unit.create({
       name: name.trim(),
       type: type.trim(),
       conversionFactor,
+      createdBy: req.user?._id || null,
     });
 
     res
@@ -29,12 +32,14 @@ exports.createUnit = async (req, res, next) => {
   } catch (error) {
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern)[0];
-      return next(new ApiError(409, `A unit with the ${field} already exists.`));
+      return next(
+        new ApiError(409, `A unit with the ${field} already exists.`),
+      );
     }
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       return next(new ApiError(400, "Validation failed", error.errors));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -42,13 +47,15 @@ exports.createUnit = async (req, res, next) => {
 /* ================= GET ALL UNITS (Filtered) ================= */
 exports.getUnits = async (_, res, next) => {
   try {
-    const units = await Unit.find({ isDeleted: { $ne: true } }).sort({ name: 1 });
-    
+    const units = await Unit.find({ isDeleted: { $ne: true } }).sort({
+      name: 1,
+    });
+
     res
       .status(200)
       .json(new ApiResponse(200, units, "Units fetched successfully"));
   } catch (error) {
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -57,16 +64,16 @@ exports.getUnits = async (_, res, next) => {
 exports.getUnitById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const unit = await Unit.findOne({ _id: id, isDeleted: { $ne: true } });
-    
+
     if (!unit) return next(new ApiError(404, "Unit not found"));
 
     res
       .status(200)
       .json(new ApiResponse(200, unit, "Unit fetched successfully"));
   } catch (error) {
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -78,18 +85,25 @@ exports.updateUnit = async (req, res, next) => {
     const { name, type, conversionFactor } = req.body;
 
     // Add validation for conversionFactor if it's being updated
-    if (conversionFactor !== undefined && conversionFactor !== null && conversionFactor <= 0) {
-      return next(new ApiError(400, "Conversion factor must be greater than 0."));
+    if (
+      conversionFactor !== undefined &&
+      conversionFactor !== null &&
+      conversionFactor <= 0
+    ) {
+      return next(
+        new ApiError(400, "Conversion factor must be greater than 0."),
+      );
     }
 
     const unit = await Unit.findOneAndUpdate(
       { _id: id, isDeleted: { $ne: true } },
-      { 
-        name: name?.trim(), 
-        type: type?.trim(), 
-        conversionFactor 
+      {
+        name: name?.trim(),
+        type: type?.trim(),
+        conversionFactor,
+        modifiedBy: req.user?._id || null,
       },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     if (!unit) return next(new ApiError(404, "Unit not found"));
@@ -101,7 +115,7 @@ exports.updateUnit = async (req, res, next) => {
     if (error.code === 11000) {
       return next(new ApiError(409, "A unit with this name already exists."));
     }
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
@@ -112,29 +126,53 @@ exports.deleteUnit = async (req, res, next) => {
     const { id } = req.params;
 
     // Check if the unit is being used by any active products
-    const productInUse = await Product.findOne({ unit: id, isDeleted: { $ne: true } });
+    const productInUse = await Product.findOne({
+      unit: id,
+      isDeleted: { $ne: true },
+    });
     if (productInUse) {
-      return next(new ApiError(400, `Cannot delete unit: it is in use by product "${productInUse.name}".`));
+      return next(
+        new ApiError(
+          400,
+          `Cannot delete unit: it is in use by product "${productInUse.name}".`,
+        ),
+      );
     }
 
     // Check if the unit is being used by any active sales
-    const saleInUse = await Sales.findOne({ unit: id, isDeleted: { $ne: true } });
+    const saleInUse = await Sales.findOne({
+      unit: id,
+      isDeleted: { $ne: true },
+    });
     if (saleInUse) {
-      return next(new ApiError(400, `Cannot delete unit: it is in use by sale "${saleInUse.saleId}".`));
+      return next(
+        new ApiError(
+          400,
+          `Cannot delete unit: it is in use by sale "${saleInUse.saleId}".`,
+        ),
+      );
     }
 
     // Check if the unit is being used by any active LCs
-    const lcInUse = await LC.findOne({ "productInfo.quantityUnit": id, isDeleted: { $ne: true } });
+    const lcInUse = await LC.findOne({
+      "productInfo.quantityUnit": id,
+      isDeleted: { $ne: true },
+    });
     if (lcInUse) {
-      return next(new ApiError(400, `Cannot delete unit: it is in use by LC "${lcInUse.basicInfo.lcNumber}".`));
+      return next(
+        new ApiError(
+          400,
+          `Cannot delete unit: it is in use by LC "${lcInUse.basicInfo.lcNumber}".`,
+        ),
+      );
     }
 
     const deletedBy = req.cookies?.userId || req.user?._id || null;
 
     const unit = await Unit.findOneAndUpdate(
       { _id: id, isDeleted: { $ne: true } },
-      { isDeleted: true },
-      { new: true }
+      { isDeleted: true, deletedBy },
+      { new: true },
     );
 
     if (!unit) return next(new ApiError(404, "Unit not found"));
@@ -149,7 +187,7 @@ exports.deleteUnit = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, unit, "Unit moved to trash successfully"));
   } catch (error) {
-        logger.error(error);
+    logger.error(error);
     next(new ApiError(500, "An unexpected error occurred. Please try again."));
   }
 };
