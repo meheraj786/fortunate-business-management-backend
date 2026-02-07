@@ -50,55 +50,47 @@ async function openCash(req, res, next) {
       // This is a reopening on the same day. Opening balance is the last closing balance.
       openingBalance = lastSessionToday.closingBalance;
     } else {
-      // This is the first opening of the day. Auto-close previous day if forgotten.
-      const previousDay = startOfDay(
-        new Date(today.getTime() - 24 * 60 * 60 * 1000),
-        req.businessTimezone,
-      );
+      // This is the first opening of the day. Check for the LAST recorded session (could be yesterday, or 3 days ago).
+      const lastSession = await DailyCash.findOne({
+        date: { $lt: today },
+      }).sort({ date: -1 });
 
-      const lastSessionYesterday = await DailyCash.findOne({
-        date: previousDay,
-      }).sort({ createdAt: -1 });
-
-      if (lastSessionYesterday) {
-        if (lastSessionYesterday.status === "Open") {
-          // If yesterday was left open, we need to calculate its running balance and close it.
-          const prevDayMetrics = await _calculateDailyCashMetrics(
-            previousDay.toISOString(),
-            req.businessTimezone,
+      if (lastSession) {
+        if (lastSession.status === "Open") {
+          // If the last session was left open, we need to calculate its running balance and close it.
+          const lastSessionDate = new Date(lastSession.date);
+          const lastSessionMetrics = await _calculateDailyCashMetrics(
+            lastSessionDate.toISOString(),
+            req.businessTimezone
           );
-          openingBalance = prevDayMetrics.runningBalance; // Today's opening is yesterday's running balance
+          openingBalance = lastSessionMetrics.runningBalance; // Today's opening is the last session's running balance
 
-          // Auto-close yesterday's session
-          lastSessionYesterday.status = "Closed";
-          const endOfPreviousDay = endOfDay(previousDay, req.businessTimezone);
-          lastSessionYesterday.closedAt = endOfPreviousDay;
-          lastSessionYesterday.closingBalance = openingBalance;
-          await lastSessionYesterday.save();
+          // Auto-close the last session
+          lastSession.status = "Closed";
+          const endOfLastSessionDate = endOfDay(
+            lastSessionDate,
+            req.businessTimezone
+          );
+          lastSession.closedAt = endOfLastSessionDate;
+          lastSession.closingBalance = openingBalance;
+          await lastSession.save();
           console.log(
-            `Auto-closed daily cash for ${previousDay.toDateString()}.`,
+            `Auto-closed daily cash for ${lastSessionDate.toDateString()}.`
           );
         } else {
-          // Yesterday's last session was closed
-          openingBalance = lastSessionYesterday.closingBalance;
+          // The last session was closed properly
+          openingBalance = lastSession.closingBalance;
         }
       } else {
-        // No session yesterday, could be the first ever opening in the system.
-        const firstEverEntry = await DailyCash.findOne().sort({
-          createdAt: "asc",
-        });
-        if (!firstEverEntry) {
-          // Sum all account balances as the very first opening balance
-          const totalAccountBalance = await Account.aggregate([
-            { $group: { _id: null, totalBalance: { $sum: "$balance" } } },
-          ]);
-          openingBalance =
-            totalAccountBalance.length > 0
-              ? totalAccountBalance[0].totalBalance
-              : 0;
-        } else {
-          openingBalance = 0; // Default if no history and not the first ever
-        }
+        // No session found before today. This is the very first opening in the system.
+        // Sum all account balances as the very first opening balance
+        const totalAccountBalance = await Account.aggregate([
+          { $group: { _id: null, totalBalance: { $sum: "$balance" } } },
+        ]);
+        openingBalance =
+          totalAccountBalance.length > 0
+            ? totalAccountBalance[0].totalBalance
+            : 0;
       }
     }
 

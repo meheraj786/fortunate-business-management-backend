@@ -47,6 +47,11 @@ const dailyCashSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+dailyCashSchema.index(
+  { date: 1, status: 1 },
+  { unique: true, partialFilterExpression: { status: "Open" } }
+);
+
 dailyCashSchema.plugin(mongoosePaginate);
 
 const DailyCash = mongoose.model("DailyCash", dailyCashSchema);
