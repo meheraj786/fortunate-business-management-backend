@@ -480,13 +480,24 @@ async function deleteAccount(req, res, next) {
       );
     }
 
+    const transactionCount = await Transaction.countDocuments({
+      accountId: id,
+    }).session(session);
+
+    let updateData = {
+      status: "Archived",
+      deletedBy: req.user?._id || null,
+    };
+
+    // If transactions exist, we DO NOT soft delete (isDeleted: true),
+    // we only archive it to preserve history and referential integrity for Mongoose queries.
+    if (transactionCount === 0) {
+      updateData.isDeleted = true;
+    }
+
     const archivedAccount = await Account.findByIdAndUpdate(
       id,
-      {
-        status: "Archived",
-        deletedBy: req.user?._id || null,
-        isDeleted: true, // Ensuring consistency with other soft deletes if applicable
-      },
+      updateData,
       { new: true, session },
     );
 
