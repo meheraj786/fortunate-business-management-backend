@@ -7,6 +7,7 @@ const {
   deleteTransaction,
   createTransaction,
   updateTransaction,
+  transferMoney,
 } = require("../../controllers/transaction.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const { authorize } = require("../../middleware/authorize.middleware");
@@ -50,6 +51,12 @@ transactionRoutes.delete(
   "/delete-transaction/:id",
   authorize(PERMISSIONS.TRANSACTION_DELETE),
   deleteTransaction
+);
+
+transactionRoutes.post(
+  "/transfer",
+  authorize(PERMISSIONS.TRANSACTION_CREATE),
+  transferMoney
 );
 
 module.exports = transactionRoutes;

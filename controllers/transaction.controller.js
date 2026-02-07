@@ -963,3 +963,163 @@ module.exports = {
   getTransactionsByAccount,
   deleteTransaction,
 };
+
+async function transferMoney(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { fromAccountId, toAccountId, amount, date, description, reference } =
+      req.body;
+
+    if (!fromAccountId || !toAccountId || !amount || !date) {
+      throw new ApiError(
+        400,
+        "Source, destination, amount, and date are required.",
+      );
+    }
+
+    if (fromAccountId === toAccountId) {
+      throw new ApiError(400, "Cannot transfer money to the same account.");
+    }
+
+    if (amount <= 0) {
+      throw new ApiError(400, "Transfer amount must be greater than zero.");
+    }
+
+    // DailyCash Gatekeeper Check
+    // We use the provided date to check if the day is open.
+    // However, for the transaction record itself, we trust the 'date' passed in (which might have specific time).
+    const transactionDate = startOfDay(new Date(date), req.businessTimezone);
+    const dailyCash = await DailyCash.findOne({
+      date: transactionDate,
+      status: "Open",
+    }).session(session);
+
+    if (!dailyCash) {
+      throw new ApiError(
+        400,
+        `Daily cash is closed for ${transactionDate.toDateString()}. Cannot transfer money.`,
+      );
+    }
+
+    // 1. Handle Source Account (Expense)
+    const sourceAccount = await Account.findById(fromAccountId).session(
+      session,
+    );
+    if (!sourceAccount) {
+      throw new ApiError(404, "Source account not found.");
+    }
+
+    if (sourceAccount.balance < amount) {
+      throw new ApiError(
+        400,
+        `Insufficient balance in ${sourceAccount.accountName}.`,
+      );
+    }
+
+    sourceAccount.balance -= amount;
+    await sourceAccount.save({ session });
+
+    // 2. Handle Destination Account (Income)
+    const destAccount = await Account.findById(toAccountId).session(session);
+    if (!destAccount) {
+      throw new ApiError(404, "Destination account not found.");
+    }
+
+    destAccount.balance += amount;
+    await destAccount.save({ session });
+
+    // Format Description
+    // If user provided a description, append it to the context.
+    const sourceDescription = description
+      ? `Transfer to ${destAccount.accountName} - ${description}`
+      : `Transfer to ${destAccount.accountName}`;
+
+    const destDescription = description
+      ? `Transfer from ${sourceAccount.accountName} - ${description}`
+      : `Transfer from ${sourceAccount.accountName}`;
+
+    // 3. Create Expense Transaction for Source
+    const expenseTrx = await Transaction.create(
+      [
+        {
+          accountId: fromAccountId,
+          date, // Uses the full timestamp if provided
+          transactionType: "Expense",
+          amount,
+          name: `Transfer to ${destAccount.accountName}`,
+          source: "Manual",
+          paymentMethod: "Bank",
+          description: sourceDescription,
+          category: "Transfer Out",
+          isDeleted: false,
+          createdBy: req.user?._id || null,
+          miscReference: { transferTo: toAccountId, referenceNote: reference },
+        },
+      ],
+      { session },
+    );
+
+    // 4. Create Income Transaction for Destination
+    const incomeTrx = await Transaction.create(
+      [
+        {
+          accountId: toAccountId,
+          date, // Uses the full timestamp if provided
+          transactionType: "Income",
+          amount,
+          name: `Transfer from ${sourceAccount.accountName}`,
+          source: "Manual",
+          paymentMethod: "Bank",
+          description: destDescription,
+          category: "Transfer In",
+          isDeleted: false,
+          createdBy: req.user?._id || null,
+          miscReference: {
+            transferFrom: fromAccountId,
+            referenceNote: reference,
+            relatedTransactionId: expenseTrx[0]._id,
+          },
+        },
+      ],
+      { session },
+    );
+
+    // Link expense to income
+    expenseTrx[0].miscReference.relatedTransactionId = incomeTrx[0]._id;
+    await expenseTrx[0].save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          sourceTransaction: expenseTrx[0],
+          destTransaction: incomeTrx[0],
+        },
+        "Money transferred successfully.",
+      ),
+    );
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    logger.error("TransferMoney Error:", error);
+    next(new ApiError(500, "Failed to transfer money. Please try again."));
+  }
+}
+
+module.exports = {
+  createTransaction,
+  updateTransaction,
+  getAllTransactions,
+  getTransactionDetails,
+  getTransactionStats,
+  getTransactionsByAccount,
+  deleteTransaction,
+  transferMoney,
+};
