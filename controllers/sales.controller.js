@@ -312,11 +312,13 @@ async function createSale(req, res, next) {
       }
     }
 
-    await Product.findByIdAndUpdate(
-      productId,
-      { $inc: { quantity: -quantityToDeductFromProduct } },
-      { new: true, session },
-    );
+    if (invoiceStatus === "Invoiced") {
+      await Product.findByIdAndUpdate(
+        productId,
+        { $inc: { quantity: -quantityToDeductFromProduct } },
+        { new: true, session },
+      );
+    }
 
     if (finalCustomerInfo.customerId) {
       await Customer.findByIdAndUpdate(
@@ -863,56 +865,99 @@ async function updateSale(req, res, next) {
       );
     }
 
-    // Adjust product stock if quantity changes
-    if (updateData.quantity && updateData.quantity !== sale.quantity) {
-      const product = sale.product; // Product is already populated
-      if (!product) {
-        return next(new ApiError(404, "Associated product not found"));
-      }
+    // --- Stock Update Logic Start ---
+    const oldStatus = sale.invoiceStatus;
+    const newStatus = updateData.invoiceStatus || oldStatus;
+    const oldQuantity = sale.quantity;
+    const newQuantity =
+      updateData.quantity !== undefined ? updateData.quantity : oldQuantity;
 
-      // Check if units are compatible (same type)
-      if (product.unit.type !== sale.unit.type) {
-        return next(
-          new ApiError(
-            400,
-            `Cannot update sale. Incompatible units: Product is in '${product.unit.type}' while sale is in '${sale.unit.type}'.`,
-          ),
-        );
-      }
-
-      // Calculate old and new sale quantities in a common base unit
-      const oldSaleQuantityInBaseUnit =
-        sale.quantity * sale.unit.conversionFactor;
-      const newSaleQuantityInBaseUnit =
-        updateData.quantity * sale.unit.conversionFactor;
-
-      // Determine the net change in base units
-      const netChangeInBaseUnit =
-        newSaleQuantityInBaseUnit - oldSaleQuantityInBaseUnit;
-
-      // Convert this net change to the product's unit
-      const quantityChangeInProductUnit =
-        netChangeInBaseUnit / product.unit.conversionFactor;
-
-      // If quantityChangeInProductUnit is positive, it means we are increasing the sale quantity,
-      // so we need to check if there's enough stock to deduct more.
-      // If it's negative, we are decreasing the sale quantity, so stock will be returned.
-      if (
-        quantityChangeInProductUnit > 0 &&
-        product.quantity < quantityChangeInProductUnit
-      ) {
-        return next(
-          new ApiError(
-            400,
-            "Not enough product in stock for this quantity increase",
-          ),
-        );
-      }
-
-      await Product.findByIdAndUpdate(product._id, {
-        $inc: { quantity: -quantityChangeInProductUnit },
-      });
+    const product = sale.product; // Already populated
+    if (!product) {
+      return next(new ApiError(404, "Associated product not found"));
     }
+
+    // Identify if we need to interact with stock
+    // We need to calculate unit conversions if we are doing any stock operation
+    // Using the same logic as before for conversion:
+
+    // 1. Check Unit Compatibility
+    if (product.unit.type !== sale.unit.type) {
+      return next(
+        new ApiError(
+          400,
+          `Cannot update sale. Incompatible units: Product is in '${product.unit.type}' while sale is in '${sale.unit.type}'.`,
+        ),
+      );
+    }
+
+    // Helper to calculate stock change in Product's Unit
+    const calculateStockChange = (qty) => {
+      const qtyInBase = qty * sale.unit.conversionFactor;
+      return qtyInBase / product.unit.conversionFactor;
+    };
+
+    if (oldStatus !== newStatus) {
+      // Status Transition
+      if (oldStatus === "Not-invoiced" && newStatus === "Invoiced") {
+        // Not-invoiced -> Invoiced: DEDUCT "newQuantity"
+        const deduction = calculateStockChange(newQuantity);
+        if (product.quantity < deduction) {
+          return next(
+            new ApiError(
+              400,
+              `Not enough product in stock to invoice this sale. Required: ${deduction} ${product.unit.name}, Available: ${product.quantity} ${product.unit.name}`,
+            ),
+          );
+        }
+        await Product.findByIdAndUpdate(product._id, {
+          $inc: { quantity: -deduction },
+        });
+      } else if (oldStatus === "Invoiced" && newStatus === "Cancelled") {
+        // Invoiced -> Cancelled: RESTORE "oldQuantity" (what was previously taken)
+        // Even if newQuantity is different, we only restore what we took.
+        // AND if newQuantity is different, the sale record will update to newQuantity, but that doesn't matter for the restoration.
+        const restoration = calculateStockChange(oldQuantity);
+        await Product.findByIdAndUpdate(product._id, {
+          $inc: { quantity: restoration },
+        });
+      }
+      // "Invoiced" -> "Not-invoiced" is supposedly blocked/invalid, so ignoring or treating as no-op.
+      // "Cancelled" -> "Invoiced"? If we allow reviving cancelled orders.
+      else if (oldStatus === "Cancelled" && newStatus === "Invoiced") {
+        // Re-deduct newQuantity
+        const deduction = calculateStockChange(newQuantity);
+        if (product.quantity < deduction) {
+          return next(new ApiError(400, "Not enough product in stock to reactivate sale."));
+        }
+        await Product.findByIdAndUpdate(product._id, { $inc: { quantity: -deduction } });
+      }
+
+    } else {
+      // Status did NOT change
+      if (newStatus === "Invoiced") {
+        // Invoiced -> Invoiced: Check Quantity Change
+        if (oldQuantity !== newQuantity) {
+          const oldQtyInProductUnit = calculateStockChange(oldQuantity);
+          const newQtyInProductUnit = calculateStockChange(newQuantity);
+          const netChange = newQtyInProductUnit - oldQtyInProductUnit;
+          // If netChange is positive, we need MORE stock (Deduct more)
+          // If netChange is negative, we need LESS stock (Restore some)
+
+          // Check availability if we need more
+          if (netChange > 0 && product.quantity < netChange) {
+            return next(new ApiError(400, "Not enough product in stock for this quantity increase"));
+          }
+
+          await Product.findByIdAndUpdate(product._id, {
+            $inc: { quantity: -netChange }
+          });
+        }
+      }
+      // If "Not-invoiced" -> "Not-invoiced", do nothing regardless of quantity change.
+      // If "Cancelled" -> "Cancelled", do nothing.
+    }
+    // --- Stock Update Logic End ---
 
     // Prevent updates to sensitive or immutable fields to ensure data integrity.
     // 'charges' are an exception and can be updated directly on the sale.
