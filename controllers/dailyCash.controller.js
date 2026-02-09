@@ -678,6 +678,8 @@ async function addIncome(req, res, next) {
       reference = salesId;
       referenceModel = "Sale";
       miscReference = { saleId: sale.saleId, customerName: sale.customer.name };
+    } else {
+      finalDescription = `${description} via ${paymentMethod} Account: ${formatAccountLabel(account)}.`;
     }
 
     // 3. Update Account Balance
@@ -912,7 +914,7 @@ async function addExpense(req, res, next) {
           "A description is required for this expense category.",
         );
       }
-      finalDescription = description;
+      finalDescription = `${description} via ${paymentMethod} Account: ${formatAccountLabel(account)}.`;
       transactionName = category; // Set the transaction name to the category itself
     }
 
