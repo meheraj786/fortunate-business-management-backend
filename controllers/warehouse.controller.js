@@ -80,16 +80,16 @@ const getAllWarehouses = async (req, res, next) => {
       // Conditionally add match stage for non-SUPER_ADMIN users
       ...(req.user.roleName !== "SUPER_ADMIN"
         ? [
-            {
-              $match: {
-                _id: {
-                  $in: req.user.warehouse.map(
-                    (id) => new mongoose.Types.ObjectId(id),
-                  ),
-                },
+          {
+            $match: {
+              _id: {
+                $in: req.user.warehouse.map(
+                  (id) => new mongoose.Types.ObjectId(id),
+                ),
               },
             },
-          ]
+          },
+        ]
         : []),
       {
         $lookup: {
@@ -103,6 +103,38 @@ const getAllWarehouses = async (req, res, next) => {
                     { $eq: ["$warehouse", "$$warehouseId"] },
                     { $eq: ["$isDeleted", false] },
                   ],
+                },
+              },
+            },
+            // Lookup unit for conversion
+            {
+              $lookup: {
+                from: "units",
+                localField: "unit",
+                foreignField: "_id",
+                as: "unit",
+              },
+            },
+            {
+              $unwind: {
+                path: "$unit",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            // Calculate weight in KG
+            {
+              $addFields: {
+                weightInKg: {
+                  $cond: {
+                    if: { $eq: ["$unit.type", "Weight"] },
+                    then: {
+                      $divide: [
+                        { $multiply: ["$quantity", "$unit.conversionFactor"] },
+                        1000,
+                      ],
+                    },
+                    else: 0,
+                  },
                 },
               },
             },
@@ -122,6 +154,7 @@ const getAllWarehouses = async (req, res, next) => {
         $addFields: {
           stats: {
             totalProducts: { $size: "$products" },
+            totalQuantity: { $sum: "$products.weightInKg" }, // Sum of weight in KG
             totalInStock: {
               $size: {
                 $filter: {
@@ -169,22 +202,53 @@ const getAllWarehouses = async (req, res, next) => {
       // Conditionally add match stage for non-SUPER_ADMIN users
       ...(req.user.roleName !== "SUPER_ADMIN"
         ? [
-            {
-              $match: {
-                warehouse: {
-                  $in: req.user.warehouse.map(
-                    (id) => new mongoose.Types.ObjectId(id),
-                  ),
-                },
+          {
+            $match: {
+              warehouse: {
+                $in: req.user.warehouse.map(
+                  (id) => new mongoose.Types.ObjectId(id),
+                ),
               },
             },
-          ]
+          },
+        ]
         : []),
       { $match: { isDeleted: false } }, // Filter for active products
+      {
+        $lookup: {
+          from: "units",
+          localField: "unit",
+          foreignField: "_id",
+          as: "unit",
+        },
+      },
+      {
+        $unwind: {
+          path: "$unit",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $addFields: {
+          weightInKg: {
+            $cond: {
+              if: { $eq: ["$unit.type", "Weight"] },
+              then: {
+                $divide: [
+                  { $multiply: ["$quantity", "$unit.conversionFactor"] },
+                  1000,
+                ],
+              },
+              else: 0,
+            },
+          },
+        },
+      },
       {
         $group: {
           _id: null,
           totalProducts: { $sum: 1 },
+          totalQuantity: { $sum: "$weightInKg" }, // Sum of weight in KG
           totalInStock: {
             $sum: { $cond: [{ $gt: ["$quantity", 0] }, 1, 0] },
           },
@@ -218,6 +282,7 @@ const getAllWarehouses = async (req, res, next) => {
       warehouses: warehouses,
       stats: globalStatsResult[0] || {
         totalProducts: 0,
+        totalQuantity: 0,
         totalInStock: 0,
         totalLowStock: 0,
         totalOutOfStock: 0,
