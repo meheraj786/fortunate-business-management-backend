@@ -84,6 +84,25 @@ const lcSchema = new mongoose.Schema(
     otherExpenses: {
       costs: [costSchema],
     },
+    documentProductInfo: {
+      products: [
+        {
+          itemName: { type: String, trim: true },
+          thickness: { type: String, trim: true },
+          width: { type: String, trim: true },
+          length: { type: String, trim: true },
+          grade: { type: String, trim: true },
+          unitPriceUsd: { type: Number },
+          quantity: { type: Number },
+          quantityUnit: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Unit",
+          },
+          totalValueUsd: { type: Number },
+        },
+      ],
+      costs: [costSchema],
+    },
     totalCost: { type: Number, default: 0 },
     isDeleted: {
       type: Boolean,
@@ -137,6 +156,12 @@ lcSchema.pre("save", function (next) {
   }
   if (this.otherExpenses && this.otherExpenses.costs) {
     calculatedCost += this.otherExpenses.costs.reduce(
+      (sum, cost) => sum + (cost.amount || 0),
+      0,
+    );
+  }
+  if (this.documentProductInfo && this.documentProductInfo.costs) {
+    calculatedCost += this.documentProductInfo.costs.reduce(
       (sum, cost) => sum + (cost.amount || 0),
       0,
     );

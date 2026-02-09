@@ -63,6 +63,7 @@ async function createLC(req, res, next) {
       "shippingCustomsInfo",
       "agentTransportInfo",
       "otherExpenses",
+      "documentProductInfo",
     ];
     for (const section of sectionsWithCosts) {
       if (lcData[section] && lcData[section].costs) {
@@ -289,6 +290,8 @@ async function getLCById(req, res, next) {
       .populate("agentTransportInfo.costs.accountId")
       .populate("agentTransportInfo.costs.accountId")
       .populate("otherExpenses.costs.accountId")
+      .populate("documentProductInfo.costs.accountId")
+      .populate("documentProductInfo.products.quantityUnit", "name type conversionFactor")
       .populate("createdBy", "name email")
       .populate("modifiedBy", "name email")
       .populate("deletedBy", "name email")
@@ -349,6 +352,7 @@ async function updateLC(req, res, next) {
       "shippingCustomsInfo",
       "agentTransportInfo",
       "otherExpenses",
+      "documentProductInfo",
     ];
     for (const section of sectionsWithCosts) {
       if (updateData[section] && updateData[section].costs) {
@@ -634,6 +638,7 @@ async function deleteLC(req, res, next) {
       deletedLC.shippingCustomsInfo,
       deletedLC.agentTransportInfo,
       deletedLC.otherExpenses,
+      deletedLC.documentProductInfo,
     ];
 
     // Reverse each LC cost
@@ -1101,6 +1106,7 @@ async function addExpenseToLC(req, res, next) {
       "shippingCustomsInfo",
       "agentTransportInfo",
       "otherExpenses",
+      "documentProductInfo",
     ];
     if (!validCategories.includes(category)) {
       throw new ApiError(
@@ -1152,6 +1158,8 @@ async function addExpenseToLC(req, res, next) {
       { path: "shippingCustomsInfo.costs.accountId" },
       { path: "agentTransportInfo.costs.accountId" },
       { path: "otherExpenses.costs.accountId" },
+      { path: "documentProductInfo.costs.accountId" },
+      { path: "documentProductInfo.products.quantityUnit", select: "name type conversionFactor" },
     ]);
 
     return res
@@ -1317,6 +1325,7 @@ async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
     "shippingCustomsInfo",
     "agentTransportInfo",
     "otherExpenses",
+    "documentProductInfo",
   ];
 
   // 1. Check Daily Cash Status (Gatekeeper)
