@@ -8,6 +8,7 @@ const mongoose = require("mongoose");
 const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
 const { moveToTrash } = require("../controllers/trash.controller");
+const { formatAccountLabel } = require("../utils/format.util");
 
 async function createTransaction(req, res, next) {
   const session = await mongoose.startSession();
@@ -1032,12 +1033,12 @@ async function transferMoney(req, res, next) {
     // Format Description
     // If user provided a description, append it to the context.
     const sourceDescription = description
-      ? `Transfer to ${destAccount.accountName} - ${description}`
-      : `Transfer to ${destAccount.accountName}`;
+      ? `Transfer to ${formatAccountLabel(destAccount)} - ${description}`
+      : `Transfer to ${formatAccountLabel(destAccount)}`;
 
     const destDescription = description
-      ? `Transfer from ${sourceAccount.accountName} - ${description}`
-      : `Transfer from ${sourceAccount.accountName}`;
+      ? `Transfer from ${formatAccountLabel(sourceAccount)} - ${description}`
+      : `Transfer from ${formatAccountLabel(sourceAccount)}`;
 
     // 3. Create Expense Transaction for Source
     const expenseTrx = await Transaction.create(

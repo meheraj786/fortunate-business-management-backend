@@ -10,6 +10,7 @@ const { generateLCPDF } = require("../utils/LC_pdfGenerator");
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
 const { ApiResponse } = require("../utils/ApiResponse");
+const { formatAccountLabel } = require("../utils/format.util");
 
 // Models
 const LC = require("../models/lc.model");
@@ -255,7 +256,7 @@ async function _handleLCCostTransaction(cost, lc, session, timezone) {
       {
         accountId: cost.accountId,
         date: costDate,
-        description: `LC Cost: ${cost.name} for LC Number: ${lc.basicInfo.lcNumber} via ${cost.paymentMethod} account.`,
+        description: `LC Cost: ${cost.name} for LC Number: ${lc.basicInfo.lcNumber} via ${cost.paymentMethod} Account: ${formatAccountLabel(account)}.`,
         transactionType: "Expense",
         amount: cost.amount,
         name: `LC Cost: ${cost.name}`,

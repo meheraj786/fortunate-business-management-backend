@@ -7,6 +7,7 @@ const logger = require("../utils/logger");
 const mongoose = require("mongoose");
 const Trash = require("../models/trash.model");
 const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
+const { formatAccountLabel } = require("../utils/format.util");
 
 // @desc    Open a new cash session for the current day
 // @route   POST /api/cash/open
@@ -657,7 +658,7 @@ async function addIncome(req, res, next) {
         throw new ApiError(404, "LC not found.");
       }
       // Updated description format for LC income
-      finalDescription = `${name} Income from LC Number: ${lc.basicInfo.lcNumber} via ${paymentMethod} Account: ${account.accountName} - holder name:${account.accountName}.`;
+      finalDescription = `${name} Income from LC Number: ${lc.basicInfo.lcNumber} via ${paymentMethod} Account: ${formatAccountLabel(account)}.`;
       reference = lcId;
       referenceModel = "LC";
       miscReference = { lcNumber: lc.basicInfo.lcNumber };
@@ -673,7 +674,7 @@ async function addIncome(req, res, next) {
         throw new ApiError(404, "Sale not found.");
       }
       // Updated description format for Sales income
-      finalDescription = `${name} Income from Sale ID: ${sale.saleId} (Customer: ${sale.customer.name}) via ${paymentMethod} Account: ${account.accountName} - holder name:${account.accountName}.`;
+      finalDescription = `${name} Income from Sale ID: ${sale.saleId} (Customer: ${sale.customer.name}) via ${paymentMethod} Account: ${formatAccountLabel(account)}.`;
       reference = salesId;
       referenceModel = "Sale";
       miscReference = { saleId: sale.saleId, customerName: sale.customer.name };
@@ -867,7 +868,7 @@ async function addExpense(req, res, next) {
       });
       await lc.save({ session });
 
-      finalDescription = `Expense for LC: ${lc.basicInfo.lcNumber}, Cost: ${name}.`;
+      finalDescription = `Expense for LC: ${lc.basicInfo.lcNumber}, Cost: ${name} via ${paymentMethod} Account: ${formatAccountLabel(account)}.`;
       reference = lcId;
       referenceModel = "LC";
       miscReference = {
@@ -895,7 +896,7 @@ async function addExpense(req, res, next) {
       });
       await sale.save({ session }); // Let pre-save hook handle paymentStatus
 
-      finalDescription = `Expense for Sale: ${sale.saleId}, Cost: ${name}.`;
+      finalDescription = `Expense for Sale: ${sale.saleId}, Cost: ${name} via ${paymentMethod} Account: ${formatAccountLabel(account)}.`;
       reference = salesId;
       referenceModel = "Sale";
       miscReference = {

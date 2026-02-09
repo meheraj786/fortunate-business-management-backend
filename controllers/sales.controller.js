@@ -12,6 +12,7 @@ const Transaction = require("../models/transaction.model");
 const Trash = require("../models/trash.model");
 const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
 const SalesService = require("../services/sales.service");
+const { formatAccountLabel } = require("../utils/format.util");
 
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
@@ -218,7 +219,7 @@ async function createSale(req, res, next) {
             {
               accountId: account._id,
               date: payment.date,
-              description: `Payment received for Sale ID: ${req.body.saleId} from ${finalCustomerInfo.name} via ${payment.method}.`,
+              description: `Payment received for Sale ID: ${req.body.saleId} from ${finalCustomerInfo.name} via ${payment.method} Account: ${formatAccountLabel(account)}.`,
               transactionType: "Income",
               amount: payment.amount,
               name: "Sales Payment",
@@ -290,7 +291,7 @@ async function createSale(req, res, next) {
             {
               accountId: cost.accountId,
               date: sale.saleDate,
-              description: `Cost for sale ${sale.saleId}: ${cost.name}`,
+              description: `Cost for sale ${sale.saleId}: ${cost.name} via ${cost.paymentMethod} Account: ${formatAccountLabel(costAccount)}.`,
               transactionType: "Expense",
               amount: cost.amount,
               name: `Sale Cost - ${cost.name}`,
@@ -1392,7 +1393,7 @@ async function addPartialPayment(req, res, next) {
           {
             accountId: accountId,
             date,
-            description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${paymentMethod}.`,
+            description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${paymentMethod} Account: ${formatAccountLabel(account)}.`,
             transactionType: "Income",
             amount,
             name: "Sales Partial Payment",
