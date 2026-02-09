@@ -679,6 +679,12 @@ async function addIncome(req, res, next) {
       referenceModel = "Sale";
       miscReference = { saleId: sale.saleId, customerName: sale.customer.name };
     } else {
+      if (!description) {
+        throw new ApiError(
+          400,
+          "Description is required for this income category.",
+        );
+      }
       finalDescription = `${description} via ${paymentMethod} Account: ${formatAccountLabel(account)}.`;
     }
 
@@ -914,8 +920,14 @@ async function addExpense(req, res, next) {
           "A description is required for this expense category.",
         );
       }
+      if (!name) {
+        throw new ApiError(
+          400,
+          "Expense name is required for this category.",
+        );
+      }
       finalDescription = `${description} via ${paymentMethod} Account: ${formatAccountLabel(account)}.`;
-      transactionName = category; // Set the transaction name to the category itself
+      transactionName = name; // Use user-provided name instead of category
     }
 
     // 4. Update Account Balance and Create Transaction
