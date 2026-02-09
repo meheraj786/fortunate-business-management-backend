@@ -469,6 +469,7 @@ function generatePDFContent(doc, lc, config, settings) {
   if (
     lc.shippingCustomsInfo &&
     (lc.shippingCustomsInfo.portOfShipment ||
+      lc.shippingCustomsInfo.portOfDestination ||
       lc.shippingCustomsInfo.expectedArrivalDate ||
       (lc.shippingCustomsInfo.costs && lc.shippingCustomsInfo.costs.length > 0))
   ) {
@@ -479,6 +480,12 @@ function generatePDFContent(doc, lc, config, settings) {
       config,
       "Port of Shipment",
       lc.shippingCustomsInfo.portOfShipment,
+    );
+    drawKeyValuePair(
+      doc,
+      config,
+      "Port of Destination",
+      lc.shippingCustomsInfo.portOfDestination,
     );
     drawKeyValuePair(
       doc,

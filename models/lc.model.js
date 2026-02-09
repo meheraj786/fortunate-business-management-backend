@@ -62,6 +62,7 @@ const lcSchema = new mongoose.Schema(
     ],
     shippingCustomsInfo: {
       portOfShipment: { type: String, trim: true },
+      portOfDestination: { type: String, trim: true },
       expectedArrivalDate: { type: Date },
       costs: [costSchema],
     },
