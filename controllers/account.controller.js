@@ -4,6 +4,7 @@ const DailyCash = require("../models/dailyCash.model"); // Added
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
 const { ApiResponse } = require("../utils/ApiResponse");
+const { formatAccountLabel } = require("../utils/format.util");
 const mongoose = require("mongoose"); // Added
 const {
   startOfDay,
@@ -183,7 +184,7 @@ async function createAccount(req, res, next) {
             name: "Initial Balance",
             source: "Account",
             paymentMethod: createdAccount.accountType, // Use the account's type as payment method
-            description: `Initial balance for new ${createdAccount.accountType} account '${createdAccount.accountName}'`,
+            description: `Initial balance for new ${accountType} Account: ${formatAccountLabel(createdAccount)}.`,
             category: "Initial Balance",
             miscReference: {
               accountId: createdAccount._id,
