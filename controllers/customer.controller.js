@@ -9,6 +9,12 @@ const Trash = require("../models/trash.model");
 const path = require("path");
 const multer = require("multer");
 const storageUtil = require("../utils/storage.util.js");
+const Account = require("../models/account.model");
+const DailyCash = require("../models/dailyCash.model");
+const Transaction = require("../models/transaction.model");
+const CreditHistory = require("../models/creditHistory.model");
+const { startOfDay } = require("../utils/timezone.util");
+const { formatAccountLabel } = require("../utils/format.util");
 
 // --- Multer Configuration ---
 const storage = multer.diskStorage({
@@ -154,7 +160,7 @@ async function createCustomer(req, res, next) {
 async function getAllActiveCustomers(_, res, next) {
   try {
     const customers = await Customer.find({ isDeleted: false })
-      .select("_id name customerId phone")
+      .select("_id name customerId phone creditBalance")
       .lean();
 
     return res
@@ -869,5 +875,139 @@ module.exports = {
   getAllActiveCustomers,
   downloadCustomerDocument,
   deleteCustomerDocument,
+  addStoreCredit,
+  getCreditHistory,
   upload,
 };
+
+async function addStoreCredit(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { id } = req.params;
+    const { amount, paymentMethod, accountId, date } = req.body;
+
+    // Validation
+    if (!amount || amount <= 0)
+      throw new ApiError(400, "Valid amount is required");
+    if (!paymentMethod) throw new ApiError(400, "Payment method is required");
+    if (!accountId) throw new ApiError(400, "Account is required");
+
+    const customer = await Customer.findById(id).session(session);
+    if (!customer) throw new ApiError(404, "Customer not found");
+
+    // 1. Account & DailyCash Logic (Real Money In)
+    const account = await Account.findById(accountId).session(session);
+    if (!account) throw new ApiError(404, "Account not found");
+
+    if (
+      account.accountType !==
+      (paymentMethod === "Mobile Banking" ? "Mobile Banking" : paymentMethod)
+    ) {
+      throw new ApiError(
+        400,
+        `Account type mismatch. Expected ${paymentMethod}`,
+      );
+    }
+
+    const txDate = date ? new Date(date) : now();
+    const paymentDateNormalized = startOfDay(txDate, req.businessTimezone);
+    const dailyCash = await DailyCash.findOne({
+      date: paymentDateNormalized,
+    })
+      .sort({ createdAt: -1 })
+      .session(session);
+
+    if (!dailyCash || dailyCash.status === "Closed") {
+      throw new ApiError(
+        400,
+        `Daily cash is closed for ${paymentDateNormalized.toDateString()}.`,
+      );
+    }
+
+    account.balance += Number(amount);
+    await account.save({ session });
+
+    // 2. Transaction Record
+    await Transaction.create(
+      [
+        {
+          accountId,
+          date: txDate,
+          transactionType: "Income",
+          amount,
+          name: "Store Credit Deposit",
+          source: "Manual",
+          category: "Customer Credit",
+          paymentMethod,
+          reference: customer._id,
+          referenceModel: "Customer",
+          description: `Store Credit deposit from ${customer.name} (${customer.phone
+            }) via ${paymentMethod} Account: ${formatAccountLabel(account)}`,
+          createdBy: req.user?._id,
+        },
+      ],
+      { session },
+    );
+
+    // 3. Update Customer Credit
+    customer.creditBalance = (customer.creditBalance || 0) + Number(amount);
+    await customer.save({ session });
+
+    // 4. Credit History Record
+    await CreditHistory.create(
+      [
+        {
+          customer: customer._id,
+          amount,
+          type: "Credit",
+          reason: "Manual Deposit",
+          description: `Manual deposit via ${paymentMethod} Account: ${formatAccountLabel(
+            account,
+          )}`,
+          createdBy: req.user?._id,
+        },
+      ],
+      { session },
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+    return res
+      .status(200)
+      .json(new ApiResponse(200, customer, "Credit added successfully"));
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    next(error);
+  }
+}
+
+async function getCreditHistory(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { page = 1, limit = 10 } = req.query;
+
+    const history = await CreditHistory.find({ customer: id })
+      .sort({ date: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit))
+      .populate("createdBy", "name")
+      .populate("reference") // Populate Sale or Transaction if needed
+      .lean();
+
+    const total = await CreditHistory.countDocuments({ customer: id });
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          { history, total, page, limit },
+          "Credit history fetched",
+        ),
+      );
+  } catch (error) {
+    next(error);
+  }
+}

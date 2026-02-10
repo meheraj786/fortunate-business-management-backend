@@ -75,8 +75,8 @@ async function openCash(req, res, next) {
           lastSession.closedAt = endOfLastSessionDate;
           lastSession.closingBalance = openingBalance;
           await lastSession.save();
-          console.log(
-            `Auto-closed daily cash for ${lastSessionDate.toDateString()}.`
+          logger.info(
+            `Auto-closed daily cash for ${lastSessionDate.toDateString()}.`,
           );
         } else {
           // The last session was closed properly
@@ -1117,11 +1117,11 @@ async function autoCloseDailyCashForCron() {
       openSession.closedAt = endOfToday;
       openSession.closingBalance = finalRunningBalance;
       await openSession.save();
-      console.log(
+      logger.info(
         `Successfully auto-closed daily cash for ${today.toDateString()} via cron job.`,
       );
     } catch (error) {
-      console.error(
+      logger.error(
         `Error auto-closing daily cash for ${today.toDateString()} via cron job:`,
         error,
       );
@@ -1140,7 +1140,7 @@ async function closeMissedDailyCashEntries() {
     });
 
     if (missedEntries.length > 0) {
-      console.log(
+      logger.info(
         `Found ${missedEntries.length} missed daily cash entries to close.`,
       );
       for (const entry of missedEntries) {
@@ -1153,21 +1153,21 @@ async function closeMissedDailyCashEntries() {
           entry.closedAt = endOfEntryDate;
           entry.closingBalance = metrics.runningBalance;
           await entry.save();
-          console.log(
+          logger.info(
             `Successfully closed missed daily cash for ${entry.date.toDateString()}.`,
           );
         } catch (error) {
-          console.error(
+          logger.error(
             `Error closing missed daily cash for ${entry.date.toDateString()}:`,
             error,
           );
         }
       }
     } else {
-      console.log("No missed daily cash entries found on startup.");
+      logger.info("No missed daily cash entries found on startup.");
     }
   } catch (error) {
-    console.error("Error finding missed daily cash entries:", error);
+    logger.error("Error finding missed daily cash entries:", error);
   }
 }
 

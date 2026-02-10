@@ -20,7 +20,7 @@ const DailyCash = require("../models/dailyCash.model");
 const Transaction = require("../models/transaction.model");
 const Product = require("../models/product.model");
 const Trash = require("../models/trash.model");
-require("../models/account.model"); // Ensure Account model is registered for population
+
 
 // --- Initialize Storage ---
 // Ensure all necessary directories exist on application startup.

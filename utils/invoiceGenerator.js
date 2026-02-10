@@ -2,6 +2,7 @@ const fs = require("fs").promises;
 const path = require("path");
 const handlebars = require("handlebars");
 const Invoice = require("../models/invoice.model"); // Assuming the path to your model
+const Customer = require("../models/customer.model");
 const SystemSettings = require("../models/systemSettings.model"); // Import SystemSettings
 const { ApiError } = require("./ApiError");
 const { getBrowser } = require("./browserManager"); // Import the shared browser manager
@@ -83,6 +84,14 @@ async function getPreparedInvoiceData(invoiceId) {
   const settings = await SystemSettings.getSingleton();
   const currencySymbol = getCurrencySymbol(settings.currency);
 
+  let currentCreditBalance = null;
+  if (invoice.customerDetails && invoice.customerDetails.customerId) {
+    const customer = await Customer.findById(invoice.customerDetails.customerId);
+    if (customer) {
+      currentCreditBalance = customer.creditBalance;
+    }
+  }
+
   // --- Prepare data for the template ---
   const totalPayments = invoice.paymentAndAmountInfo.payments.reduce(
     (sum, p) => sum + p.amount,
@@ -99,6 +108,7 @@ async function getPreparedInvoiceData(invoiceId) {
       currency: settings.currency,
     },
     currencySymbol,
+    currentCreditBalance,
     formattedInvoiceDate: formatDate(
       invoice.invoiceGeneratedDate,
       settings.dateFormat,
@@ -121,7 +131,7 @@ async function getPreparedInvoiceData(invoiceId) {
         // Handle cases where account details might not be populated
         accountDetails: p.accountId
           ? { accountName: p.accountId.accountName }
-          : { accountName: "N/A" },
+          : null,
       })),
     },
   };

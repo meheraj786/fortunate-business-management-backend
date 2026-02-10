@@ -13,6 +13,7 @@ const Trash = require("../models/trash.model");
 const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
 const SalesService = require("../services/sales.service");
 const { formatAccountLabel } = require("../utils/format.util");
+const CreditHistory = require("../models/creditHistory.model");
 
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
@@ -41,6 +42,14 @@ async function createSale(req, res, next) {
 
     // Validate Sale Date
     SalesService.validateSaleDate(saleDate, req.businessTimezone);
+
+    // Manual Customer Validation
+    if (!customerInfo.customerId && invoiceStatus !== "Invoiced") {
+      throw new ApiError(
+        400,
+        "Guest/Manual sales must be fully invoiced immediately.",
+      );
+    }
 
     const validationErrors = [];
     if (!productId)
@@ -159,12 +168,56 @@ async function createSale(req, res, next) {
     }
 
     // Handle payments and update account balances
+    let totalPaidInThisTransaction = 0;
+
     for (const payment of transformedPayments) {
-      // Iterate over transformed payments
-      // For any account-based payment, we need an account ID
-      if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+      totalPaidInThisTransaction += payment.amount;
+
+      if (payment.method === "Customer Credit") {
+        // Handle Customer Credit Payment
+        if (!finalCustomerInfo.customerId) {
+          throw new ApiError(
+            400,
+            "Guest/Manual customers cannot pay with Customer Credit.",
+          );
+        }
+
+        // Atomic deduction with balance guard — prevents race conditions
+        const updatedCustomer = await Customer.findOneAndUpdate(
+          { _id: finalCustomerInfo.customerId, creditBalance: { $gte: payment.amount } },
+          { $inc: { creditBalance: -payment.amount } },
+          { session, new: true },
+        );
+
+        if (!updatedCustomer) {
+          const customer = await Customer.findById(finalCustomerInfo.customerId).session(session);
+          throw new ApiError(
+            400,
+            `Insufficient credit balance. Available: ${customer?.creditBalance || 0}, Required: ${payment.amount}`,
+          );
+        }
+
+        // Record Credit History (Debit)
+        await CreditHistory.create(
+          [
+            {
+              customer: finalCustomerInfo.customerId,
+              amount: payment.amount,
+              type: "Debit",
+              reason: "Purchase",
+              reference: sale._id,
+              referenceModel: "Sale",
+              description: `Payment for Sale ID: ${sale.saleId}`,
+              createdBy: req.user?._id,
+            },
+          ],
+          { session },
+        );
+      } else if (
+        ["Bank", "Mobile Banking", "Cash"].includes(payment.method)
+      ) {
+        // Handle Real Money Payment (Cash/Bank)
         if (!payment.accountId) {
-          // Check for accountId
           throw new ApiError(
             400,
             `Account ID is required for ${payment.method} payment.`,
@@ -172,12 +225,12 @@ async function createSale(req, res, next) {
         }
         const account = await Account.findById(payment.accountId).session(
           session,
-        ); // Use payment.accountId
+        );
         if (!account) {
           throw new ApiError(404, `Account not found for payment.`);
         }
 
-        // Validate that the account type matches the payment method
+        // Validate account type
         const expectedAccountType =
           payment.method === "Mobile Banking"
             ? "Mobile Banking"
@@ -193,8 +246,7 @@ async function createSale(req, res, next) {
         account.balance += payment.amount;
         await account.save({ session });
 
-        // Create a corresponding transaction record
-        // 1. DailyCash Gatekeeper Check
+        // DailyCash Gatekeeper Check
         const paymentDateNormalized = startOfDay(
           new Date(payment.date),
           req.businessTimezone,
@@ -328,6 +380,58 @@ async function createSale(req, res, next) {
         },
         { session },
       );
+
+      // --- Overpayment Logic ---
+      // Check if totalPaid for this sale > totalAmountToBePaid
+      // We rely on the populated payments or the sum we tracked.
+      // Since payments are new, we can just use totalPaidInThisTransaction if this is a new sale.
+      // But wait, what if partial payments were involved?
+      // createSale implies this is the FIRST set of payments.
+      // However, let's use the sale object's data to be sure.
+      const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
+
+      // Guard: reject overpayment for guest/manual customers (no wallet to store excess)
+      if (!finalCustomerInfo.customerId && totalPaid > sale.totalAmountToBePaid) {
+        throw new ApiError(
+          400,
+          "Overpayment is not allowed for guest/manual customers. Please adjust the payment amount.",
+        );
+      }
+
+      if (totalPaid > sale.totalAmountToBePaid) {
+        const excessAmount = totalPaid - sale.totalAmountToBePaid;
+
+        // Add excess to customer credit balance
+        await Customer.findByIdAndUpdate(
+          finalCustomerInfo.customerId,
+          { $inc: { creditBalance: excessAmount } },
+          { session },
+        );
+
+        // Record Credit History (Credit - Overpayment)
+        await CreditHistory.create(
+          [
+            {
+              customer: finalCustomerInfo.customerId,
+              amount: excessAmount,
+              type: "Credit",
+              reason: "Overpayment",
+              reference: sale._id,
+              referenceModel: "Sale",
+              description: `Overpayment from Sale ID: ${sale.saleId}`,
+              createdBy: req.user?._id,
+            },
+          ],
+          { session },
+        );
+
+        // We do NOT modify the sale's payment records, because those records represent real money received.
+        // The fact that it's an overpayment is now resolved by moving the value to the wallet.
+        // The user will see: Sale Paid (1200/1000). Customer Wallet +200.
+        // To make the sale look "Clean" (Paid 1000/1000) we would have to complicate the payments array.
+        // The user's requirement was: "immediately moves those extra amount to the customer's credit balance."
+        // So this logic is correct.
+      }
     }
 
     await session.commitTransaction();
@@ -751,6 +855,7 @@ async function getSaleById(req, res, next) {
             name: "$customer.name",
             phone: "$customer.phone",
             address: "$customer.address",
+            creditBalance: "$customer.customerId.creditBalance",
           },
           warehouse: {
             id: "$warehouse._id",
@@ -1093,7 +1198,32 @@ async function deleteSale(req, res, next) {
       }
       // Reverse financial transactions for payments
       for (const payment of saleToDelete.payments) {
-        if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+        if (payment.method === "Customer Credit") {
+          // Refund Customer Credit back to customer's balance
+          if (saleToDelete.customer?.customerId) {
+            await Customer.findByIdAndUpdate(
+              saleToDelete.customer.customerId,
+              { $inc: { creditBalance: payment.amount } },
+              { session },
+            );
+
+            await CreditHistory.create(
+              [
+                {
+                  customer: saleToDelete.customer.customerId,
+                  amount: payment.amount,
+                  type: "Credit",
+                  reason: "Sale Deleted",
+                  reference: saleToDelete._id,
+                  referenceModel: "Sale",
+                  description: `Refund for deleted Sale ID: ${saleToDelete.saleId}`,
+                  createdBy: user?._id,
+                },
+              ],
+              { session },
+            );
+          }
+        } else if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
           const account = await Account.findById(payment.accountId).session(
             session,
           );
@@ -1365,8 +1495,11 @@ async function addPartialPayment(req, res, next) {
         message: "Payment method is required",
       });
 
-    // Account is required for all payment methods now as per new schema
-    if (!accountId) {
+    // Account is required for standard payment methods
+    if (
+      ["Bank", "Mobile Banking", "Cash"].includes(paymentMethod) &&
+      !accountId
+    ) {
       validationErrors.push({
         field: "accountId",
         message: "Account is required for the payment",
@@ -1395,8 +1528,49 @@ async function addPartialPayment(req, res, next) {
       accountId: accountId,
     };
 
-    // For any account-based payment, we need an account ID
-    if (["Bank", "Mobile Banking", "Cash"].includes(paymentMethod)) {
+    if (paymentMethod === "Customer Credit") {
+      if (!sale.customer || !sale.customer.customerId) {
+        throw new ApiError(
+          400,
+          "Guest/Manual customers cannot pay with Customer Credit.",
+        );
+      }
+
+      const customer = await Customer.findById(
+        sale.customer.customerId,
+      ).session(session);
+
+      // Atomic deduction with balance guard — prevents race conditions
+      const updatedCustomer = await Customer.findOneAndUpdate(
+        { _id: sale.customer.customerId, creditBalance: { $gte: amount } },
+        { $inc: { creditBalance: -amount } },
+        { session, new: true },
+      );
+
+      if (!updatedCustomer) {
+        throw new ApiError(
+          400,
+          `Insufficient credit balance. Available: ${customer?.creditBalance || 0}, Required: ${amount}`,
+        );
+      }
+
+      // Record Credit History
+      await CreditHistory.create(
+        [
+          {
+            customer: sale.customer.customerId,
+            amount: amount,
+            type: "Debit",
+            reason: "Purchase",
+            reference: sale._id,
+            referenceModel: "Sale",
+            description: `Partial payment for Sale ID: ${sale.saleId}`,
+            createdBy: req.user?._id,
+          },
+        ],
+        { session },
+      );
+    } else if (["Bank", "Mobile Banking", "Cash"].includes(paymentMethod)) {
       // 1. DailyCash Gatekeeper Check
       const paymentDateNormalized = startOfDay(
         new Date(date),
@@ -1703,7 +1877,32 @@ async function cancelSale(req, res, next) {
 
     // Reverse financial transactions by creating counter-transactions
     for (const payment of saleToCancel.payments) {
-      if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+      if (payment.method === "Customer Credit") {
+        // Refund Customer Credit back to customer's balance
+        if (saleToCancel.customer?.customerId) {
+          await Customer.findByIdAndUpdate(
+            saleToCancel.customer.customerId,
+            { $inc: { creditBalance: payment.amount } },
+            { session },
+          );
+
+          await CreditHistory.create(
+            [
+              {
+                customer: saleToCancel.customer.customerId,
+                amount: payment.amount,
+                type: "Credit",
+                reason: "Sale Cancelled",
+                reference: saleToCancel._id,
+                referenceModel: "Sale",
+                description: `Refund for cancelled Sale ID: ${saleToCancel.saleId}`,
+                createdBy: req.user?._id,
+              },
+            ],
+            { session },
+          );
+        }
+      } else if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
         const account = await Account.findById(payment.accountId).session(
           session,
         );

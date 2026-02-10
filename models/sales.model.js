@@ -39,7 +39,7 @@ const paymentSchema = new mongoose.Schema({
   date: { type: Date, required: true },
   method: {
     type: String,
-    enum: ["Cash", "Bank", "Mobile Banking"],
+    enum: ["Cash", "Bank", "Mobile Banking", "Customer Credit"],
     required: true,
   },
   accountId: {

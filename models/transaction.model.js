@@ -51,7 +51,7 @@ const transactionSchema = new mongoose.Schema(
     },
     referenceModel: {
       type: String,
-      enum: ["Sale", "LC"],
+      enum: ["Sale", "LC", "Customer"],
     },
     miscReference: {
       type: mongoose.Schema.Types.Mixed,

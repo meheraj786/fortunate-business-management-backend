@@ -8,6 +8,8 @@ const {
   getAllActiveCustomers,
   downloadCustomerDocument,
   deleteCustomerDocument,
+  addStoreCredit,
+  getCreditHistory,
   upload,
 } = require("../../controllers/customer.controller");
 const { authorize } = require("../../middleware/authorize.middleware");
@@ -66,6 +68,20 @@ customerRoutes.delete(
   authenticate,
   authorize(PERMISSIONS.CUSTOMER_UPDATE), // Or a more specific permission
   deleteCustomerDocument,
+);
+
+customerRoutes.post(
+  "/:id/store-credit",
+  authenticate,
+  authorize(PERMISSIONS.CUSTOMER_UPDATE),
+  addStoreCredit,
+);
+
+customerRoutes.get(
+  "/:id/credit-history",
+  authenticate,
+  authorize(PERMISSIONS.CUSTOMER_VIEW_DETAILS),
+  getCreditHistory,
 );
 
 module.exports = customerRoutes;
