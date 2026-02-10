@@ -1003,6 +1003,18 @@ async function updateSale(req, res, next) {
     };
 
     if (oldStatus !== newStatus) {
+      // Validation: Cannot revert to 'Not-invoiced' if payments exist
+      if (oldStatus === "Invoiced" && newStatus === "Not-invoiced") {
+        if (sale.payments && sale.payments.length > 0) {
+          return next(
+            new ApiError(
+              400,
+              "Cannot revert to 'Not-invoiced' because payments have been recorded. Please cancel the sale instead."
+            )
+          );
+        }
+      }
+
       // Status Transition
       if (oldStatus === "Not-invoiced" && newStatus === "Invoiced") {
         // Not-invoiced -> Invoiced: DEDUCT "newQuantity"
@@ -1091,6 +1103,86 @@ async function updateSale(req, res, next) {
     Object.assign(sale, updateData);
 
     const updatedSale = await sale.save();
+
+    // --- Overpayment Reconciliation (Post-Update) ---
+    // If the update reduced the totalAmount (e.g. quantity decrease), 
+    // the existing payments might now exceed the new totalAmountToBePaid.
+    if (updatedSale.customer?.customerId && updatedSale.invoiceStatus === 'Invoiced') {
+      const totalPaid = updatedSale.payments.reduce((acc, p) => acc + p.amount, 0);
+
+      if (totalPaid > updatedSale.totalAmountToBePaid) {
+        const currentExcess = totalPaid - updatedSale.totalAmountToBePaid;
+
+        // Check for previously recorded overpayments
+        // (We use the same aggregation logic as in addPartialPayment)
+        // Note: We need a session here? updateSale didn't use `session` for the main save in the original code? 
+        // Wait, the original code lines 354: `const session = ...`. Yes it uses a session.
+        // BUT `await sale.save()` in line 1093 (original) does NOT pass { session } explicitly in the snippet shown?
+        // Line 296 in createSale used `sale.save({ session })`.
+        // Line 1093 just said `updatedSale = await sale.save()`. 
+        // If `sale` was found using `session`, does Mongoose auto-use it? 
+        // The `findById` line 956 did NOT loop in session?
+        // Wait, line 354 in `updateCustomer` used session. 
+        // Let me check `updateSale` start in my view_file output.
+        // `updateSale` start line 951. NO session start visible in the snippet?
+        // Ah, I need to check if `updateSale` has a session.
+        // The snippet I viewed (951-1133) does NOT show `startSession`.
+        // It shows `try { const { id } ...`.
+        // So `updateSale` is NOT currently transactional?
+        // That is risky. 
+        // But I strictly need to stick to the requested change. 
+        // If I add credit, I should probably do it safely.
+        // However, for now, I will use standard await logic without session if one isn't established, 
+        // or just assume if it's not there I shouldn't introduce one mid-flight without refactoring.
+        // BUT, `addPartialPayment` definitely had one.
+        // Let's look at `updateSale` again.
+        // It calls `Product.findByIdAndUpdate`.
+        // It calls `sale.save()`.
+        // If I add CreditHistory logic, I should just await it.
+
+        const CreditHistory = require("../models/creditHistory.model"); // Ensure import if not available in scope (it is at top)
+        const Customer = require("../models/customer.model");
+
+        const previousOverpaymentStats = await CreditHistory.aggregate([
+          {
+            $match: {
+              reference: updatedSale._id,
+              reason: "Overpayment",
+              type: "Credit"
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: "$amount" }
+            }
+          }
+        ]);
+
+        const previousOverpayment = previousOverpaymentStats[0]?.total || 0;
+        const newExcess = currentExcess - previousOverpayment;
+
+        if (newExcess > 0) {
+          await Customer.findByIdAndUpdate(
+            updatedSale.customer.customerId,
+            { $inc: { creditBalance: newExcess } }
+          );
+
+          await CreditHistory.create(
+            [{
+              customer: updatedSale.customer.customerId,
+              amount: newExcess,
+              type: "Credit",
+              reason: "Overpayment",
+              reference: updatedSale._id,
+              referenceModel: "Sale",
+              description: `Overpayment adjustment after sale update (ID: ${updatedSale.saleId})`,
+              createdBy: req.user?._id,
+            }]
+          );
+        }
+      }
+    }
 
     return res
       .status(200)
@@ -1251,6 +1343,40 @@ async function deleteSale(req, res, next) {
             );
           }
         }
+      }
+    }
+
+    // Reverse Overpayment (Credit) if exists
+    // If the sale resulted in an overpayment that was credited to the wallet, we must reverse it.
+    if (saleToDelete.customer?.customerId) {
+      const overpaymentCredit = await CreditHistory.findOne({
+        reference: saleToDelete._id,
+        reason: "Overpayment",
+        type: "Credit",
+      }).session(session);
+
+      if (overpaymentCredit) {
+        await Customer.findByIdAndUpdate(
+          saleToDelete.customer.customerId,
+          { $inc: { creditBalance: -overpaymentCredit.amount } },
+          { session },
+        );
+
+        await CreditHistory.create(
+          [
+            {
+              customer: saleToDelete.customer.customerId,
+              amount: overpaymentCredit.amount,
+              type: "Debit",
+              reason: "Sale Deleted",
+              reference: saleToDelete._id,
+              referenceModel: "Sale",
+              description: `Reversal of overpayment for deleted Sale ID: ${saleToDelete.saleId}`,
+              createdBy: user?._id,
+            },
+          ],
+          { session },
+        );
       }
     }
 
@@ -1636,6 +1762,59 @@ async function addPartialPayment(req, res, next) {
     // These operations should happen regardless of the payment method specific logic
     sale.payments.push(payment);
     sale.modifiedBy = req.user?._id || null;
+
+    // --- Overpayment Reconciliation ---
+    if (sale.customer && sale.customer.customerId) {
+      const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
+
+      if (totalPaid > sale.totalAmountToBePaid) {
+        const currentExcess = totalPaid - sale.totalAmountToBePaid;
+
+        const previousOverpaymentStats = await CreditHistory.aggregate([
+          {
+            $match: {
+              reference: sale._id,
+              reason: "Overpayment",
+              type: "Credit"
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: "$amount" }
+            }
+          }
+        ]).session(session);
+
+        const previousOverpayment = previousOverpaymentStats[0]?.total || 0;
+        const newExcess = currentExcess - previousOverpayment;
+
+        if (newExcess > 0) {
+          await Customer.findByIdAndUpdate(
+            sale.customer.customerId,
+            { $inc: { creditBalance: newExcess } },
+            { session }
+          );
+
+          await CreditHistory.create(
+            [
+              {
+                customer: sale.customer.customerId,
+                amount: newExcess,
+                type: "Credit",
+                reason: "Overpayment",
+                reference: sale._id,
+                referenceModel: "Sale",
+                description: `Additional overpayment from Sale ID: ${sale.saleId}`,
+                createdBy: req.user?._id,
+              },
+            ],
+            { session }
+          );
+        }
+      }
+    }
+
     await sale.save({ session });
 
     await session.commitTransaction();
@@ -1838,7 +2017,7 @@ async function cancelSale(req, res, next) {
   try {
     const { id } = req.params;
 
-    const saleToCancel = await Sales.findById(id, { session })
+    const saleToCancel = await Sales.findById(id).session(session)
       .populate("unit")
       .populate({
         path: "product",
@@ -1873,6 +2052,40 @@ async function cancelSale(req, res, next) {
         400,
         `Daily cash is closed for ${today.toDateString()}. Cannot cancel sales payments.`,
       );
+    }
+
+    // Reverse Overpayment (Credit) if exists
+    // If the sale resulted in an overpayment that was credited to the wallet, we must reverse it.
+    if (saleToCancel.customer?.customerId) {
+      const overpaymentCredit = await CreditHistory.findOne({
+        reference: saleToCancel._id,
+        reason: "Overpayment",
+        type: "Credit",
+      }).session(session);
+
+      if (overpaymentCredit) {
+        await Customer.findByIdAndUpdate(
+          saleToCancel.customer.customerId,
+          { $inc: { creditBalance: -overpaymentCredit.amount } },
+          { session },
+        );
+
+        await CreditHistory.create(
+          [
+            {
+              customer: saleToCancel.customer.customerId,
+              amount: overpaymentCredit.amount,
+              type: "Debit",
+              reason: "Sale Cancelled",
+              reference: saleToCancel._id,
+              referenceModel: "Sale",
+              description: `Reversal of overpayment for cancelled Sale ID: ${saleToCancel.saleId}`,
+              createdBy: req.user?._id,
+            },
+          ],
+          { session },
+        );
+      }
     }
 
     // Reverse financial transactions by creating counter-transactions

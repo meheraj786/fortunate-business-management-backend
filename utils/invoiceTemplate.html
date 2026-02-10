@@ -167,6 +167,14 @@
               {{@root.invoice.currencySymbol}} {{formatNumber invoice.balanceDue}}
             </p>
           </div>
+          {{#if invoice.creditedToWallet}}
+          <div class="flex justify-between bg-blue-50 p-2 rounded-md text-blue-800">
+            <p class="font-bold text-base">Credited to Wallet:</p>
+            <p class="font-bold text-base">
+              {{@root.invoice.currencySymbol}} {{formatNumber invoice.creditedToWallet}}
+            </p>
+          </div>
+          {{/if}}
         </div>
       </div>
 

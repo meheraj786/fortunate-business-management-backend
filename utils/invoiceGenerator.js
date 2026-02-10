@@ -97,8 +97,15 @@ async function getPreparedInvoiceData(invoiceId) {
     (sum, p) => sum + p.amount,
     0,
   );
-  const balanceDue =
+
+  let balanceDue =
     invoice.paymentAndAmountInfo.totalAmountToBePaid - totalPayments;
+  let creditedToWallet = 0;
+
+  if (balanceDue < 0) {
+    creditedToWallet = Math.abs(balanceDue);
+    balanceDue = 0;
+  }
 
   // Combine and format data
   const preparedData = {
@@ -122,7 +129,9 @@ async function getPreparedInvoiceData(invoiceId) {
       ...(invoice.paymentAndAmountInfo.costs || []),
     ],
     totalPayments,
+    totalPayments,
     balanceDue,
+    creditedToWallet,
     paymentAndAmountInfo: {
       ...invoice.paymentAndAmountInfo,
       payments: (invoice.paymentAndAmountInfo.payments || []).map((p) => ({
