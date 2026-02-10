@@ -373,7 +373,9 @@ async function _calculateDailyCashMetrics(dateString, timezone) {
         createdAt: "asc",
       });
       if (!firstEverEntry) {
+        // CHANGED: Only consider Cash accounts for the very first opening balance
         const totalAccountBalance = await Account.aggregate([
+          { $match: { accountType: "Cash" } },
           { $group: { _id: null, totalBalance: { $sum: "$balance" } } },
         ]);
         openingBalance =
@@ -389,6 +391,7 @@ async function _calculateDailyCashMetrics(dateString, timezone) {
     {
       $match: {
         date: { $gte: targetDate, $lt: nextDay },
+        isDeleted: { $ne: true }, // Ensure deleted transactions are excluded
       },
     },
     // ** Start of Enrichment **
@@ -436,16 +439,96 @@ async function _calculateDailyCashMetrics(dateString, timezone) {
     {
       $group: {
         _id: null,
+        // Business Metrics (All payment methods, EXCLUDING Transfers)
         totalIncome: {
           $sum: {
-            $cond: [{ $eq: ["$transactionType", "Income"] }, "$amount", 0],
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$transactionType", "Income"] },
+                  { $ne: ["$category", "Transfer In"] }, // Exclude Transfers
+                ],
+              },
+              "$amount",
+              0,
+            ],
           },
         },
         totalExpenses: {
           $sum: {
-            $cond: [{ $eq: ["$transactionType", "Expense"] }, "$amount", 0],
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$transactionType", "Expense"] },
+                  { $ne: ["$category", "Transfer Out"] }, // Exclude Transfers
+                ],
+              },
+              "$amount",
+              0,
+            ],
           },
         },
+        // Cash Metrics (Liquidity - Includes Transfers)
+        totalCashIncome: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$transactionType", "Income"] },
+                  { $eq: ["$paymentMethod", "Cash"] },
+                ],
+              },
+              "$amount",
+              0,
+            ],
+          },
+        },
+        totalCashExpenses: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$transactionType", "Expense"] },
+                  { $eq: ["$paymentMethod", "Cash"] },
+                ],
+              },
+              "$amount",
+              0,
+            ],
+          },
+        },
+        // Business Cash Metrics (Performance - Excludes Transfers)
+        totalBusinessCashIncome: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$transactionType", "Income"] },
+                  { $eq: ["$paymentMethod", "Cash"] },
+                  { $ne: ["$category", "Transfer In"] },
+                ],
+              },
+              "$amount",
+              0,
+            ],
+          },
+        },
+        totalBusinessCashExpenses: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$transactionType", "Expense"] },
+                  { $eq: ["$paymentMethod", "Cash"] },
+                  { $ne: ["$category", "Transfer Out"] },
+                ],
+              },
+              "$amount",
+              0,
+            ],
+          },
+        },
+        // Transaction Counts
         totalIncomeTransactionsCount: {
           $sum: {
             $cond: [{ $eq: ["$transactionType", "Income"] }, 1, 0],
@@ -467,6 +550,10 @@ async function _calculateDailyCashMetrics(dateString, timezone) {
 
   let totalIncome = 0;
   let totalExpenses = 0;
+  let totalCashIncome = 0;
+  let totalCashExpenses = 0;
+  let totalBusinessCashIncome = 0;
+  let totalBusinessCashExpenses = 0;
   let transactions = [];
   let totalIncomeTransactionsCount = 0;
   let totalExpenseTransactionsCount = 0;
@@ -474,6 +561,10 @@ async function _calculateDailyCashMetrics(dateString, timezone) {
   if (transactionResults.length > 0) {
     totalIncome = transactionResults[0].totalIncome;
     totalExpenses = transactionResults[0].totalExpenses;
+    totalCashIncome = transactionResults[0].totalCashIncome;
+    totalCashExpenses = transactionResults[0].totalCashExpenses;
+    totalBusinessCashIncome = transactionResults[0].totalBusinessCashIncome;
+    totalBusinessCashExpenses = transactionResults[0].totalBusinessCashExpenses;
     transactions = transactionResults[0].transactions;
     totalIncomeTransactionsCount =
       transactionResults[0].totalIncomeTransactionsCount;
@@ -482,18 +573,27 @@ async function _calculateDailyCashMetrics(dateString, timezone) {
   }
   // --- End of Aggregation ---
 
-  // Running balance is based on the day's starting opening balance
-  const runningBalance = openingBalance + totalIncome - totalExpenses;
+  // Running balance is based on the day's starting opening balance + CASH ONLY transactions (Liquidity)
+  // This ensures "Cash In Hand" is accurate regardless of Bank/Mobile transactions
+  const runningBalance = openingBalance + totalCashIncome - totalCashExpenses;
 
   return {
     date: targetDate,
     status, // Status of the last session
     openingBalance, // Opening balance of the first session
+    // Business Metrics
     totalIncome,
     totalExpenses,
+    // Cash Metrics (Liquidity)
+    totalCashIncome,
+    totalCashExpenses,
+    // Business Cash Metrics (Performance)
+    totalBusinessCashIncome,
+    totalBusinessCashExpenses,
+    // Result
+    runningBalance, // Pure Cash Balance
     totalIncomeTransactionsCount,
     totalExpenseTransactionsCount,
-    runningBalance,
     transactions,
     dailyCashSessions: sessions, // Return all session documents for the day
   };
@@ -559,6 +659,7 @@ async function getDailyCashSummary(req, res, next) {
     );
   }
 }
+
 
 // @desc    Add a manual income transaction
 // @route   POST /api/cash/income
