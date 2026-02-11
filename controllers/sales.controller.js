@@ -780,43 +780,40 @@ async function updateSale(req, res, next) {
     const newStatus = updateData.invoiceStatus || oldStatus;
 
     if (oldStatus !== newStatus) {
-      // Handle Status Transitions
+      // PROHIBIT STATUS TRANSITIONS that are complex until fully tested
+      // For now we trust the logic, but let's be careful.
       if (oldStatus === "Not-invoiced" && newStatus === "Invoiced") {
-        // Deduct FULL stock for new items
         const diff = await SalesService.calculateStockDiff([], newItems, session);
         await SalesService.applyStockDiff(diff, session);
       } else if (oldStatus === "Invoiced" && newStatus === "Cancelled") {
-        // Restore FULL stock for old items
         const diff = await SalesService.calculateStockDiff(oldItems, [], session);
         await SalesService.applyStockDiff(diff, session);
       } else if (oldStatus === "Cancelled" && newStatus === "Invoiced") {
-        // Deduct FULL stock for new items (reactivation)
         const diff = await SalesService.calculateStockDiff([], newItems, session);
         await SalesService.applyStockDiff(diff, session);
       } else if (oldStatus === "Invoiced" && newStatus === "Invoiced") {
-        // Diffing logic (Standard Edit)
         const diff = await SalesService.calculateStockDiff(oldItems, newItems, session);
         await SalesService.applyStockDiff(diff, session);
       }
     } else if (newStatus === "Invoiced") {
-      // Status didn't change, but items/quantities might have
       const diff = await SalesService.calculateStockDiff(oldItems, newItems, session);
       await SalesService.applyStockDiff(diff, session);
     }
 
+    // [NEW] 3.5. Validation: Ensure all new items belong to the correct warehouse
+    // Re-validate stock is handled by calculateStockDiff, but generic warehouse check is good
+    // calculateStockDiff already checks if product belongs to warehouse (lines 122 in service) - so we are good there.
+
     // 4. Recalculate Financials
-    // Update fields
+    // Store old costs for reconciliation
+    const oldCosts = sale.costs || [];
+
     if (updateData.items) sale.items = newItems;
-    if (updateData.costs) sale.costs = updateData.costs; // Ideally should validate/transform costs too
+    if (updateData.costs) sale.costs = updateData.costs;
     if (updateData.charges) sale.charges = updateData.charges;
     if (updateData.discount !== undefined) sale.discount = updateData.discount;
     if (updateData.invoiceStatus) sale.invoiceStatus = updateData.invoiceStatus;
-    if (updateData.currentPaid !== undefined) {
-      // We don't update 'payments' array directly here usually, but if client sends valid structure...
-      // Better to rely on separate endpoints, but for consistency with creation payload:
-      // If payments are touched, we might have issues. 
-      // Strategy: Don't allow editing *past* payments here. Only Sale details.
-    }
+    // ... notes/modifiedBy ...
     if (updateData.notes) sale.notes = updateData.notes;
     sale.modifiedBy = req.user?._id;
 
@@ -827,10 +824,43 @@ async function updateSale(req, res, next) {
     // Trigger schema validation (pre-save hook calculates totalAmountToBePaid)
     await sale.validate();
 
+    // [NEW] 4.5. Check Customer Credit Limit
+    if (sale.customer?.customerId) {
+      // We need to pass the *prospective* financials
+      const costsTotal = sale.costs.reduce((acc, c) => acc + c.amount, 0);
+      const chargesTotal = sale.charges.reduce((acc, c) => acc + c.amount, 0);
+      const currentTotalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0); // Assuming payments largely static here
+
+      await SalesService.checkCustomerCreditLimit(
+        sale.customer.customerId,
+        {
+          totalAmount: sale.totalAmount,
+          costsTotal,
+          chargesTotal,
+          discount: sale.discount,
+          totalPaid: currentTotalPaid // We check against what has been paid so far
+        },
+        session
+      );
+    }
+
+    // [NEW] 4.6 Reconcile Costs (Financials)
+    if (updateData.costs) {
+      await SalesService.reconcileCosts(
+        oldCosts,
+        updateData.costs,
+        sale,
+        session,
+        req.businessTimezone
+      );
+    }
+
     // 5. Overpayment / Financial Check
     const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
 
     if (totalPaid > sale.totalAmountToBePaid && sale.customer?.customerId && sale.invoiceStatus === 'Invoiced') {
+      // ... existing overpayment logic ...
+      // (Keeping existing logic below but updating context)
       const currentExcess = totalPaid - sale.totalAmountToBePaid;
 
       // Check previous overpayment credits to avoid double-crediting
@@ -857,7 +887,7 @@ async function updateSale(req, res, next) {
           type: "Credit",
           reason: "Overpayment",
           reference: sale._id,
-          referenceModel: "Sale", // Fixed enum value from previous thread
+          referenceModel: "Sale",
           description: `Overpayment adjustment after sale update (ID: ${sale.saleId})`,
           createdBy: req.user?._id
         }], { session });

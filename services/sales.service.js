@@ -4,6 +4,10 @@ const Customer = require("../models/customer.model");
 const Unit = require("../models/unit.model");
 const { ApiError } = require("../utils/ApiError");
 const { startOfDay, now } = require("../utils/timezone.util");
+const Transaction = require("../models/transaction.model");
+const Account = require("../models/account.model");
+const DailyCash = require("../models/dailyCash.model");
+const { formatAccountLabel } = require("../utils/format.util");
 
 /**
  * Generates a new sequential Sale ID (e.g., SALE-24-000001)
@@ -395,3 +399,137 @@ exports.reconcileSaleFinancials = async (saleId, session) => {
   await sale.save({ session, validateBeforeSave: false }); // Skip validation to avoid infinite loops if hooks exist
   return sale;
 };
+/**
+ * Reconciles costs during a sale update.
+ * Identifies added, removed, or modified costs and updates accounts/transactions/DailyCash accordingly.
+ */
+exports.reconcileCosts = async (
+    oldCosts = [],
+    newCosts = [],
+    sale,
+    session,
+    businessTimezone
+) => {
+    // Helper to create a unique key for a cost to track identity
+    // We assume if name AND amount AND date AND payment method match, it's the "same" cost contextually,
+    // BUT in an edit, we might change amount.
+    // Best approach: "Diff" by index is risky if array is reordered.
+    // "Diff" by Name is possible if names are unique.
+    // Mongoose Subdocuments have _id. We should rely on _id if available.
+
+    const oldMap = new Map();
+    oldCosts.forEach(c => {
+        if (c._id) oldMap.set(c._id.toString(), c);
+    });
+
+    const processedIds = new Set();
+    const today = startOfDay(now(), businessTimezone);
+
+    // 1. Process New/Updated Costs
+    for (const newCost of newCosts) {
+        if (newCost._id && oldMap.has(newCost._id.toString())) {
+            // Update Scenario
+            const oldCost = oldMap.get(newCost._id.toString());
+            processedIds.add(newCost._id.toString());
+
+            // Check if critical fields changed
+            const amountChanged = newCost.amount !== oldCost.amount;
+            const accountChanged = newCost.accountId?.toString() !== oldCost.accountId?.toString();
+            const methodChanged = newCost.paymentMethod !== oldCost.paymentMethod;
+
+            if (amountChanged || accountChanged || methodChanged) {
+                // REVERSE Old -> APPLY New
+                // A. Reverse Old
+                await reverseCostTransaction(oldCost, sale, session, businessTimezone);
+                // B. Apply New
+                await applyCostTransaction(newCost, sale, session, businessTimezone);
+            }
+        } else {
+            // New Cost Scenario (No _id or not in old map)
+            await applyCostTransaction(newCost, sale, session, businessTimezone);
+        }
+    }
+
+    // 2. Process Removed Costs
+    for (const [id, oldCost] of oldMap.entries()) {
+        if (!processedIds.has(id)) {
+            await reverseCostTransaction(oldCost, sale, session, businessTimezone);
+        }
+    }
+};
+
+async function reverseCostTransaction(cost, sale, session, businessTimezone) {
+    if (!cost.accountId) return;
+
+    const account = await Account.findById(cost.accountId).session(session);
+    if (!account) throw new ApiError(404, `Account not found for cost reversal: ${cost.name}`);
+
+    // DailyCash Check
+    const date = startOfDay(new Date(cost.date || sale.saleDate), businessTimezone);
+    const dailyCash = await DailyCash.findOne({ date }).session(session);
+    if (dailyCash && dailyCash.status === "Closed") {
+        throw new ApiError(400, `Cannot update cost '${cost.name}' because Daily Cash for ${date.toDateString()} is closed.`);
+    }
+
+    // Restore Balance (Expense Reversal = Income/Add back)
+    account.balance += cost.amount;
+    await account.save({ session });
+
+    // Record Reversal Transaction
+    await Transaction.create([{
+        accountId: cost.accountId,
+        date: now(),
+        description: `Correction: Reversal of cost '${cost.name}' for Sale ${sale.saleId}`,
+        transactionType: "Income", // technically reversing an expense
+        amount: cost.amount,
+        name: `Rev: ${cost.name}`,
+        source: "Auto",
+        category: "Cost Reversal",
+        reference: sale._id,
+        referenceModel: "Sale"
+    }], { session });
+}
+
+async function applyCostTransaction(cost, sale, session, businessTimezone) {
+    if (!cost.accountId) return;
+
+    const account = await Account.findById(cost.accountId).session(session);
+    if (!account) throw new ApiError(404, `Account not found for cost: ${cost.name}`);
+
+    // Validate Account Type
+    const expectedType = cost.paymentMethod === "Mobile Banking" ? "Mobile Banking" : cost.paymentMethod;
+    if (account.accountType !== expectedType) {
+        throw new ApiError(400, `Cost '${cost.name}' requires ${expectedType} account, got ${account.accountType}.`);
+    }
+
+    // DailyCash Check
+    const date = startOfDay(new Date(cost.date || sale.saleDate), businessTimezone);
+    const dailyCash = await DailyCash.findOne({ date }).session(session);
+    if (dailyCash && dailyCash.status === "Closed") {
+        throw new ApiError(400, `Cannot add cost '${cost.name}' because Daily Cash for ${date.toDateString()} is closed.`);
+    }
+
+    // Deduct Balance
+    account.balance -= cost.amount;
+    await account.save({ session });
+
+    // Record Transaction
+    await Transaction.create([{
+        accountId: cost.accountId,
+        date: cost.date || sale.saleDate,
+        description: `Cost for sale ${sale.saleId}: ${cost.name} via ${cost.paymentMethod} Account: ${formatAccountLabel(account)}.`,
+        transactionType: "Expense",
+        amount: cost.amount,
+        name: `Sale Cost - ${cost.name}`,
+        source: "Auto",
+        category: "Sales Expense",
+        paymentMethod: cost.paymentMethod,
+        reference: sale._id,
+        referenceModel: "Sale",
+        miscReference: {
+            saleId: sale.saleId,
+            costName: cost.name,
+            costAmount: cost.amount,
+        },
+    }], { session });
+}
