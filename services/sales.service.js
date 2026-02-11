@@ -8,25 +8,54 @@ const { startOfDay, now } = require("../utils/timezone.util");
 /**
  * Generates a new sequential Sale ID (e.g., SALE-24-000001)
  */
+const Counter = require("../models/counter.model");
+
+/**
+ * Generates a new sequential Sale ID (e.g., SALE-24-000001)
+ * Uses a persistent Counter model to ensure IDs are never reused, even if sales are deleted.
+ */
 exports.generateSaleId = async () => {
   const currentYear = new Date().getFullYear();
   const shortYear = currentYear.toString().slice(-2);
+  const counterId = `saleId_${shortYear}`;
 
-  const lastSale = await Sales.findOne({
-    saleId: new RegExp(`^SALE-${shortYear}-`, "i"),
-  }).sort({ saleId: -1 });
+  // 1. Atomically increment the counter
+  // usage of findOneAndUpdate with upsert ensures we handle concurrency
+  let counter = await Counter.findByIdAndUpdate(
+    counterId,
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
 
-  let lastSaleIdNumber = 0;
-  if (lastSale && lastSale.saleId) {
-    const match = lastSale.saleId.match(/(\d+)$/);
-    if (match) {
-      lastSaleIdNumber = parseInt(match[1], 10);
+  // 2. SELF-HEALING / INITIALIZATION CHECK
+  // If the counter was just created (seq === 1), it might be lower than existing legacy IDs.
+  // We must synchronize with the max existing Sales ID to avoid collisions.
+  if (counter.seq === 1) {
+    const lastSale = await Sales.findOne({
+      saleId: new RegExp(`^SALE-${shortYear}-`, "i"),
+    }).sort({ saleId: -1 });
+
+    let maxLegacyId = 0;
+    if (lastSale && lastSale.saleId) {
+      const match = lastSale.saleId.match(/(\d+)$/);
+      if (match) {
+        maxLegacyId = parseInt(match[1], 10);
+      }
+    }
+
+    if (maxLegacyId >= 1) {
+      // We found existing sales. Update counter to max + 1
+      // note: we already incremented to 1 above, so we effectively want the next ID to be max+1.
+      // So set seq to maxLegacyId + 1.
+      counter = await Counter.findByIdAndUpdate(
+        counterId,
+        { $set: { seq: maxLegacyId + 1 } },
+        { new: true }
+      );
     }
   }
 
-  return `SALE-${shortYear}-${(lastSaleIdNumber + 1)
-    .toString()
-    .padStart(6, "0")}`;
+  return `SALE-${shortYear}-${counter.seq.toString().padStart(6, "0")}`;
 };
 
 /**

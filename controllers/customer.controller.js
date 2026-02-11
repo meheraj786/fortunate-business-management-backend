@@ -15,6 +15,7 @@ const Transaction = require("../models/transaction.model");
 const CreditHistory = require("../models/creditHistory.model");
 const { startOfDay } = require("../utils/timezone.util");
 const { formatAccountLabel } = require("../utils/format.util");
+const Counter = require("../models/counter.model");
 
 // --- Multer Configuration ---
 const storage = multer.diskStorage({
@@ -38,19 +39,39 @@ async function createCustomer(req, res, next) {
     const customerData = JSON.parse(req.body.customerData);
 
     const currentYear = new Date().getFullYear();
-    const lastCustomer = await Customer.findOne({
-      customerId: new RegExp(`^CUST-${currentYear}-`, "i"),
-    }).sort({ customerId: -1 });
+    const counterId = `customerId_${currentYear}`;
 
-    let lastCustomerIdNumber = 0;
-    if (lastCustomer && lastCustomer.customerId) {
-      const match = lastCustomer.customerId.match(/(\d+)$/);
-      if (match) {
-        lastCustomerIdNumber = parseInt(match[1], 10);
+    // 1. Atomically increment the counter
+    let counter = await Counter.findByIdAndUpdate(
+      counterId,
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    ).session(session);
+
+    // 2. SELF-HEALING / INITIALIZATION CHECK
+    if (counter.seq === 1) {
+      const lastCustomer = await Customer.findOne({
+        customerId: new RegExp(`^CUST-${currentYear}-`, "i"),
+      }).sort({ customerId: -1 }).session(session);
+
+      let maxLegacyId = 0;
+      if (lastCustomer && lastCustomer.customerId) {
+        const match = lastCustomer.customerId.match(/(\d+)$/);
+        if (match) {
+          maxLegacyId = parseInt(match[1], 10);
+        }
+      }
+
+      if (maxLegacyId >= 1) {
+        counter = await Counter.findByIdAndUpdate(
+          counterId,
+          { $set: { seq: maxLegacyId + 1 } },
+          { new: true, session }
+        );
       }
     }
 
-    const newCustomerId = `CUST-${currentYear}-${(lastCustomerIdNumber + 1)
+    const newCustomerId = `CUST-${currentYear}-${counter.seq
       .toString()
       .padStart(4, "0")}`;
 

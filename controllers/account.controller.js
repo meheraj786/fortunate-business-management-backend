@@ -456,6 +456,7 @@ async function deleteAccount(req, res, next) {
           { "shippingCustomsInfo.costs.accountId": id },
           { "agentTransportInfo.costs.accountId": id },
           { "otherExpenses.costs.accountId": id },
+          { "documentProductInfo.costs.accountId": id },
         ],
       })
       .session(session);

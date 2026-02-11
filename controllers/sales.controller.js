@@ -1017,6 +1017,12 @@ async function deleteSale(req, res, next) {
           const account = await Account.findById(payment.accountId).session(
             session,
           );
+          if (!account) {
+            throw new ApiError(
+              400,
+              `Cannot delete sale because the associated account (ID: ${payment.accountId}) for payment is missing. Please restore the account first.`,
+            );
+          }
           if (account) {
             account.balance -= payment.amount;
             await account.save({ session });
@@ -1047,6 +1053,18 @@ async function deleteSale(req, res, next) {
     // Reverse Overpayment (Credit) if exists
     // If the sale resulted in an overpayment that was credited to the wallet, we must reverse it.
     if (saleToDelete.customer?.customerId) {
+      // Validate customer existence for credit reversal
+      const customerExists = await Customer.findOne({
+        _id: saleToDelete.customer.customerId,
+        isDeleted: { $ne: true }
+      }).session(session);
+
+      if (!customerExists) {
+        // We can technically allow deletion if we just ignore the credit reversal, 
+        // OR we can block it. Blocking is safer to avoid "magic" money behavior.
+        throw new ApiError(400, "Cannot delete sale because the associated customer is missing or deleted. Please restore the customer first to process the financial reversal.");
+      }
+
       const overpaymentCredit = await CreditHistory.findOne({
         reference: saleToDelete._id,
         reason: "Overpayment",
@@ -1787,14 +1805,24 @@ async function cancelSale(req, res, next) {
   try {
     const { id } = req.params;
 
-    const saleToCancel = await Sales.findById(id).session(session)
-      .populate("unit")
+    const saleToCancel = await Sales.findById(id)
+      .session(session)
+      .populate({ path: "unit", strictPopulate: false })
       .populate({
         path: "product",
+        strictPopulate: false,
         populate: {
           path: "unit",
         },
-      });
+      })
+      .populate({
+        path: "items.product",
+        strictPopulate: false, // In case items.product is not in schema (unlikely but safe)
+        populate: {
+          path: "unit",
+        },
+      })
+      .populate({ path: "items.unit", strictPopulate: false });
 
     if (!saleToCancel) {
       throw new ApiError(404, "Sale not found");
