@@ -24,13 +24,10 @@ async function createSale(req, res, next) {
     req.body.saleId = newSaleId;
 
     const {
-      product: productId,
+      items = [], // Array of { product, quantity, unit, pricePerUnit }
       customer: customerInfo, // { customerId, name, phone, address }
       warehouse,
-      category,
-      quantity,
-      unit,
-      pricePerUnit,
+      category, // Main category for the sale
       costs = [],
       charges = [],
       discount = 0,
@@ -52,11 +49,21 @@ async function createSale(req, res, next) {
     }
 
     const validationErrors = [];
-    if (!productId)
+    if (!items || items.length === 0) {
       validationErrors.push({
-        field: "product",
-        message: "Product ID is required",
+        field: "items",
+        message: "At least one item is required",
       });
+    }
+
+    // Validate individual items
+    items.forEach((item, index) => {
+      if (!item.product) validationErrors.push({ field: `items[${index}].product`, message: "Product is required" });
+      if (!item.quantity) validationErrors.push({ field: `items[${index}].quantity`, message: "Quantity is required" });
+      if (!item.unit) validationErrors.push({ field: `items[${index}].unit`, message: "Unit is required" });
+      if (!item.pricePerUnit && item.pricePerUnit !== 0) validationErrors.push({ field: `items[${index}].pricePerUnit`, message: "Price is required" });
+    });
+
     if (!customerInfo || !customerInfo.name)
       validationErrors.push({
         field: "customer.name",
@@ -67,36 +74,22 @@ async function createSale(req, res, next) {
         field: "warehouse",
         message: "Warehouse is required",
       });
-    if (!category)
-      validationErrors.push({
+    /* Category is now optional for multi-item sales
+    if (!category && !req.body.category) {
+       validationErrors.push({
         field: "category",
         message: "Category is required",
       });
-    if (!quantity)
-      validationErrors.push({
-        field: "quantity",
-        message: "Quantity is required",
-      });
-    if (!unit)
-      validationErrors.push({ field: "unit", message: "Unit is required" });
-    if (!pricePerUnit)
-      validationErrors.push({
-        field: "pricePerUnit",
-        message: "Price per unit is required",
-      });
+    } 
+    */
 
     if (validationErrors.length > 0) {
       throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
 
-    // Validate Stock logic utilizing service
-    const { quantityToDeductFromProduct } =
-      await SalesService.validateStockAndGetDeduction(
-        productId,
-        quantity,
-        unit,
-        session,
-      );
+    // Validate Stock logic utilizing service for ALL items
+    // This returns deductions needed: [{ productId, quantityToDeductFromProduct }]
+    const stockDeductions = await SalesService.validateStockForItems(items, warehouse, session);
 
     const finalCustomerInfo = {
       name: customerInfo.name,
@@ -113,6 +106,15 @@ async function createSale(req, res, next) {
       accountId: p.account || p.accountId,
     }));
 
+    // Calculate Total Amount from items
+    const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.pricePerUnit), 0);
+
+    // Prepare items with totals for saving
+    const saleItems = items.map(item => ({
+      ...item,
+      total: item.quantity * item.pricePerUnit
+    }));
+
     // Credit Limit Check
     if (customerInfo.customerId) {
       const costsTotal = costs.reduce((acc, cost) => acc + cost.amount, 0);
@@ -120,7 +122,7 @@ async function createSale(req, res, next) {
         (acc, charge) => acc + charge.amount,
         0,
       );
-      const totalAmount = quantity * pricePerUnit;
+      // totalAmount calculated above
       const totalPaidInThisTransaction = transformedPayments.reduce(
         (acc, p) => acc + p.amount,
         0,
@@ -146,13 +148,12 @@ async function createSale(req, res, next) {
 
     const sale = new Sales({
       saleId: newSaleId,
-      product: productId,
+      items: saleItems, // New Array
       customer: finalCustomerInfo,
       warehouse,
       category,
-      quantity,
-      unit,
-      pricePerUnit,
+      // Removed single product fields
+      totalAmount, // Explicitly set, though pre-save hook also calculates it
       costs,
       charges,
       discount,
@@ -162,6 +163,9 @@ async function createSale(req, res, next) {
       saleDate,
       createdBy: req.user?._id || null,
     });
+
+    // Trigger validation to calculate totalAmountToBePaid via pre-validate hook
+    await sale.validate();
 
     if (sale.totalAmountToBePaid < 0) {
       throw new ApiError(400, "Total amount to be paid cannot be negative.");
@@ -184,13 +188,20 @@ async function createSale(req, res, next) {
 
         // Atomic deduction with balance guard — prevents race conditions
         const updatedCustomer = await Customer.findOneAndUpdate(
-          { _id: finalCustomerInfo.customerId, creditBalance: { $gte: payment.amount } },
+          {
+            _id: finalCustomerInfo.customerId,
+            creditBalance: { $gte: payment.amount },
+            isDeleted: { $ne: true },
+          },
           { $inc: { creditBalance: -payment.amount } },
           { session, new: true },
         );
 
         if (!updatedCustomer) {
-          const customer = await Customer.findById(finalCustomerInfo.customerId).session(session);
+          const customer = await Customer.findOne({
+            _id: finalCustomerInfo.customerId,
+            isDeleted: { $ne: true },
+          }).session(session);
           throw new ApiError(
             400,
             `Insufficient credit balance. Available: ${customer?.creditBalance || 0}, Required: ${payment.amount}`,
@@ -365,16 +376,19 @@ async function createSale(req, res, next) {
     }
 
     if (invoiceStatus === "Invoiced") {
-      await Product.findByIdAndUpdate(
-        productId,
-        { $inc: { quantity: -quantityToDeductFromProduct } },
-        { new: true, session },
-      );
+      // Apply Stock Deductions for ALL items
+      for (const deduction of stockDeductions) {
+        await Product.findOneAndUpdate(
+          { _id: deduction.productId, isDeleted: { $ne: true } },
+          { $inc: { quantity: -deduction.quantityToDeductFromProduct } },
+          { new: true, session },
+        );
+      }
     }
 
     if (finalCustomerInfo.customerId) {
-      await Customer.findByIdAndUpdate(
-        finalCustomerInfo.customerId,
+      await Customer.findOneAndUpdate(
+        { _id: finalCustomerInfo.customerId, isDeleted: { $ne: true } },
         {
           $push: { transactions: sale._id },
         },
@@ -382,12 +396,6 @@ async function createSale(req, res, next) {
       );
 
       // --- Overpayment Logic ---
-      // Check if totalPaid for this sale > totalAmountToBePaid
-      // We rely on the populated payments or the sum we tracked.
-      // Since payments are new, we can just use totalPaidInThisTransaction if this is a new sale.
-      // But wait, what if partial payments were involved?
-      // createSale implies this is the FIRST set of payments.
-      // However, let's use the sale object's data to be sure.
       const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
 
       // Guard: reject overpayment for guest/manual customers (no wallet to store excess)
@@ -402,8 +410,11 @@ async function createSale(req, res, next) {
         const excessAmount = totalPaid - sale.totalAmountToBePaid;
 
         // Add excess to customer credit balance
-        await Customer.findByIdAndUpdate(
-          finalCustomerInfo.customerId,
+        await Customer.findOneAndUpdate(
+          {
+            _id: finalCustomerInfo.customerId,
+            isDeleted: { $ne: true },
+          },
           { $inc: { creditBalance: excessAmount } },
           { session },
         );
@@ -424,13 +435,6 @@ async function createSale(req, res, next) {
           ],
           { session },
         );
-
-        // We do NOT modify the sale's payment records, because those records represent real money received.
-        // The fact that it's an overpayment is now resolved by moving the value to the wallet.
-        // The user will see: Sale Paid (1200/1000). Customer Wallet +200.
-        // To make the sale look "Clean" (Paid 1000/1000) we would have to complicate the payments array.
-        // The user's requirement was: "immediately moves those extra amount to the customer's credit balance."
-        // So this logic is correct.
       }
     }
 
@@ -489,39 +493,6 @@ async function getAllSales(_, res, next) {
           isDeleted: { $ne: true },
         },
       },
-      // Populate product
-      {
-        $lookup: {
-          from: "products",
-          localField: "product",
-          foreignField: "_id",
-          as: "product",
-        },
-      },
-      { $unwind: { path: "$product", preserveNullAndEmptyArrays: true } },
-
-      // Nested populate product.LC
-      {
-        $lookup: {
-          from: "lcs",
-          localField: "product.LC",
-          foreignField: "_id",
-          as: "product.LC",
-        },
-      },
-      { $unwind: { path: "$product.LC", preserveNullAndEmptyArrays: true } },
-
-      // Nested populate product.unit
-      {
-        $lookup: {
-          from: "units",
-          localField: "product.unit",
-          foreignField: "_id",
-          as: "product.unit",
-        },
-      },
-      { $unwind: { path: "$product.unit", preserveNullAndEmptyArrays: true } },
-
       // Populate customer.customerId
       {
         $lookup: {
@@ -560,7 +531,50 @@ async function getAllSales(_, res, next) {
       },
       { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
 
+      // --- Nested Lookups for Items ---
+      { $unwind: { path: "$items", preserveNullAndEmptyArrays: true } },
+
+      // Populate items.product
+      {
+        $lookup: {
+          from: "products",
+          localField: "items.product",
+          foreignField: "_id",
+          as: "items.product"
+        }
+      },
+      { $unwind: { path: "$items.product", preserveNullAndEmptyArrays: true } },
+
+      // Populate items.unit
+      {
+        $lookup: {
+          from: "units",
+          localField: "items.unit",
+          foreignField: "_id",
+          as: "items.unit"
+        }
+      },
+      { $unwind: { path: "$items.unit", preserveNullAndEmptyArrays: true } },
+
+      // Group back items
+      {
+        $group: {
+          _id: "$_id",
+          root: { $first: "$$ROOT" },
+          items: { $push: "$items" }
+        }
+      },
+      {
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: ["$root", { items: "$items" }]
+          }
+        }
+      },
+      // --- End Nested Lookups for Items ---
+
       // Populate payments.accountId
+      // Use similar unwind/group pattern for payments if multiple exist
       { $unwind: { path: "$payments", preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
@@ -597,6 +611,9 @@ async function getAllSales(_, res, next) {
           },
         },
       },
+
+      // Sort by date desc
+      { $sort: { saleDate: -1 } }
     ]);
 
     return res
@@ -643,270 +660,56 @@ async function getSaleById(req, res, next) {
   try {
     const { id } = req.params;
 
-    const results = await Sales.aggregate([
-      {
-        $match: {
-          _id: new mongoose.Types.ObjectId(id),
-          isDeleted: { $ne: true },
-        },
-      },
+    const sale = await Sales.findById(id)
+      .populate("customer.customerId", "name phone location creditBalance")
+      .populate("warehouse", "name location manager")
+      .populate("category", "name")
+      .populate("payments.accountId")
+      .populate({ path: "unit", select: "name conversionFactor type", strictPopulate: false })
+      .populate({
+        path: "product",
+        select: "name code quantity unit unitPrice LC",
+        strictPopulate: false,
+        populate: [
+          { path: "unit", select: "name conversionFactor type" },
+          { path: "LC", select: "basicInfo.lcNumber" }
+        ]
+      })
+      .populate({
+        path: "items.product",
+        select: "name code quantity unit unitPrice LC",
+        populate: [
+          { path: "unit", select: "name conversionFactor type" },
+          { path: "LC", select: "basicInfo.lcNumber" }
+        ]
+      })
+      .populate("items.unit", "name conversionFactor type")
+      .populate("createdBy", "name email")
+      .populate("modifiedBy", "name email")
+      .populate("deletedBy", "name email")
+      .lean();
 
-      // Unwind payments to process them
-      { $unwind: { path: "$payments", preserveNullAndEmptyArrays: true } },
-
-      // Populate accountId in payments
-      {
-        $lookup: {
-          from: "accounts",
-          localField: "payments.accountId",
-          foreignField: "_id",
-          as: "payments.accountId",
-        },
-      },
-      {
-        $unwind: {
-          path: "$payments.accountId",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-
-      // Group back to reconstruct the sales document with populated payments
-      {
-        $group: {
-          _id: "$_id",
-          doc: { $first: "$$ROOT" },
-          payments: { $push: "$payments" },
-        },
-      },
-      {
-        $replaceRoot: {
-          newRoot: {
-            $mergeObjects: [
-              "$doc",
-              {
-                payments: {
-                  // Filter out empty payment objects if no payments existed
-                  $filter: {
-                    input: "$payments",
-                    as: "payment",
-                    cond: { $ifNull: ["$$payment._id", false] },
-                  },
-                },
-              },
-            ],
-          },
-        },
-      },
-
-      // Now populate the other fields
-      {
-        $lookup: {
-          from: "products",
-          localField: "product",
-          foreignField: "_id",
-          as: "product",
-        },
-      },
-      { $unwind: { path: "$product", preserveNullAndEmptyArrays: true } },
-
-      {
-        $lookup: {
-          from: "lcs",
-          localField: "product.LC",
-          foreignField: "_id",
-          as: "product.LC",
-        },
-      },
-      { $unwind: { path: "$product.LC", preserveNullAndEmptyArrays: true } },
-
-      // Populate Audit Fields
-      {
-        $lookup: {
-          from: "users",
-          localField: "createdBy",
-          foreignField: "_id",
-          as: "creator",
-        },
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "modifiedBy",
-          foreignField: "_id",
-          as: "modifier",
-        },
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "deletedBy",
-          foreignField: "_id",
-          as: "deleter",
-        },
-      },
-      {
-        $addFields: {
-          createdBy: { $arrayElemAt: ["$creator", 0] },
-          modifiedBy: { $arrayElemAt: ["$modifier", 0] },
-          deletedBy: { $arrayElemAt: ["$deleter", 0] },
-        },
-      },
-      {
-        $project: {
-          creator: 0,
-          modifier: 0,
-          deleter: 0,
-          "createdBy.password": 0,
-          "modifiedBy.password": 0,
-          "deletedBy.password": 0,
-        },
-      },
-
-      {
-        $lookup: {
-          from: "units",
-          localField: "unit",
-          foreignField: "_id",
-          as: "unit",
-        },
-      },
-      { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
-
-      {
-        $lookup: {
-          from: "customers",
-          localField: "customer.customerId",
-          foreignField: "_id",
-          as: "customer.customerId",
-        },
-      },
-      {
-        $unwind: {
-          path: "$customer.customerId",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-
-      {
-        $lookup: {
-          from: "warehouses",
-          localField: "warehouse",
-          foreignField: "_id",
-          as: "warehouse",
-        },
-      },
-      { $unwind: { path: "$warehouse", preserveNullAndEmptyArrays: true } },
-
-      {
-        $lookup: {
-          from: "categories",
-          localField: "category",
-          foreignField: "_id",
-          as: "category",
-        },
-      },
-      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
-
-      // Add calculated fields
-      {
-        $addFields: {
-          paymentsMade: { $sum: "$payments.amount" },
-        },
-      },
-      {
-        $addFields: {
-          balanceDue: {
-            $max: [0, { $subtract: ["$totalAmountToBePaid", "$paymentsMade"] }],
-          },
-          overPayment: {
-            $max: [0, { $subtract: ["$paymentsMade", "$totalAmountToBePaid"] }],
-          },
-        },
-      },
-      // Project the final fields
-      {
-        $project: {
-          _id: 1,
-          saleId: 1,
-          product: {
-            id: "$product._id",
-            name: "$product.name",
-            category: {
-              name: "$category.name",
-              id: "$category._id",
-            },
-            LC: {
-              id: "$product.LC._id",
-              basicInfo: {
-                lcNumber: "$product.LC.basicInfo.lcNumber",
-                status: "$product.LC.status",
-                supplierName: "$product.LC.basicInfo.supplierName",
-                country: "$product.LC.basicInfo.country",
-              },
-            },
-            thickness: "$product.thickness",
-            width: "$product.width",
-            length: "$product.length",
-            color: "$product.color",
-            grade: "$product.grade",
-          },
-          customer: {
-            id: "$customer.customerId._id",
-            name: "$customer.name",
-            phone: "$customer.phone",
-            address: "$customer.address",
-            creditBalance: "$customer.customerId.creditBalance",
-          },
-          warehouse: {
-            id: "$warehouse._id",
-            name: "$warehouse.name",
-            location: "$warehouse.location",
-            manager: "$warehouse.manager",
-          },
-          quantity: 1,
-          unit: {
-            name: "$unit.name",
-            id: "$unit._id",
-            type: "$unit.type",
-          },
-          pricePerUnit: 1,
-          costs: 1,
-          charges: 1,
-          discount: 1,
-          invoiceStatus: 1,
-          paymentStatus: 1,
-          payments: 1,
-          notes: 1,
-          saleDate: 1,
-          totalAmount: 1,
-          totalAmountToBePaid: 1,
-          paymentsMade: 1,
-          balanceDue: 1,
-          overPayment: 1,
-          createdBy: {
-            name: "$createdBy.name",
-            email: "$createdBy.email",
-          },
-          modifiedBy: {
-            name: "$modifiedBy.name",
-            email: "$modifiedBy.email",
-          },
-          deletedBy: {
-            name: "$deletedBy.name",
-            email: "$deletedBy.email",
-          },
-          createdAt: 1,
-          updatedAt: 1,
-          isDeleted: 1,
-        },
-      },
-    ]);
-
-    if (results.length === 0) {
+    if (!sale) {
       return next(new ApiError(404, "Sale not found"));
     }
 
-    const sale = results[0];
+    // Check isDeleted if necessary, or return 404
+    /* if (sale.isDeleted) {
+       return next(new ApiError(404, "Sale not found"));
+    } */
+
+    // --- Calculated Fields ---
+    const totalPayments = sale.payments ? sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0;
+    const amountDue = sale.totalAmountToBePaid || 0;
+
+    sale.paymentsMade = totalPayments;
+    sale.balanceDue = Math.max(0, amountDue - totalPayments);
+    sale.overPayment = Math.max(0, totalPayments - amountDue);
+
+    // Clean up sensitive fields
+    if (sale.createdBy) delete sale.createdBy.password;
+    if (sale.modifiedBy) delete sale.modifiedBy.password;
+    if (sale.deletedBy) delete sale.deletedBy.password;
 
     return res
       .status(200)
@@ -915,26 +718,8 @@ async function getSaleById(req, res, next) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `A document with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
+    if (error.name === "CastError") {
+      return next(new ApiError(400, "Invalid Sale ID"));
     }
     logger.error(error);
     next(
@@ -949,278 +734,160 @@ async function getSaleById(req, res, next) {
 }
 
 async function updateSale(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { id } = req.params;
     const updateData = req.body;
 
-    const sale = await Sales.findById(id)
-      .populate("unit")
-      .populate({
-        path: "product",
-        populate: {
-          path: "unit",
-        },
-      });
+    const sale = await Sales.findById(id).session(session)
+      .populate("items.product")
+      .populate("items.unit");
+
     if (!sale) {
-      return next(new ApiError(404, "Sale not found"));
+      throw new ApiError(404, "Sale not found");
     }
     if (sale.isDeleted) {
-      return next(
-        new ApiError(400, "Cannot update a sale that is in the trash."),
-      );
+      throw new ApiError(400, "Cannot update a sale that is in the trash.");
     }
 
-    // --- Stock Update Logic Start ---
+    // 1. Lock Warehouse / Validation
+    // Users cannot change the warehouse during an edit to avoid complex cross-warehouse transfer logic here.
+    if (updateData.warehouse && updateData.warehouse !== sale.warehouse.toString()) {
+      throw new ApiError(400, "Changing warehouse during edit is not allowed. Please delete and recreate the sale if you need to switch warehouses.");
+    }
+    const warehouseId = sale.warehouse;
+
+    // 2. Prepare Items for Diffing
+    // Current items in DB
+    const oldItems = sale.items && sale.items.length > 0
+      ? sale.items
+      : (sale.product ? [{ product: sale.product, quantity: sale.quantity, unit: sale.unit }] : []);
+
+    // New items from request (or fall back to old if not provided)
+    // If updateData.items is provided, it replaces the old list.
+    const newItemsRaw = updateData.items || oldItems;
+
+    // Normalize newItems to ensure they have minimal required fields for calculation
+    const newItems = newItemsRaw.map(i => ({
+      product: i.productId || i.product._id || i.product,
+      quantity: parseFloat(i.quantity),
+      unit: i.unit._id || i.unit,
+      pricePerUnit: parseFloat(i.pricePerUnit)
+    }));
+
+    // 3. Stock Reconciliation
     const oldStatus = sale.invoiceStatus;
     const newStatus = updateData.invoiceStatus || oldStatus;
-    const oldQuantity = sale.quantity;
-    const newQuantity =
-      updateData.quantity !== undefined ? updateData.quantity : oldQuantity;
-
-    const product = sale.product; // Already populated
-    if (!product) {
-      return next(new ApiError(404, "Associated product not found"));
-    }
-
-    // Identify if we need to interact with stock
-    // We need to calculate unit conversions if we are doing any stock operation
-    // Using the same logic as before for conversion:
-
-    // 1. Check Unit Compatibility
-    if (product.unit.type !== sale.unit.type) {
-      return next(
-        new ApiError(
-          400,
-          `Cannot update sale. Incompatible units: Product is in '${product.unit.type}' while sale is in '${sale.unit.type}'.`,
-        ),
-      );
-    }
-
-    // Helper to calculate stock change in Product's Unit
-    const calculateStockChange = (qty) => {
-      const qtyInBase = qty * sale.unit.conversionFactor;
-      return qtyInBase / product.unit.conversionFactor;
-    };
 
     if (oldStatus !== newStatus) {
-      // Validation: Cannot revert to 'Not-invoiced' if payments exist
-      if (oldStatus === "Invoiced" && newStatus === "Not-invoiced") {
-        if (sale.payments && sale.payments.length > 0) {
-          return next(
-            new ApiError(
-              400,
-              "Cannot revert to 'Not-invoiced' because payments have been recorded. Please cancel the sale instead."
-            )
-          );
-        }
-      }
-
-      // Status Transition
+      // Handle Status Transitions
       if (oldStatus === "Not-invoiced" && newStatus === "Invoiced") {
-        // Not-invoiced -> Invoiced: DEDUCT "newQuantity"
-        const deduction = calculateStockChange(newQuantity);
-        if (product.quantity < deduction) {
-          return next(
-            new ApiError(
-              400,
-              `Not enough product in stock to invoice this sale. Required: ${deduction} ${product.unit.name}, Available: ${product.quantity} ${product.unit.name}`,
-            ),
-          );
-        }
-        await Product.findByIdAndUpdate(product._id, {
-          $inc: { quantity: -deduction },
-        });
+        // Deduct FULL stock for new items
+        const diff = await SalesService.calculateStockDiff([], newItems, session);
+        await SalesService.applyStockDiff(diff, session);
       } else if (oldStatus === "Invoiced" && newStatus === "Cancelled") {
-        // Invoiced -> Cancelled: RESTORE "oldQuantity" (what was previously taken)
-        // Even if newQuantity is different, we only restore what we took.
-        // AND if newQuantity is different, the sale record will update to newQuantity, but that doesn't matter for the restoration.
-        const restoration = calculateStockChange(oldQuantity);
-        await Product.findByIdAndUpdate(product._id, {
-          $inc: { quantity: restoration },
-        });
+        // Restore FULL stock for old items
+        const diff = await SalesService.calculateStockDiff(oldItems, [], session);
+        await SalesService.applyStockDiff(diff, session);
+      } else if (oldStatus === "Cancelled" && newStatus === "Invoiced") {
+        // Deduct FULL stock for new items (reactivation)
+        const diff = await SalesService.calculateStockDiff([], newItems, session);
+        await SalesService.applyStockDiff(diff, session);
+      } else if (oldStatus === "Invoiced" && newStatus === "Invoiced") {
+        // Diffing logic (Standard Edit)
+        const diff = await SalesService.calculateStockDiff(oldItems, newItems, session);
+        await SalesService.applyStockDiff(diff, session);
       }
-      // "Invoiced" -> "Not-invoiced" is supposedly blocked/invalid, so ignoring or treating as no-op.
-      // "Cancelled" -> "Invoiced"? If we allow reviving cancelled orders.
-      else if (oldStatus === "Cancelled" && newStatus === "Invoiced") {
-        // Re-deduct newQuantity
-        const deduction = calculateStockChange(newQuantity);
-        if (product.quantity < deduction) {
-          return next(new ApiError(400, "Not enough product in stock to reactivate sale."));
-        }
-        await Product.findByIdAndUpdate(product._id, { $inc: { quantity: -deduction } });
-      }
-
-    } else {
-      // Status did NOT change
-      if (newStatus === "Invoiced") {
-        // Invoiced -> Invoiced: Check Quantity Change
-        if (oldQuantity !== newQuantity) {
-          const oldQtyInProductUnit = calculateStockChange(oldQuantity);
-          const newQtyInProductUnit = calculateStockChange(newQuantity);
-          const netChange = newQtyInProductUnit - oldQtyInProductUnit;
-          // If netChange is positive, we need MORE stock (Deduct more)
-          // If netChange is negative, we need LESS stock (Restore some)
-
-          // Check availability if we need more
-          if (netChange > 0 && product.quantity < netChange) {
-            return next(new ApiError(400, "Not enough product in stock for this quantity increase"));
-          }
-
-          await Product.findByIdAndUpdate(product._id, {
-            $inc: { quantity: -netChange }
-          });
-        }
-      }
-      // If "Not-invoiced" -> "Not-invoiced", do nothing regardless of quantity change.
-      // If "Cancelled" -> "Cancelled", do nothing.
+    } else if (newStatus === "Invoiced") {
+      // Status didn't change, but items/quantities might have
+      const diff = await SalesService.calculateStockDiff(oldItems, newItems, session);
+      await SalesService.applyStockDiff(diff, session);
     }
-    // --- Stock Update Logic End ---
 
-    // Prevent updates to sensitive or immutable fields to ensure data integrity.
-    // 'charges' are an exception and can be updated directly on the sale.
-    // Financial arrays like 'costs' and 'payments' must be managed via dedicated endpoints.
-    const immutableFields = [
-      "paymentStatus",
-      "product",
-      "warehouse",
-      "category",
-      "customer",
-      "costs",
-      "payments",
-      "saleId",
-      "totalAmount",
-      "totalAmountToBePaid",
-    ];
+    // 4. Recalculate Financials
+    // Update fields
+    if (updateData.items) sale.items = newItems;
+    if (updateData.costs) sale.costs = updateData.costs; // Ideally should validate/transform costs too
+    if (updateData.charges) sale.charges = updateData.charges;
+    if (updateData.discount !== undefined) sale.discount = updateData.discount;
+    if (updateData.invoiceStatus) sale.invoiceStatus = updateData.invoiceStatus;
+    if (updateData.currentPaid !== undefined) {
+      // We don't update 'payments' array directly here usually, but if client sends valid structure...
+      // Better to rely on separate endpoints, but for consistency with creation payload:
+      // If payments are touched, we might have issues. 
+      // Strategy: Don't allow editing *past* payments here. Only Sale details.
+    }
+    if (updateData.notes) sale.notes = updateData.notes;
+    sale.modifiedBy = req.user?._id;
 
-    immutableFields.forEach((field) => {
-      if (updateData.hasOwnProperty(field)) {
-        delete updateData[field];
-      }
-    });
+    // Recalculate Total Amount
+    const totalAmount = sale.items.reduce((sum, item) => sum + (item.quantity * item.pricePerUnit), 0);
+    sale.totalAmount = totalAmount;
 
-    // Apply updates
-    updateData.modifiedBy = req.user?._id || null;
-    Object.assign(sale, updateData);
+    // Trigger schema validation (pre-save hook calculates totalAmountToBePaid)
+    await sale.validate();
 
-    const updatedSale = await sale.save();
+    // 5. Overpayment / Financial Check
+    const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
 
-    // --- Overpayment Reconciliation (Post-Update) ---
-    // If the update reduced the totalAmount (e.g. quantity decrease), 
-    // the existing payments might now exceed the new totalAmountToBePaid.
-    if (updatedSale.customer?.customerId && updatedSale.invoiceStatus === 'Invoiced') {
-      const totalPaid = updatedSale.payments.reduce((acc, p) => acc + p.amount, 0);
+    if (totalPaid > sale.totalAmountToBePaid && sale.customer?.customerId && sale.invoiceStatus === 'Invoiced') {
+      const currentExcess = totalPaid - sale.totalAmountToBePaid;
 
-      if (totalPaid > updatedSale.totalAmountToBePaid) {
-        const currentExcess = totalPaid - updatedSale.totalAmountToBePaid;
+      // Check previous overpayment credits to avoid double-crediting
+      const CreditHistory = require("../models/creditHistory.model");
+      const previousOverpaymentStats = await CreditHistory.aggregate([
+        { $match: { reference: sale._id, reason: "Overpayment", type: "Credit" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]).session(session);
 
-        // Check for previously recorded overpayments
-        // (We use the same aggregation logic as in addPartialPayment)
-        // Note: We need a session here? updateSale didn't use `session` for the main save in the original code? 
-        // Wait, the original code lines 354: `const session = ...`. Yes it uses a session.
-        // BUT `await sale.save()` in line 1093 (original) does NOT pass { session } explicitly in the snippet shown?
-        // Line 296 in createSale used `sale.save({ session })`.
-        // Line 1093 just said `updatedSale = await sale.save()`. 
-        // If `sale` was found using `session`, does Mongoose auto-use it? 
-        // The `findById` line 956 did NOT loop in session?
-        // Wait, line 354 in `updateCustomer` used session. 
-        // Let me check `updateSale` start in my view_file output.
-        // `updateSale` start line 951. NO session start visible in the snippet?
-        // Ah, I need to check if `updateSale` has a session.
-        // The snippet I viewed (951-1133) does NOT show `startSession`.
-        // It shows `try { const { id } ...`.
-        // So `updateSale` is NOT currently transactional?
-        // That is risky. 
-        // But I strictly need to stick to the requested change. 
-        // If I add credit, I should probably do it safely.
-        // However, for now, I will use standard await logic without session if one isn't established, 
-        // or just assume if it's not there I shouldn't introduce one mid-flight without refactoring.
-        // BUT, `addPartialPayment` definitely had one.
-        // Let's look at `updateSale` again.
-        // It calls `Product.findByIdAndUpdate`.
-        // It calls `sale.save()`.
-        // If I add CreditHistory logic, I should just await it.
+      const previousOverpayment = previousOverpaymentStats[0]?.total || 0;
+      const newExcess = currentExcess - previousOverpayment;
 
-        const CreditHistory = require("../models/creditHistory.model"); // Ensure import if not available in scope (it is at top)
-        const Customer = require("../models/customer.model");
+      if (newExcess > 0) {
+        // Credit the difference to the customer
+        await Customer.findByIdAndUpdate(
+          sale.customer.customerId,
+          { $inc: { creditBalance: newExcess } },
+          { session }
+        );
 
-        const previousOverpaymentStats = await CreditHistory.aggregate([
-          {
-            $match: {
-              reference: updatedSale._id,
-              reason: "Overpayment",
-              type: "Credit"
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              total: { $sum: "$amount" }
-            }
-          }
-        ]);
-
-        const previousOverpayment = previousOverpaymentStats[0]?.total || 0;
-        const newExcess = currentExcess - previousOverpayment;
-
-        if (newExcess > 0) {
-          await Customer.findByIdAndUpdate(
-            updatedSale.customer.customerId,
-            { $inc: { creditBalance: newExcess } }
-          );
-
-          await CreditHistory.create(
-            [{
-              customer: updatedSale.customer.customerId,
-              amount: newExcess,
-              type: "Credit",
-              reason: "Overpayment",
-              reference: updatedSale._id,
-              referenceModel: "Sale",
-              description: `Overpayment adjustment after sale update (ID: ${updatedSale.saleId})`,
-              createdBy: req.user?._id,
-            }]
-          );
-        }
+        await CreditHistory.create([{
+          customer: sale.customer.customerId,
+          amount: newExcess,
+          type: "Credit",
+          reason: "Overpayment",
+          reference: sale._id,
+          referenceModel: "Sale", // Fixed enum value from previous thread
+          description: `Overpayment adjustment after sale update (ID: ${sale.saleId})`,
+          createdBy: req.user?._id
+        }], { session });
       }
     }
+
+    await sale.save({ session });
+    await session.commitTransaction();
+    session.endSession();
 
     return res
       .status(200)
-      .json(new ApiResponse(200, updatedSale, "Sale updated successfully"));
+      .json(new ApiResponse(200, sale, "Sale updated successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
+    if (session.inTransaction()) { // Check before aborting
+      await session.abortTransaction();
     }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `A document with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Generic message
-    }
-    // Handle Mongoose validation errors
+    session.endSession();
+
+    if (error instanceof ApiError) return next(error);
+
+    // Mongoose Validation Errors
     if (error.name === "ValidationError") {
       const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
+      return next(new ApiError(400, error.errors[firstErrorField].message));
     }
+
     logger.error(error);
-    next(
-      new ApiError(
-        500,
-        "An unexpected error occurred. Please try again.",
-        [],
-        error.message,
-      ),
-    );
+    next(new ApiError(500, "An unexpected error occurred."));
   }
 }
 
@@ -1237,13 +904,21 @@ async function deleteSale(req, res, next) {
 
     const saleToDelete = await Sales.findById(id)
       .session(session)
-      .populate("unit")
+      .populate({ path: "unit", strictPopulate: false }) // Legacy
       .populate({
         path: "product",
+        strictPopulate: false,
         populate: {
           path: "unit",
         },
-      });
+      }) // Legacy
+      .populate({
+        path: "items.product",
+        populate: {
+          path: "unit"
+        }
+      })
+      .populate("items.unit");
 
     if (!saleToDelete) {
       throw new ApiError(404, "Sale not found");
@@ -1253,12 +928,34 @@ async function deleteSale(req, res, next) {
       throw new ApiError(400, "Sale is already in the trash");
     }
 
-    // Restore product quantity with unit conversion
-    if (saleToDelete.product && saleToDelete.unit) {
+    // Restore stock for MULTI-ITEM sales
+    if (saleToDelete.items && saleToDelete.items.length > 0) {
+      for (const item of saleToDelete.items) {
+        if (item.product && item.unit) {
+          const product = item.product;
+          const saleUnit = item.unit;
+
+          // Check for unit compatibility (should be guaranteed by creation, but good to be safe)
+          if (product.unit && product.unit.type === saleUnit.type) {
+            const qty = item.quantity;
+            const quantityInBase = qty * (saleUnit.conversionFactor || 1);
+            const quantityToRestore = quantityInBase / (product.unit.conversionFactor || 1);
+
+            await Product.findByIdAndUpdate(
+              product._id,
+              { $inc: { quantity: quantityToRestore } },
+              { session }
+            );
+          }
+        }
+      }
+    }
+    // Fallback: Restore stock for LEGACY single-item sales
+    else if (saleToDelete.product && saleToDelete.unit) {
       const product = saleToDelete.product;
       const saleUnit = saleToDelete.unit;
 
-      if (product.unit.type === saleUnit.type) {
+      if (product.unit && product.unit.type === saleUnit.type) {
         const deletedSaleQuantityInBaseUnit =
           saleToDelete.quantity * saleUnit.conversionFactor;
         const quantityToRestoreToProduct =
@@ -1273,9 +970,7 @@ async function deleteSale(req, res, next) {
     }
 
     // Only reverse financial transactions if there were actual payments made.
-    // This also implies that the DailyCash check is only needed in this case
-    // since reversals create new transactions affecting daily cash.
-    if (saleToDelete.payments.length > 0) {
+    if (saleToDelete.payments && saleToDelete.payments.length > 0) {
       // DailyCash Gatekeeper Check (only for sales with payments that need reversal)
       const today = startOfDay(now());
       const dailyCash = await DailyCash.findOne({ date: today })
@@ -1382,7 +1077,7 @@ async function deleteSale(req, res, next) {
 
     // Mark the sale as deleted
     saleToDelete.isDeleted = true;
-    saleToDelete.status = "Deleted";
+    saleToDelete.status = "Deleted"; // Ensure 'status' field exists in schema if using it
     saleToDelete.deletedBy = user?._id || null;
     await saleToDelete.save({ session });
 
@@ -2293,45 +1988,10 @@ async function getPaginatedSalesSummary(req, res, next) {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
+    // --- PIPELINE FOR FILTERING & SORTING & PAGINATION ---
     const pipeline = [];
 
-    // Stage 1: Add fields for searching and sorting that require population
-    pipeline.push({
-      $lookup: {
-        from: "products",
-        localField: "product",
-        foreignField: "_id",
-        as: "productDetails",
-      },
-    });
-    pipeline.push({
-      $unwind: "$productDetails",
-    });
-
-    pipeline.push({
-      $lookup: {
-        from: "lcs",
-        localField: "productDetails.LC",
-        foreignField: "_id",
-        as: "lcDetails",
-      },
-    });
-    pipeline.push({
-      $unwind: { path: "$lcDetails", preserveNullAndEmptyArrays: true }, // LC might be null
-    });
-
-    pipeline.push({
-      $lookup: {
-        from: "units",
-        localField: "unit",
-        foreignField: "_id",
-        as: "saleUnitDetails",
-      },
-    });
-    pipeline.push({
-      $unwind: "$saleUnitDetails",
-    });
-
+    // 1. Join Collections for Search/Sort Criteria
     pipeline.push({
       $lookup: {
         from: "customers",
@@ -2340,71 +2000,81 @@ async function getPaginatedSalesSummary(req, res, next) {
         as: "customerLookup",
       },
     });
+    // We don't strictly need to unwind if we just match on "customerLookup.name" (mongo handles array match),
+    // but unwinding makes sorting by single name deterministice.
     pipeline.push({
       $unwind: { path: "$customerLookup", preserveNullAndEmptyArrays: true },
     });
 
-    // Stage 2: Filtering
+    // Lookup Products (from items array)
+    // localField "items.product" will return an array of Product IDs
+    pipeline.push({
+      $lookup: {
+        from: "products",
+        localField: "items.product",
+        foreignField: "_id",
+        as: "productDetails", // This will be an ARRAY of products
+      },
+    });
+
+    // Lookup LCs (from items.product.LC) -> complex for array, but for search we can try
+    // Just looking up products is usually enough for "Search by Product Name"
+
+    // 2. Computed Fields (for Sorting/Searching)
+    pipeline.push({
+      $addFields: {
+        finalCustomerName: {
+          $ifNull: ["$customerLookup.name", "$customer.name"],
+        },
+        // For searching/sorting by product name, we can take the first one or join them?
+        // Let's create a string of all product names for searching
+        allProductNames: "$productDetails.name",
+        // For sorting by product name, use the first one
+        primaryProductName: { $arrayElemAt: ["$productDetails.name", 0] },
+        // Calculate Total Quantity (sum of items.quantity)
+        totalQuantity: { $sum: "$items.quantity" },
+      },
+    });
+
+    // 3. Match / Filter
     const matchConditions = {
       isDeleted: { $ne: true },
     };
-    if (invoiceStatus) {
-      matchConditions.invoiceStatus = invoiceStatus;
-    }
-    if (paymentStatus) {
-      matchConditions.paymentStatus = paymentStatus;
-    }
+
+    if (invoiceStatus) matchConditions.invoiceStatus = invoiceStatus;
+    if (paymentStatus) matchConditions.paymentStatus = paymentStatus;
 
     if (search) {
       const searchRegex = new RegExp(search, "i");
       matchConditions.$or = [
-        { "customer.name": searchRegex },
-        { "customerLookup.name": searchRegex },
-        { "productDetails.name": searchRegex },
-        { "lcDetails.basicInfo.lcNumber": searchRegex },
-        // Note: Searching numeric fields with regex is not ideal.
-        // This attempts to match if the search string is a valid number.
+        { finalCustomerName: searchRegex },
+        { allProductNames: searchRegex }, // Matches if ANY product name matches
+        { saleId: searchRegex },
       ];
+      // Numeric search
       if (!isNaN(parseFloat(search))) {
         matchConditions.$or.push({ totalAmountToBePaid: parseFloat(search) });
       }
     }
 
-    if (Object.keys(matchConditions).length > 0) {
-      pipeline.push({ $match: matchConditions });
-    }
+    pipeline.push({ $match: matchConditions });
 
-    // Stage 3: Add calculated field for sorting
-    pipeline.push({
-      $addFields: {
-        convertedQuantity: {
-          $multiply: ["$quantity", "$saleUnitDetails.conversionFactor"],
-        },
-        finalCustomerName: {
-          $ifNull: ["$customerLookup.name", "$customer.name"],
-        },
-      },
-    });
-
-    // Stage 4: Facet for data and metadata (count)
+    // 4. Sort Configuration
     const sort = {};
+    const sortDir = sortOrder === "asc" ? 1 : -1;
+
     if (sortBy) {
-      if (sortBy === "saleDate") {
-        sort.saleDate = sortOrder === "asc" ? 1 : -1;
-      } else if (sortBy === "totalAmountToBePaid") {
-        sort.totalAmountToBePaid =
-          sortOrder === "bigger" || sortOrder === "desc" ? -1 : 1;
-      } else if (sortBy === "quantity") {
-        sort.convertedQuantity = sortOrder === "asc" ? 1 : -1;
-      } else if (sortBy === "customerName") {
-        sort.finalCustomerName = sortOrder === "asc" ? 1 : -1;
-      } else if (sortBy === "productName") {
-        sort["productDetails.name"] = sortOrder === "asc" ? 1 : -1;
-      }
+      if (sortBy === "saleDate") sort.saleDate = sortDir;
+      else if (sortBy === "totalAmountToBePaid") sort.totalAmountToBePaid = sortDir;
+      else if (sortBy === "quantity") sort.totalQuantity = sortDir;
+      else if (sortBy === "customerName") sort.finalCustomerName = sortDir;
+      else if (sortBy === "productName") sort.primaryProductName = sortDir;
+      else sort.saleDate = -1; // Fallback
     } else {
       sort.saleDate = -1;
     }
 
+    // 5. Facet: Get Metadata (Count) and Data (IDs only)
     pipeline.push({
       $facet: {
         metadata: [{ $count: "totalSales" }],
@@ -2412,83 +2082,69 @@ async function getPaginatedSalesSummary(req, res, next) {
           { $sort: sort },
           { $skip: skip },
           { $limit: limitNum },
-          {
-            $project: {
-              _id: 1,
-              saleId: 1,
-              "customer.name": "$finalCustomerName",
-              "product.name": "$productDetails.name",
-              "product.id": "$productDetails._id",
-              "lc.number": "$lcDetails.basicInfo.lcNumber",
-              "lc.id": "$lcDetails._id",
-              quantity: 1,
-              "unit.name": "$saleUnitDetails.name",
-              "unit.id": "$saleUnitDetails._id",
-              pricePerUnit: 1,
-              totalAmountToBePaid: 1,
-              invoiceStatus: 1,
-              paymentStatus: 1,
-              saleDate: 1,
-            },
-          },
+          { $project: { _id: 1 } }, // Only project the IDs
         ],
       },
     });
 
+    // EXECUTE PIPELINE
     const result = await Sales.aggregate(pipeline);
 
-    const sales = result[0].data;
-    const totalSales = result[0].metadata[0]
-      ? result[0].metadata[0].totalSales
-      : 0;
+    const facetData = result[0].data;
+    const totalSales = result[0].metadata[0] ? result[0].metadata[0].totalSales : 0;
+    const totalPages = Math.ceil(totalSales / limitNum);
+
+    if (facetData.length === 0) {
+      return res.status(200).json(
+        new ApiResponse(
+          200,
+          {
+            sales: [],
+            totalSales: 0,
+            page: pageNum,
+            limit: limitNum,
+            totalPages: 0,
+          },
+          "Sales summary fetched successfully"
+        )
+      );
+    }
+
+    // 6. Hydrate the Data (Fetch full docs with population)
+    const saleIds = facetData.map((item) => item._id);
+
+    const sales = await Sales.find({ _id: { $in: saleIds } })
+      .populate("customer.customerId", "name phone")
+      .populate("items.product", "name") // Populate product details in items
+      .populate("items.unit", "name")    // Populate unit details in items
+      .lean();
+
+    // 7. Re-order results to match the specific sort order from Aggregation
+    // (Sales.find returns in undefined order or insertion order, not $in order)
+    const salesMap = new Map(sales.map((s) => [s._id.toString(), s]));
+    const orderedSales = saleIds
+      .map((id) => salesMap.get(id.toString()))
+      .filter((s) => s); // Filter out any undefined (shouldn't happen)
 
     return res.status(200).json(
       new ApiResponse(
         200,
         {
-          sales,
+          sales: orderedSales,
           totalSales,
           page: pageNum,
           limit: limitNum,
-          totalPages: Math.ceil(totalSales / limitNum),
+          totalPages,
         },
-        "Sales summary fetched successfully",
-      ),
+        "Sales summary fetched successfully"
+      )
     );
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
     }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `A document with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Generic message
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    logger.error(error);
-    next(
-      new ApiError(
-        500,
-        "An unexpected error occurred. Please try again.",
-        [],
-        error.message,
-      ),
-    );
+    logger.error("Error in getPaginatedSalesSummary:", error);
+    next(new ApiError(500, "Failed to fetch sales summary", [], error.message));
   }
 }
 

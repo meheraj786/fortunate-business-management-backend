@@ -65,22 +65,26 @@ const invoiceSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
-    productDetails: {
-      productId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Product",
-        required: true,
+    items: [
+      {
+        productId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Product",
+          required: true,
+        },
+        name: { type: String, required: true },
+        category: { type: String, required: true },
+        quantity: { type: Number, required: true },
+        unit: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Unit",
+          required: true,
+        },
+        unitName: { type: String }, // Storing name for historical accuracy
+        pricePerUnit: { type: Number, required: true },
+        total: { type: Number, required: true },
       },
-      name: { type: String, required: true },
-      category: { type: String, required: true },
-      quantity: { type: Number, required: true },
-      unit: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Unit",
-        required: true,
-      },
-      pricePerUnit: { type: Number, required: true },
-    },
+    ],
     customerDetails: {
       customerId: {
         type: mongoose.Schema.Types.ObjectId,

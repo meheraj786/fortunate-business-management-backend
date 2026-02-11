@@ -72,27 +72,28 @@
             </tr>
           </thead>
           <tbody>
+            {{#each invoice.items}}
             <tr class="border-b border-gray-200">
               <td class="p-1 sm:p-2 align-top">
                 <p class="font-semibold text-black">
-                  {{invoice.productDetails.name}}
+                  {{this.name}}
                 </p>
                 <p class="text-gray-600">
-                  {{invoice.productDetails.category}}
+                  {{this.category}}
                 </p>
               </td>
               <td class="p-1 sm:p-2 text-center align-top">
-                {{invoice.productDetails.quantity}}
-                {{invoice.productDetails.unit.name}}
+                {{this.quantity}}
+                {{this.unitName}}
               </td>
               <td class="p-1 sm:p-2 text-right align-top">
-                {{@root.invoice.currencySymbol}} {{formatNumber
-                invoice.productDetails.pricePerUnit}}
+                {{@root.invoice.currencySymbol}} {{formatNumber this.pricePerUnit}}
               </td>
               <td class="p-1 sm:p-2 text-right align-top">
-                {{@root.invoice.currencySymbol}} {{formatNumber invoice.productTotal}}
+                {{@root.invoice.currencySymbol}} {{formatNumber this.total}}
               </td>
             </tr>
+            {{/each}}
           </tbody>
         </table>
       </div>

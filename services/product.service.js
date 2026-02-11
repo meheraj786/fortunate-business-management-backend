@@ -480,12 +480,13 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         let: { productId: "$_id" },
         pipeline: [
           {
+            $match: { isDeleted: { $ne: true } },
+          },
+          { $unwind: "$items" },
+          {
             $match: {
               $expr: {
-                $and: [
-                  { $eq: ["$product", "$$productId"] },
-                  { $eq: ["$isDeleted", false] },
-                ],
+                $eq: ["$items.product", "$$productId"],
               },
             },
           },
@@ -498,8 +499,16 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         totalInGrams: {
           $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0],
         },
-        totalUnitsSold: { $sum: "$sales.quantity" },
-        totalRevenue: { $sum: "$sales.totalAmount" },
+        totalUnitsSold: { $sum: "$sales.items.quantity" },
+        totalRevenue: {
+          $sum: {
+            $map: {
+              input: "$sales",
+              as: "saleItem",
+              in: { $multiply: ["$$saleItem.items.quantity", "$$saleItem.items.pricePerUnit"] }
+            }
+          }
+        },
         totalDueInvoices: {
           $size: {
             $filter: {
@@ -627,16 +636,17 @@ const getProductSalesHistory = async (warehouseId, productId, queryParams) => {
   const skip = (page - 1) * limit;
 
   const query = {
-    product: productId,
+    "items.product": productId,
     isDeleted: false,
   };
 
   const sales = await Sales.find(query)
     .populate("customer.customerId", "name phone")
-    .populate("unit", "name")
+    .populate("items.product", "name")
+    .populate("items.unit", "name")
     .sort({ saleDate: -1 })
-    .skip(skip)
-    .limit(Number(limit));
+    .limit(Number(limit))
+    .skip(skip);
 
   const total = await Sales.countDocuments(query);
 

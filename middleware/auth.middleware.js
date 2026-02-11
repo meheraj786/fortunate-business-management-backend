@@ -26,8 +26,8 @@ exports.authenticate = async (req, res, next) => {
       .select("_id name email roleName access warehouse isDeleted")
       .lean();
 
-    if (!user) {
-      return res.status(401).json({ message: "User not found" });
+    if (!user || user.isDeleted) {
+      return res.status(401).json({ message: "User not found or access denied" });
     }
 
     req.user = user;

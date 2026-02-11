@@ -21,7 +21,17 @@ async function generateInvoice(req, res, next) {
       );
     }
 
-    const sale = await Sales.findById(saleId).populate("product category unit");
+    const sale = await Sales.findById(saleId)
+      .populate("items.unit")
+      .populate({ path: "category", strictPopulate: false })
+      .populate({
+        path: "items.product",
+        strictPopulate: false,
+        populate: {
+          path: "category",
+          select: "name"
+        }
+      });
 
     if (!sale) {
       return next(new ApiError(404, "Sale not found"));
@@ -139,18 +149,31 @@ async function generateInvoice(req, res, next) {
     const balanceDue = Math.max(0, totalAmountToBePaid - paymentsMade);
     const overPayment = Math.max(0, paymentsMade - totalAmountToBePaid);
 
+    // Map sale items to invoice items
+    const invoiceItems = sale.items.map(item => ({
+      productId: item.product._id,
+      name: item.product.name,
+      category: item.product.category?.name || "N/A", // assuming product has populated category but we didn't populate product.category explicitly in the findById above.
+      // Wait, "populate('items.product category items.unit')" populates product. But does it populate product.category? No.
+      // We need to fetch category name. 
+      // Let's rely on sale.category for main category or just put N/A if it's too complex.
+      // Actually, let's leave category blank or generic if needed, but the schema requires it.
+      // Let's populate 'items.product' which is a Product model. Product model has 'category'.
+      // If we want item category, we need to populate 'items.product.category'.
+      // Let's try to populate deep.
+      quantity: item.quantity,
+      unit: item.unit._id,
+      unitName: item.unit.name,
+      pricePerUnit: item.pricePerUnit,
+      total: item.total
+    }));
+
     const invoice = await Invoice.create({
       invoiceId: newInvoiceId,
       salesId: sale.saleId,
       salesDate: sale.saleDate,
-      productDetails: {
-        productId: sale.product._id,
-        name: sale.product.name,
-        category: sale.category.name,
-        quantity: sale.quantity,
-        unit: sale.unit,
-        pricePerUnit: sale.pricePerUnit,
-      },
+      items: invoiceItems,
+
       customerDetails,
       paymentAndAmountInfo: {
         totalAmount: sale.totalAmount,
@@ -231,20 +254,36 @@ async function getAllInvoices(req, res, next) {
           "createdBy.password": 0,
         },
       },
+      // --- Nested Lookups for Items ---
+      { $unwind: { path: "$items", preserveNullAndEmptyArrays: true } },
+
+      // Populate items.unit
       {
         $lookup: {
           from: "units",
-          localField: "productDetails.unit",
+          localField: "items.unit",
           foreignField: "_id",
-          as: "productDetails.unit",
-        },
+          as: "items.unit"
+        }
+      },
+      { $unwind: { path: "$items.unit", preserveNullAndEmptyArrays: true } },
+
+      // Group back items
+      {
+        $group: {
+          _id: "$_id",
+          root: { $first: "$$ROOT" },
+          items: { $push: "$items" }
+        }
       },
       {
-        $unwind: {
-          path: "$productDetails.unit",
-          preserveNullAndEmptyArrays: true, // Keep invoices even if unit is not found
-        },
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: ["$root", { items: "$items" }]
+          }
+        }
       },
+      // --- End Nested Lookups for Items ---
       {
         $sort: { createdAt: -1 },
       },
@@ -317,20 +356,36 @@ async function getInvoiceById(req, res, next) {
       },
 
       // Populate productDetails.unit
+      // --- Nested Lookups for Items ---
+      { $unwind: { path: "$items", preserveNullAndEmptyArrays: true } },
+
+      // Populate items.unit
       {
         $lookup: {
           from: "units",
-          localField: "productDetails.unit",
+          localField: "items.unit",
           foreignField: "_id",
-          as: "productDetails.unit",
-        },
+          as: "items.unit"
+        }
+      },
+      { $unwind: { path: "$items.unit", preserveNullAndEmptyArrays: true } },
+
+      // Group back items
+      {
+        $group: {
+          _id: "$_id",
+          root: { $first: "$$ROOT" },
+          items: { $push: "$items" }
+        }
       },
       {
-        $unwind: {
-          path: "$productDetails.unit",
-          preserveNullAndEmptyArrays: true,
-        },
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: ["$root", { items: "$items" }]
+          }
+        }
       },
+      // --- End Nested Lookups for Items ---
 
       // Populate accountDetails for each payment in paymentAndAmountInfo.payments
       {
@@ -439,7 +494,7 @@ async function getInvoiceById(req, res, next) {
           salesId: 1,
           invoiceGeneratedDate: 1,
           salesDate: 1,
-          productDetails: 1,
+          items: 1,
           customerDetails: 1,
           notes: 1,
           createdAt: 1,

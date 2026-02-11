@@ -54,16 +54,33 @@ const paymentSchema = new mongoose.Schema({
 /*
  * Main Sales Schema
  */
+/*
+ * Sale Item Sub-schema
+ * Represents an individual item within a sale.
+ */
+const saleItemSchema = new mongoose.Schema({
+  product: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Product",
+    required: true,
+  },
+  quantity: { type: Number, required: true, min: 0 },
+  unit: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Unit",
+    required: true,
+  },
+  pricePerUnit: { type: Number, required: true, min: 0 },
+  total: { type: Number, required: true, min: 0 },
+});
+
+/*
+ * Main Sales Schema
+ */
 const salesSchema = new mongoose.Schema(
   {
     saleId: { type: String, required: true, unique: true, trim: true },
-    product: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Product",
-      required: function () {
-        return this.saleId && !this.saleId.startsWith("OPEN-BAL-");
-      },
-    },
+    items: [saleItemSchema], // Replaces separate product, quantity, unit, pricePerUnit
     customer: {
       customerId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -81,22 +98,10 @@ const salesSchema = new mongoose.Schema(
         return this.saleId && !this.saleId.startsWith("OPEN-BAL-");
       },
     },
-    category: {
+    category: { // Kept for high-level filtering/stats, typically represents the main category of the sale or first item's category
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      required: function () {
-        return this.saleId && !this.saleId.startsWith("OPEN-BAL-");
-      },
     },
-    quantity: { type: Number, required: true, min: 0 },
-    unit: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Unit",
-      required: function () {
-        return this.saleId && !this.saleId.startsWith("OPEN-BAL-");
-      },
-    },
-    pricePerUnit: { type: Number, required: true, min: 0 },
     totalAmount: { type: Number, required: true },
     costs: [costSchema],
     charges: [chargeSchema],
@@ -148,7 +153,17 @@ salesSchema.plugin(mongoosePaginate);
  * 2. `totalAmountToBePaid` is calculated based on totalAmount, charges, costs, and discount.
  */
 salesSchema.pre("validate", function (next) {
-  this.totalAmount = this.quantity * this.pricePerUnit;
+  // Calculate total amount from items
+  if (this.items && this.items.length > 0) {
+    this.totalAmount = this.items.reduce((sum, item) => {
+      // Ensure item total is correct
+      item.total = item.quantity * item.pricePerUnit;
+      return sum + item.total;
+    }, 0);
+  } else {
+    this.totalAmount = 0;
+  }
+
   const costsTotal = this.costs.reduce((acc, cost) => acc + cost.amount, 0);
   const chargesTotal = this.charges.reduce(
     (acc, charge) => acc + charge.amount,
@@ -189,7 +204,7 @@ salesSchema.pre("save", function (next) {
 // Indexes for performance
 salesSchema.index({ isDeleted: 1, saleDate: -1 });
 salesSchema.index({ invoiceStatus: 1, isDeleted: 1 });
-salesSchema.index({ product: 1 });
+salesSchema.index({ "items.product": 1 });
 salesSchema.index({ "customer.customerId": 1 });
 salesSchema.index({ "customer.name": 1 });
 salesSchema.index({ saleDate: -1 });

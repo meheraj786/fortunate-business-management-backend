@@ -69,7 +69,7 @@ handlebars.registerHelper("formatDate", formatDate);
  */
 async function getPreparedInvoiceData(invoiceId) {
   const invoice = await Invoice.findById(invoiceId)
-    .populate("productDetails.unit")
+    .populate("items.unit")
     .populate({
       path: "paymentAndAmountInfo.payments.accountId",
       select: "accountName",
@@ -107,9 +107,18 @@ async function getPreparedInvoiceData(invoiceId) {
     balanceDue = 0;
   }
 
+  // Format Items
+  const formattedItems = (invoice.items || []).map(item => ({
+    ...item,
+    unitName: item.unit?.name || item.unitName || "N/A", // Fallback to populated unit name or stored string
+    total: item.total || (item.quantity * item.pricePerUnit)
+  }));
+
+
   // Combine and format data
   const preparedData = {
     ...invoice,
+    items: formattedItems,
     settings: {
       businessName: settings.businessName,
       currency: settings.currency,
@@ -122,13 +131,10 @@ async function getPreparedInvoiceData(invoiceId) {
     ),
     formattedSaleDate: formatDate(invoice.salesDate, settings.dateFormat),
     shortSalesId: invoice.salesId.toString().slice(-6),
-    productTotal:
-      invoice.productDetails.quantity * invoice.productDetails.pricePerUnit,
     allChargesAndCosts: [
       ...(invoice.paymentAndAmountInfo.charges || []),
       ...(invoice.paymentAndAmountInfo.costs || []),
     ],
-    totalPayments,
     totalPayments,
     balanceDue,
     creditedToWallet,
