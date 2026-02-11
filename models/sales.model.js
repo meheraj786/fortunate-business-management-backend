@@ -114,9 +114,18 @@ const salesSchema = new mongoose.Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ["Paid payment", "Due payment", "N/A"],
-      default: "N/A",
+      // "Paid payment" etc. are legacy strings. We can keep them or migrate.
+      // Let's stick to the plan but support legacy for now if needed, or just migrate all data.
+      // PROPOSAL: Use cleaner enums. "Paid", "Partial", "Due", "Overpaid".
+      enum: ["Paid", "Partial", "Due", "Overpaid", "Paid payment", "Due payment", "N/A"],
+      default: "Due",
+      index: true,
     },
+    // --- Persisted Financial Fields ---
+    totalPaid: { type: Number, default: 0, index: true },
+    balanceDue: { type: Number, default: 0, index: true },
+    overPayment: { type: Number, default: 0 },
+    // ----------------------------------
     payments: [paymentSchema],
     notes: { type: String, trim: true },
     saleDate: { type: Date, default: Date.now },

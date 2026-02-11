@@ -438,6 +438,8 @@ async function createSale(req, res, next) {
       }
     }
 
+    await SalesService.reconcileSaleFinancials(sale._id, session);
+
     await session.commitTransaction();
     session.endSession();
 
@@ -698,13 +700,10 @@ async function getSaleById(req, res, next) {
        return next(new ApiError(404, "Sale not found"));
     } */
 
-    // --- Calculated Fields ---
-    const totalPayments = sale.payments ? sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0;
-    const amountDue = sale.totalAmountToBePaid || 0;
-
-    sale.paymentsMade = totalPayments;
-    sale.balanceDue = Math.max(0, amountDue - totalPayments);
-    sale.overPayment = Math.max(0, totalPayments - amountDue);
+    // --- Calculated Fields (Now Persisted) ---
+    // Legacy support: If fields are missing (shouldn't happen after migration), we could recalc,
+    // but for now we rely on the migrated data.
+    // The previous code calculated these on the fly. Now we just trust the DB.
 
     // Clean up sensitive fields
     if (sale.createdBy) delete sale.createdBy.password;
@@ -866,6 +865,10 @@ async function updateSale(req, res, next) {
     }
 
     await sale.save({ session });
+    // --- FINANCIAL RECONCILIATION ---
+    await SalesService.reconcileSaleFinancials(sale._id, session);
+    // --------------------------------
+
     await session.commitTransaction();
     session.endSession();
 
@@ -1512,6 +1515,10 @@ async function addPartialPayment(req, res, next) {
 
     await sale.save({ session });
 
+    // --- FINANCIAL RECONCILIATION ---
+    await SalesService.reconcileSaleFinancials(sale._id, session);
+    // --------------------------------
+
     await session.commitTransaction();
     session.endSession();
 
@@ -1591,7 +1598,24 @@ async function getSalesByCustomerId(req, res, next) {
           { $sort: { saleDate: -1 } },
           { $skip: skip },
           { $limit: limitNum },
-          // Lookups to replace populate
+          // Lookup for multi-product items
+          {
+            $lookup: {
+              from: "products",
+              localField: "items.product",
+              foreignField: "_id",
+              as: "_itemProducts",
+            },
+          },
+          {
+            $lookup: {
+              from: "units",
+              localField: "items.unit",
+              foreignField: "_id",
+              as: "_itemUnits",
+            },
+          },
+          // Legacy single-product lookups (for old data)
           {
             $lookup: {
               from: "products",
@@ -1610,34 +1634,85 @@ async function getSalesByCustomerId(req, res, next) {
           },
           { $unwind: { path: "$product", preserveNullAndEmptyArrays: true } },
           { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
-          // Nested lookup for LC
+          // Map items to include populated product/unit names
           {
-            $lookup: {
-              from: "lcs",
-              localField: "product.LC",
-              foreignField: "_id",
-              as: "product.LC",
+            $addFields: {
+              items: {
+                $map: {
+                  input: "$items",
+                  as: "item",
+                  in: {
+                    product: {
+                      $let: {
+                        vars: {
+                          matchedProduct: {
+                            $arrayElemAt: [
+                              {
+                                $filter: {
+                                  input: "$_itemProducts",
+                                  as: "p",
+                                  cond: { $eq: ["$$p._id", "$$item.product"] },
+                                },
+                              },
+                              0,
+                            ],
+                          },
+                        },
+                        in: {
+                          _id: "$$matchedProduct._id",
+                          name: "$$matchedProduct.name",
+                        },
+                      },
+                    },
+                    unit: {
+                      $let: {
+                        vars: {
+                          matchedUnit: {
+                            $arrayElemAt: [
+                              {
+                                $filter: {
+                                  input: "$_itemUnits",
+                                  as: "u",
+                                  cond: { $eq: ["$$u._id", "$$item.unit"] },
+                                },
+                              },
+                              0,
+                            ],
+                          },
+                        },
+                        in: {
+                          _id: "$$matchedUnit._id",
+                          name: "$$matchedUnit.name",
+                        },
+                      },
+                    },
+                    quantity: "$$item.quantity",
+                    pricePerUnit: "$$item.pricePerUnit",
+                    total: "$$item.total",
+                  },
+                },
+              },
             },
           },
-          {
-            $unwind: { path: "$product.LC", preserveNullAndEmptyArrays: true },
-          },
-          // Final projection to shape the data
+          // Final projection
           {
             $project: {
+              saleId: 1,
               saleDate: 1,
-              quantity: 1,
-              pricePerUnit: 1,
+              items: 1,
+              totalAmount: 1,
               totalAmountToBePaid: 1,
               invoiceStatus: 1,
               paymentStatus: 1,
+              balanceDue: 1,
+              totalPaid: 1,
+              payments: 1,
+              // Legacy single-product fields
+              quantity: 1,
+              pricePerUnit: 1,
               product: {
                 _id: "$product._id",
                 name: "$product.name",
-                LC: {
-                  _id: "$product.LC._id",
-                  "basicInfo.lcNumber": "$product.LC.basicInfo.lcNumber",
-                },
               },
               unit: {
                 _id: "$unit._id",

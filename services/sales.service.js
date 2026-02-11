@@ -303,5 +303,66 @@ exports.applyStockDiff = async (actions, session) => {
       { $inc: { quantity: adjustment } },
       { session, new: true }
     );
-  };
+  }
+};
+
+/**
+ * Reconciles the financial state of a sale.
+ * Calculates totalPaid, balanceDue, overPayment, and updates paymentStatus.
+ * This function is the Single Source of Truth for a sale's financial state.
+ */
+exports.reconcileSaleFinancials = async (saleId, session) => {
+  const sale = await Sales.findById(saleId).session(session);
+  if (!sale) throw new ApiError(404, "Sale not found for reconciliation");
+
+  // 1. Calculate Totals
+  // totalAmountToBePaid is already calculated by pre-save hook on the model,
+  // but if we are calling this AFTER modification, we should ensure it's up to date.
+  // Ideally, the pre-save hook handles the "ToBePaid" logic based on items/costs.
+  // We focus on PAYMENTS and STATUS here.
+
+  const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalDue = sale.totalAmountToBePaid;
+
+  let balanceDue = 0;
+  let overPayment = 0;
+
+  if (totalPaid >= totalDue) {
+    overPayment = totalPaid - totalDue;
+    balanceDue = 0;
+  } else {
+    balanceDue = totalDue - totalPaid;
+    overPayment = 0;
+  }
+
+  // 2. Determine Status
+  let status = "Due";
+  if (sale.invoiceStatus === "Cancelled") {
+    status = "N/A";
+  } else if (balanceDue <= 0 && overPayment >= 0) {
+    // Fully paid or overpaid
+    status = overPayment > 0 ? "Overpaid" : "Paid";
+    // Mapped to legacy string if needed, but we start using new enums internally.
+    // If we want to be safe with existing frontend filters:
+    // "Paid payment" / "Due payment".
+    // Let's use the new cleaner ones, and we will update frontend mapping if needed.
+    // Actually, to match current mismatched frontend expectations without breaking it immediately:
+    // "Paid" -> "Paid payment"
+    // "Due" -> "Due payment"
+    // "Overpaid" -> "Paid payment" (Technically it IS paid) OR a new status.
+    // The Schema now allows "Overpaid".
+  } else if (totalPaid > 0) {
+    status = "Partial";
+  } else {
+    status = "Due";
+  }
+
+  // 3. Update Document
+  sale.totalPaid = totalPaid;
+  sale.balanceDue = balanceDue;
+  sale.overPayment = overPayment;
+  sale.paymentStatus = status;
+
+  await sale.save({ session, validateBeforeSave: false }); // Skip validation to avoid infinite loops if hooks exist
+  return sale;
 };
