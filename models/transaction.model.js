@@ -83,7 +83,7 @@ const transactionSchema = new mongoose.Schema(
 transactionSchema.plugin(mongoosePaginate);
 
 // Indexes for performance
-transactionSchema.index({ isDeleted: 1, date: -1, accountId: 1 });
+transactionSchema.index({ accountId: 1, isDeleted: 1, date: -1 });
 transactionSchema.index({ date: -1 });
 transactionSchema.index({ accountId: 1 });
 transactionSchema.index({ category: 1 });

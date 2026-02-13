@@ -171,6 +171,70 @@ async function createSale(req, res, next) {
       throw new ApiError(400, "Total amount to be paid cannot be negative.");
     }
 
+    // --- Optimization: Pre-fetch Accounts and DailyCash ---
+    // Collect Account IDs
+    const accountIds = new Set();
+    transformedPayments.forEach((p) => {
+      if (p.accountId) accountIds.add(p.accountId);
+    });
+    costs.forEach((c) => {
+      if (c.accountId) accountIds.add(c.accountId);
+    });
+
+    // Collect Dates for DailyCash
+    const dateStrings = new Set();
+    transformedPayments.forEach((p) => {
+      if (p.date)
+        dateStrings.add(
+          startOfDay(new Date(p.date), req.businessTimezone).toISOString()
+        );
+    });
+    if (saleDate)
+      dateStrings.add(
+        startOfDay(new Date(saleDate), req.businessTimezone).toISOString()
+      );
+    costs.forEach((c) => {
+      // costs usually follow saleDate, but if they had a specific date:
+      const d = c.date || saleDate;
+      dateStrings.add(startOfDay(new Date(d), req.businessTimezone).toISOString());
+    });
+
+    const [accounts, dailyCashEntries] = await Promise.all([
+      Account.find({ _id: { $in: [...accountIds] } }).session(session),
+      DailyCash.find({
+        date: { $in: [...dateStrings] },
+      }).select("date status").session(session).lean(),
+    ]);
+
+    const accountMap = new Map(accounts.map((a) => [a._id.toString(), a]));
+    // Map ISO string to status
+    const dailyCashMap = new Map(
+      dailyCashEntries.map((dc) => [dc.date.toISOString(), dc.status])
+    );
+
+    // Helper to check DailyCash
+    const checkDailyCash = (dateInput) => {
+      const normalizedDate = startOfDay(
+        new Date(dateInput),
+        req.businessTimezone
+      );
+      const iso = normalizedDate.toISOString();
+      // If no entry found, it means it's not "Closed" (implicitly Open or not created yet).
+      // Logic in loop was: if (!dailyCash || dailyCash.status === "Closed") throw...
+      // Wait, original logic: if (!dailyCash || dailyCash.status === "Closed")
+      // This implies we MUST have a dailyCash entry and it must NOT be Closed.
+      // So if it's missing, it's an error?
+      // "Daily cash is closed for ... Cannot record payment."
+      // Yes, gatekeeper often requires an Open slip.
+      const status = dailyCashMap.get(iso);
+      if (!status || status === "Closed") {
+        throw new ApiError(
+          400,
+          `Daily cash is closed (or not opened) for ${normalizedDate.toDateString()}.`
+        );
+      }
+    };
+
     // Handle payments and update account balances
     let totalPaidInThisTransaction = 0;
 
@@ -234,9 +298,8 @@ async function createSale(req, res, next) {
             `Account ID is required for ${payment.method} payment.`,
           );
         }
-        const account = await Account.findById(payment.accountId).session(
-          session,
-        );
+
+        const account = accountMap.get(payment.accountId.toString());
         if (!account) {
           throw new ApiError(404, `Account not found for payment.`);
         }
@@ -258,24 +321,7 @@ async function createSale(req, res, next) {
         await account.save({ session });
 
         // DailyCash Gatekeeper Check
-        const paymentDateNormalized = startOfDay(
-          new Date(payment.date),
-          req.businessTimezone,
-        );
-        const dailyCash = await DailyCash.findOne({
-          date: paymentDateNormalized,
-        })
-          .sort({ createdAt: -1 })
-          .select("_id status date")
-          .session(session)
-          .lean();
-
-        if (!dailyCash || dailyCash.status === "Closed") {
-          throw new ApiError(
-            400,
-            `Daily cash is closed for ${paymentDateNormalized.toDateString()}. Cannot record payment.`,
-          );
-        }
+        checkDailyCash(payment.date);
 
         await Transaction.create(
           [
@@ -309,9 +355,7 @@ async function createSale(req, res, next) {
     // Create expense transactions for each cost associated with the sale
     for (const cost of sale.costs) {
       if (cost.accountId) {
-        const costAccount = await Account.findById(cost.accountId).session(
-          session,
-        );
+        const costAccount = accountMap.get(cost.accountId.toString());
         if (!costAccount) {
           throw new ApiError(404, `Account for cost '${cost.name}' not found.`);
         }
@@ -329,22 +373,7 @@ async function createSale(req, res, next) {
         }
 
         // DailyCash check for the cost transaction date
-        const saleDateNormalized = startOfDay(
-          new Date(sale.saleDate),
-          req.businessTimezone,
-        );
-        const dailyCash = await DailyCash.findOne({ date: saleDateNormalized })
-          .sort({ createdAt: -1 })
-          .select("_id status date")
-          .session(session)
-          .lean();
-
-        if (!dailyCash || dailyCash.status === "Closed") {
-          throw new ApiError(
-            400,
-            `Daily cash is closed for ${saleDateNormalized.toDateString()}. Cannot record cost transaction.`,
-          );
-        }
+        checkDailyCash(cost.date || sale.saleDate);
 
         costAccount.balance -= cost.amount;
         await costAccount.save({ session });

@@ -132,5 +132,10 @@ accountSchema.index({ status: 1 });
 accountSchema.index({ isDeleted: 1, accountType: 1 });
 accountSchema.index({ isDeleted: 1, status: 1 });
 
+// Compound indexes for uniqueness (mirrors the pre-save logic but at DB level)
+accountSchema.index({ bankName: 1, accountNumber: 1 }, { unique: true, partialFilterExpression: { accountType: "Bank", isDeleted: false } });
+accountSchema.index({ serviceName: 1, mobileNumber: 1 }, { unique: true, partialFilterExpression: { accountType: "Mobile Banking", isDeleted: false } });
+accountSchema.index({ accountName: 1, accountHolderName: 1 }, { unique: true, partialFilterExpression: { accountType: "Cash", isDeleted: false } });
+
 const Account = mongoose.model("Account", accountSchema);
 module.exports = Account;

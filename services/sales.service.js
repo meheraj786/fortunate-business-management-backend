@@ -83,12 +83,27 @@ exports.validateStockForItems = async (items, warehouseId, session) => {
   const deductions = [];
   const productQuantities = new Map(); // productId -> { baseUnitRequests: [] }
 
+  // Collect all IDs for batch fetching
+  const unitIds = [...new Set(items.map((i) => i.unit))];
+  const productIds = [...new Set(items.map((i) => i.product))];
+
+  // Batch Fetch
+  const [units, products] = await Promise.all([
+    Unit.find({ _id: { $in: unitIds } }).session(session),
+    Product.find({ _id: { $in: productIds }, isDeleted: { $ne: true } })
+      .session(session)
+      .populate("unit"),
+  ]);
+
+  const unitMap = new Map(units.map((u) => [u._id.toString(), u]));
+  const productMap = new Map(products.map((p) => [p._id.toString(), p]));
+
   // 1. Aggregation Pass
   for (const item of items) {
     const { product: productId, quantity, unit: unitId } = item;
 
-    // Fetch unit to get conversion factor
-    const saleUnit = await Unit.findById(unitId).session(session);
+    // Fetch unit from map
+    const saleUnit = unitMap.get(unitId.toString());
     if (!saleUnit) {
       throw new ApiError(400, `Unit not found for product ${productId}`);
     }
@@ -105,18 +120,13 @@ exports.validateStockForItems = async (items, warehouseId, session) => {
       conversionFactor: saleUnit.conversionFactor,
       unitType: saleUnit.type,
       unitId,
-      unitName: saleUnit.name
+      unitName: saleUnit.name,
     });
   }
 
   // 2. Validation Pass
   for (const [productId, data] of productQuantities.entries()) {
-    const sellingProduct = await Product.findOne({
-      _id: productId,
-      isDeleted: { $ne: true },
-    })
-      .session(session)
-      .populate("unit");
+    const sellingProduct = productMap.get(productId);
 
     if (!sellingProduct) {
       throw new ApiError(400, `Product not found: ${productId}`);
@@ -143,22 +153,28 @@ exports.validateStockForItems = async (items, warehouseId, session) => {
       totalBaseUnitRequired += req.quantity * req.conversionFactor;
     }
 
-    const productStockInBaseUnit = sellingProduct.quantity * sellingProduct.unit.conversionFactor;
+    const productStockInBaseUnit =
+      sellingProduct.quantity * sellingProduct.unit.conversionFactor;
 
     if (productStockInBaseUnit < totalBaseUnitRequired) {
-      // Calculate max qty in the *last requested unit* for better error message, 
+      // Calculate max qty in the *last requested unit* for better error message,
       // or just use base unit. Let's use the first requested unit's name for clarity if possible.
       const displayUnitName = data.baseUnitRequests[0].unitName;
       const displayConversion = data.baseUnitRequests[0].conversionFactor;
 
       throw new ApiError(
         400,
-        `Not enough stock for product '${sellingProduct.name}'. Requested: ${(totalBaseUnitRequired / displayConversion).toFixed(2)} ${displayUnitName} (Available: ${(productStockInBaseUnit / displayConversion).toFixed(2)} ${displayUnitName})`
+        `Not enough stock for product '${sellingProduct.name}'. Requested: ${(
+          totalBaseUnitRequired / displayConversion
+        ).toFixed(2)} ${displayUnitName} (Available: ${(
+          productStockInBaseUnit / displayConversion
+        ).toFixed(2)} ${displayUnitName})`
       );
     }
 
     // Calculate deduction in Product's Native Unit
-    const quantityToDeductFromProduct = totalBaseUnitRequired / sellingProduct.unit.conversionFactor;
+    const quantityToDeductFromProduct =
+      totalBaseUnitRequired / sellingProduct.unit.conversionFactor;
     deductions.push({ productId, quantityToDeductFromProduct });
   }
 
@@ -228,74 +244,97 @@ exports.checkCustomerCreditLimit = async (
  * Returns a list of actions: { productId, quantityChange, type: 'deduct' | 'restore' }
  * quantityChange is always positive in the product's native unit.
  */
+/**
+ * Calculates the difference between old and new items to determine stock adjustments.
+ * Returns a list of actions: { productId, quantityChange, type: 'deduct' | 'restore' }
+ * quantityChange is always positive in the product's native unit.
+ */
 exports.calculateStockDiff = async (oldItems, newItems, session) => {
   const stockActions = [];
   const productMap = new Map();
 
+  // Collect all relevant IDs for batch fetching
+  const productIds = new Set();
+  const unitIds = new Set();
+
+  oldItems.forEach((item) => {
+    if (item.product)
+      productIds.add(
+        typeof item.product === "object" ? item.product._id : item.product
+      );
+    if (item.unit)
+      unitIds.add(
+        typeof item.unit === "object" ? item.unit._id : item.unit
+      );
+  });
+
+  newItems.forEach((item) => {
+    if (item.product) productIds.add(item.product);
+    if (item.unit) unitIds.add(item.unit);
+  });
+
+  // Batch Fetch
+  const [products, units] = await Promise.all([
+    Product.find({ _id: { $in: [...productIds] }, isDeleted: { $ne: true } })
+      .session(session)
+      .populate("unit"),
+    Unit.find({ _id: { $in: [...unitIds] } }).session(session),
+  ]);
+
+  const fetchedProductMap = new Map(products.map((p) => [p._id.toString(), p]));
+  const fetchedUnitMap = new Map(units.map((u) => [u._id.toString(), u]));
+
   // 1. Map Old Items (Restore Logic)
-  // We initially assume we "restore" everything, then we subtract what is kept/added.
-  // Or better: Calculate Net Change per Product.
-
-  // Let's use a Net Base Unit Change approach per Product ID.
-  // Positive Net = We need MORE stock (Deduct from DB)
-  // Negative Net = We return stock (Restore to DB)
-
-  // Map: productId -> netBaseQuantityRequired
+  // We "have" this, so valid demand is negative (already taken)
+  // Net Change approach:
+  // productMap value will represent "Net Base Unit Change Required"
 
   for (const item of oldItems) {
     if (!item.product) continue;
-    const productId = item.product._id || item.product;
+    const productId =
+      typeof item.product === "object"
+        ? item.product._id.toString()
+        : item.product.toString();
     const qty = item.quantity || 0;
 
-    // existing item might have unit populated or not. 
-    // If populated, use it. If not, we might need to fetch it? 
-    // Ideally oldItems come from a populated sale query.
-    // We'll assume caller provides populated items or we fetch.
-    // For robust server-side logic, we should probably fetch to be 100% sure of conversion factors?
-    // BUT fetching everything again is expensive.
-    // Let's assume standard populated structure: item.unit is an object with conversionFactor.
+    // Use fetched unit if available, otherwise rely on item.unit object if populated, else error/default
+    let conversionFactor = 1;
+    let unitIdStr = "";
 
-    const conversionFactor = item.unit?.conversionFactor || 1;
+    if (item.unit && typeof item.unit === "object") {
+      unitIdStr = item.unit._id.toString();
+      conversionFactor = item.unit.conversionFactor || 1;
+    } else if (item.unit) {
+      unitIdStr = item.unit.toString();
+      const u = fetchedUnitMap.get(unitIdStr);
+      if (u) conversionFactor = u.conversionFactor;
+    }
+
     const baseQty = qty * conversionFactor;
-
-    const current = productMap.get(productId.toString()) || 0;
-    productMap.set(productId.toString(), current - baseQty); // We "have" this, so valid demand is negative (already taken)
-    // Wait, let's think:
-    // Net Change = New Demand - Old Demand
-    // If Net Change > 0: Deduct Stock
-    // If Net Change < 0: Restore Stock
-
-    // So Old Demand is what we currently hold.
-    // productMap value will represent "New Demand". 
-    // So start with NEGATIVE Old Demand? 
-    // No, let's track "Net Required".
-    // Initial State: We have taken X. 
-    // If we want Y. Net = Y - X.
-
-    productMap.set(productId.toString(), current - baseQty);
+    const current = productMap.get(productId) || 0;
+    productMap.set(productId, current - baseQty);
   }
 
   for (const item of newItems) {
     if (!item.product) continue;
-    const productId = item.product; // newItems usually have raw IDs
+    const productId = item.product.toString();
     const qty = parseFloat(item.quantity) || 0;
 
-    // We need the unit's conversion factor for the NEW item.
-    // The frontend sends unit ID. We must fetch it.
-    const unit = await Unit.findById(item.unit).session(session);
-    if (!unit) throw new ApiError(400, `Unit not found for product ${productId}`);
+    const unit = fetchedUnitMap.get(item.unit.toString());
+    if (!unit)
+      throw new ApiError(400, `Unit not found for product ${productId}`);
 
     const baseQty = qty * unit.conversionFactor;
 
-    const current = productMap.get(productId.toString()) || 0;
-    productMap.set(productId.toString(), current + baseQty);
+    const current = productMap.get(productId) || 0;
+    productMap.set(productId, current + baseQty);
   }
 
   // Now process the map
   for (const [productId, netBaseQty] of productMap.entries()) {
-    if (netBaseQty === 0) continue;
+    if (Math.abs(netBaseQty) < 0.0001) continue; // Floating point safety
 
-    const product = await Product.findById(productId).session(session).populate('unit');
+    const product = fetchedProductMap.get(productId);
     if (!product) throw new ApiError(404, `Product not found: ${productId}`);
 
     const nativeQtyChange = Math.abs(netBaseQty) / product.unit.conversionFactor;
@@ -303,20 +342,27 @@ exports.calculateStockDiff = async (oldItems, newItems, session) => {
     if (netBaseQty > 0) {
       // Need MORE -> Deduct
       // Verify Stock Availability
-      if (product.quantity < nativeQtyChange) {
-        throw new ApiError(400, `Insufficient stock for '${product.name}'. Required additional: ${nativeQtyChange.toFixed(3)} ${product.unit.name}, Available: ${product.quantity.toFixed(3)} ${product.unit.name}`);
+      if (product.quantity < nativeQtyChange - 0.0001) {
+        // Tiny tolerance for float comparison
+        throw new ApiError(
+          400,
+          `Insufficient stock for '${product.name}'. Required additional: ${nativeQtyChange.toFixed(
+            3
+          )} ${product.unit.name}, Available: ${product.quantity.toFixed(3)} ${product.unit.name
+          }`
+        );
       }
       stockActions.push({
         productId,
         quantity: nativeQtyChange,
-        type: 'deduct'
+        type: "deduct",
       });
     } else {
       // Need LESS -> Restore
       stockActions.push({
         productId,
         quantity: nativeQtyChange,
-        type: 'restore'
+        type: "restore",
       });
     }
   }
@@ -325,18 +371,23 @@ exports.calculateStockDiff = async (oldItems, newItems, session) => {
 };
 
 /**
- * Applies the calculated stock actions.
+ * Applies the calculated stock actions using bulkWrite for performance.
  */
 exports.applyStockDiff = async (actions, session) => {
-  for (const action of actions) {
-    const adjustment = action.type === 'deduct' ? -action.quantity : action.quantity;
+  if (actions.length === 0) return;
 
-    await Product.findByIdAndUpdate(
-      action.productId,
-      { $inc: { quantity: adjustment } },
-      { session, new: true }
-    );
-  }
+  const operations = actions.map((action) => {
+    const adjustment =
+      action.type === "deduct" ? -action.quantity : action.quantity;
+    return {
+      updateOne: {
+        filter: { _id: action.productId },
+        update: { $inc: { quantity: adjustment } },
+      },
+    };
+  });
+
+  await Product.bulkWrite(operations, { session });
 };
 
 /**
@@ -404,132 +455,132 @@ exports.reconcileSaleFinancials = async (saleId, session) => {
  * Identifies added, removed, or modified costs and updates accounts/transactions/DailyCash accordingly.
  */
 exports.reconcileCosts = async (
-    oldCosts = [],
-    newCosts = [],
-    sale,
-    session,
-    businessTimezone
+  oldCosts = [],
+  newCosts = [],
+  sale,
+  session,
+  businessTimezone
 ) => {
-    // Helper to create a unique key for a cost to track identity
-    // We assume if name AND amount AND date AND payment method match, it's the "same" cost contextually,
-    // BUT in an edit, we might change amount.
-    // Best approach: "Diff" by index is risky if array is reordered.
-    // "Diff" by Name is possible if names are unique.
-    // Mongoose Subdocuments have _id. We should rely on _id if available.
+  // Helper to create a unique key for a cost to track identity
+  // We assume if name AND amount AND date AND payment method match, it's the "same" cost contextually,
+  // BUT in an edit, we might change amount.
+  // Best approach: "Diff" by index is risky if array is reordered.
+  // "Diff" by Name is possible if names are unique.
+  // Mongoose Subdocuments have _id. We should rely on _id if available.
 
-    const oldMap = new Map();
-    oldCosts.forEach(c => {
-        if (c._id) oldMap.set(c._id.toString(), c);
-    });
+  const oldMap = new Map();
+  oldCosts.forEach(c => {
+    if (c._id) oldMap.set(c._id.toString(), c);
+  });
 
-    const processedIds = new Set();
-    const today = startOfDay(now(), businessTimezone);
+  const processedIds = new Set();
+  const today = startOfDay(now(), businessTimezone);
 
-    // 1. Process New/Updated Costs
-    for (const newCost of newCosts) {
-        if (newCost._id && oldMap.has(newCost._id.toString())) {
-            // Update Scenario
-            const oldCost = oldMap.get(newCost._id.toString());
-            processedIds.add(newCost._id.toString());
+  // 1. Process New/Updated Costs
+  for (const newCost of newCosts) {
+    if (newCost._id && oldMap.has(newCost._id.toString())) {
+      // Update Scenario
+      const oldCost = oldMap.get(newCost._id.toString());
+      processedIds.add(newCost._id.toString());
 
-            // Check if critical fields changed
-            const amountChanged = newCost.amount !== oldCost.amount;
-            const accountChanged = newCost.accountId?.toString() !== oldCost.accountId?.toString();
-            const methodChanged = newCost.paymentMethod !== oldCost.paymentMethod;
+      // Check if critical fields changed
+      const amountChanged = newCost.amount !== oldCost.amount;
+      const accountChanged = newCost.accountId?.toString() !== oldCost.accountId?.toString();
+      const methodChanged = newCost.paymentMethod !== oldCost.paymentMethod;
 
-            if (amountChanged || accountChanged || methodChanged) {
-                // REVERSE Old -> APPLY New
-                // A. Reverse Old
-                await reverseCostTransaction(oldCost, sale, session, businessTimezone);
-                // B. Apply New
-                await applyCostTransaction(newCost, sale, session, businessTimezone);
-            }
-        } else {
-            // New Cost Scenario (No _id or not in old map)
-            await applyCostTransaction(newCost, sale, session, businessTimezone);
-        }
+      if (amountChanged || accountChanged || methodChanged) {
+        // REVERSE Old -> APPLY New
+        // A. Reverse Old
+        await reverseCostTransaction(oldCost, sale, session, businessTimezone);
+        // B. Apply New
+        await applyCostTransaction(newCost, sale, session, businessTimezone);
+      }
+    } else {
+      // New Cost Scenario (No _id or not in old map)
+      await applyCostTransaction(newCost, sale, session, businessTimezone);
     }
+  }
 
-    // 2. Process Removed Costs
-    for (const [id, oldCost] of oldMap.entries()) {
-        if (!processedIds.has(id)) {
-            await reverseCostTransaction(oldCost, sale, session, businessTimezone);
-        }
+  // 2. Process Removed Costs
+  for (const [id, oldCost] of oldMap.entries()) {
+    if (!processedIds.has(id)) {
+      await reverseCostTransaction(oldCost, sale, session, businessTimezone);
     }
+  }
 };
 
 async function reverseCostTransaction(cost, sale, session, businessTimezone) {
-    if (!cost.accountId) return;
+  if (!cost.accountId) return;
 
-    const account = await Account.findById(cost.accountId).session(session);
-    if (!account) throw new ApiError(404, `Account not found for cost reversal: ${cost.name}`);
+  const account = await Account.findById(cost.accountId).session(session);
+  if (!account) throw new ApiError(404, `Account not found for cost reversal: ${cost.name}`);
 
-    // DailyCash Check
-    const date = startOfDay(new Date(cost.date || sale.saleDate), businessTimezone);
-    const dailyCash = await DailyCash.findOne({ date }).session(session);
-    if (dailyCash && dailyCash.status === "Closed") {
-        throw new ApiError(400, `Cannot update cost '${cost.name}' because Daily Cash for ${date.toDateString()} is closed.`);
-    }
+  // DailyCash Check
+  const date = startOfDay(new Date(cost.date || sale.saleDate), businessTimezone);
+  const dailyCash = await DailyCash.findOne({ date }).session(session);
+  if (dailyCash && dailyCash.status === "Closed") {
+    throw new ApiError(400, `Cannot update cost '${cost.name}' because Daily Cash for ${date.toDateString()} is closed.`);
+  }
 
-    // Restore Balance (Expense Reversal = Income/Add back)
-    account.balance += cost.amount;
-    await account.save({ session });
+  // Restore Balance (Expense Reversal = Income/Add back)
+  account.balance += cost.amount;
+  await account.save({ session });
 
-    // Record Reversal Transaction
-    await Transaction.create([{
-        accountId: cost.accountId,
-        date: now(),
-        description: `Correction: Reversal of cost '${cost.name}' for Sale ${sale.saleId}`,
-        transactionType: "Income", // technically reversing an expense
-        amount: cost.amount,
-        name: `Rev: ${cost.name}`,
-        source: "Auto",
-        category: "Cost Reversal",
-        reference: sale._id,
-        referenceModel: "Sale"
-    }], { session });
+  // Record Reversal Transaction
+  await Transaction.create([{
+    accountId: cost.accountId,
+    date: now(),
+    description: `Correction: Reversal of cost '${cost.name}' for Sale ${sale.saleId}`,
+    transactionType: "Income", // technically reversing an expense
+    amount: cost.amount,
+    name: `Rev: ${cost.name}`,
+    source: "Auto",
+    category: "Cost Reversal",
+    reference: sale._id,
+    referenceModel: "Sale"
+  }], { session });
 }
 
 async function applyCostTransaction(cost, sale, session, businessTimezone) {
-    if (!cost.accountId) return;
+  if (!cost.accountId) return;
 
-    const account = await Account.findById(cost.accountId).session(session);
-    if (!account) throw new ApiError(404, `Account not found for cost: ${cost.name}`);
+  const account = await Account.findById(cost.accountId).session(session);
+  if (!account) throw new ApiError(404, `Account not found for cost: ${cost.name}`);
 
-    // Validate Account Type
-    const expectedType = cost.paymentMethod === "Mobile Banking" ? "Mobile Banking" : cost.paymentMethod;
-    if (account.accountType !== expectedType) {
-        throw new ApiError(400, `Cost '${cost.name}' requires ${expectedType} account, got ${account.accountType}.`);
-    }
+  // Validate Account Type
+  const expectedType = cost.paymentMethod === "Mobile Banking" ? "Mobile Banking" : cost.paymentMethod;
+  if (account.accountType !== expectedType) {
+    throw new ApiError(400, `Cost '${cost.name}' requires ${expectedType} account, got ${account.accountType}.`);
+  }
 
-    // DailyCash Check
-    const date = startOfDay(new Date(cost.date || sale.saleDate), businessTimezone);
-    const dailyCash = await DailyCash.findOne({ date }).session(session);
-    if (dailyCash && dailyCash.status === "Closed") {
-        throw new ApiError(400, `Cannot add cost '${cost.name}' because Daily Cash for ${date.toDateString()} is closed.`);
-    }
+  // DailyCash Check
+  const date = startOfDay(new Date(cost.date || sale.saleDate), businessTimezone);
+  const dailyCash = await DailyCash.findOne({ date }).session(session);
+  if (dailyCash && dailyCash.status === "Closed") {
+    throw new ApiError(400, `Cannot add cost '${cost.name}' because Daily Cash for ${date.toDateString()} is closed.`);
+  }
 
-    // Deduct Balance
-    account.balance -= cost.amount;
-    await account.save({ session });
+  // Deduct Balance
+  account.balance -= cost.amount;
+  await account.save({ session });
 
-    // Record Transaction
-    await Transaction.create([{
-        accountId: cost.accountId,
-        date: cost.date || sale.saleDate,
-        description: `Cost for sale ${sale.saleId}: ${cost.name} via ${cost.paymentMethod} Account: ${formatAccountLabel(account)}.`,
-        transactionType: "Expense",
-        amount: cost.amount,
-        name: `Sale Cost - ${cost.name}`,
-        source: "Auto",
-        category: "Sales Expense",
-        paymentMethod: cost.paymentMethod,
-        reference: sale._id,
-        referenceModel: "Sale",
-        miscReference: {
-            saleId: sale.saleId,
-            costName: cost.name,
-            costAmount: cost.amount,
-        },
-    }], { session });
+  // Record Transaction
+  await Transaction.create([{
+    accountId: cost.accountId,
+    date: cost.date || sale.saleDate,
+    description: `Cost for sale ${sale.saleId}: ${cost.name} via ${cost.paymentMethod} Account: ${formatAccountLabel(account)}.`,
+    transactionType: "Expense",
+    amount: cost.amount,
+    name: `Sale Cost - ${cost.name}`,
+    source: "Auto",
+    category: "Sales Expense",
+    paymentMethod: cost.paymentMethod,
+    reference: sale._id,
+    referenceModel: "Sale",
+    miscReference: {
+      saleId: sale.saleId,
+      costName: cost.name,
+      costAmount: cost.amount,
+    },
+  }], { session });
 }
