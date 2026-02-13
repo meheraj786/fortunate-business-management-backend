@@ -117,14 +117,13 @@ const salesSchema = new mongoose.Schema(
       // "Paid payment" etc. are legacy strings. We can keep them or migrate.
       // Let's stick to the plan but support legacy for now if needed, or just migrate all data.
       // PROPOSAL: Use cleaner enums. "Paid", "Partial", "Due", "Overpaid".
-      enum: ["Paid", "Partial", "Due", "Overpaid", "Paid payment", "Due payment", "N/A"],
+      enum: ["Paid", "Partial", "Due", "Paid payment", "Due payment", "N/A"],
       default: "Due",
       index: true,
     },
     // --- Persisted Financial Fields ---
     totalPaid: { type: Number, default: 0, index: true },
     balanceDue: { type: Number, default: 0, index: true },
-    overPayment: { type: Number, default: 0 },
     // ----------------------------------
     payments: [paymentSchema],
     notes: { type: String, trim: true },
@@ -179,7 +178,10 @@ salesSchema.pre("validate", function (next) {
     0,
   );
   this.totalAmountToBePaid =
-    this.totalAmount + chargesTotal + costsTotal - this.discount;
+    Math.round(
+      (this.totalAmount + chargesTotal + costsTotal - this.discount) * 100,
+    ) / 100;
+  this.totalAmount = Math.round(this.totalAmount * 100) / 100;
 
   next();
 });
@@ -199,7 +201,9 @@ salesSchema.pre("save", function (next) {
       (acc, payment) => acc + payment.amount,
       0,
     );
-    if (totalPaid >= this.totalAmountToBePaid) {
+    // Fix floating point precision issues (e.g. 179.2 vs 179.20000000000002)
+    // We consider it paid if the difference is negligible (less than 0.01)
+    if (totalPaid >= this.totalAmountToBePaid - 0.001) {
       this.paymentStatus = "Paid payment";
     } else {
       this.paymentStatus = "Due payment";

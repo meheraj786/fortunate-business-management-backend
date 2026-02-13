@@ -146,8 +146,8 @@ async function generateInvoice(req, res, next) {
       0,
     );
     const totalAmountToBePaid = sale.totalAmountToBePaid || 0;
-    const balanceDue = Math.max(0, totalAmountToBePaid - paymentsMade);
-    const overPayment = Math.max(0, paymentsMade - totalAmountToBePaid);
+    const balanceDue = Math.max(0, Math.round((totalAmountToBePaid - paymentsMade) * 100) / 100);
+    const overPayment = 0; // Strict payment enforced, no overpayment recorded
 
     // Map sale items to invoice items
     const invoiceItems = sale.items.map(item => ({

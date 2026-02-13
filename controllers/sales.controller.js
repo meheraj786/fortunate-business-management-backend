@@ -107,7 +107,7 @@ async function createSale(req, res, next) {
     }));
 
     // Calculate Total Amount from items
-    const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.pricePerUnit), 0);
+    const totalAmount = Math.round(items.reduce((sum, item) => sum + (item.quantity * item.pricePerUnit), 0) * 100) / 100;
 
     // Prepare items with totals for saving
     const saleItems = items.map(item => ({
@@ -394,48 +394,16 @@ async function createSale(req, res, next) {
         },
         { session },
       );
+    }
 
-      // --- Overpayment Logic ---
-      const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
+    // --- Strict Payment Logic ---
+    const totalPaid = Math.round(sale.payments.reduce((acc, p) => acc + p.amount, 0) * 100) / 100;
 
-      // Guard: reject overpayment for guest/manual customers (no wallet to store excess)
-      if (!finalCustomerInfo.customerId && totalPaid > sale.totalAmountToBePaid) {
-        throw new ApiError(
-          400,
-          "Overpayment is not allowed for guest/manual customers. Please adjust the payment amount.",
-        );
-      }
-
-      if (totalPaid > sale.totalAmountToBePaid) {
-        const excessAmount = totalPaid - sale.totalAmountToBePaid;
-
-        // Add excess to customer credit balance
-        await Customer.findOneAndUpdate(
-          {
-            _id: finalCustomerInfo.customerId,
-            isDeleted: { $ne: true },
-          },
-          { $inc: { creditBalance: excessAmount } },
-          { session },
-        );
-
-        // Record Credit History (Credit - Overpayment)
-        await CreditHistory.create(
-          [
-            {
-              customer: finalCustomerInfo.customerId,
-              amount: excessAmount,
-              type: "Credit",
-              reason: "Overpayment",
-              reference: sale._id,
-              referenceModel: "Sale",
-              description: `Overpayment from Sale ID: ${sale.saleId}`,
-              createdBy: req.user?._id,
-            },
-          ],
-          { session },
-        );
-      }
+    if (totalPaid > sale.totalAmountToBePaid) {
+      throw new ApiError(
+        400,
+        `Payment amount (${totalPaid}) cannot exceed the total amount to be paid (${sale.totalAmountToBePaid}).`,
+      );
     }
 
     await SalesService.reconcileSaleFinancials(sale._id, session);
@@ -818,7 +786,7 @@ async function updateSale(req, res, next) {
     sale.modifiedBy = req.user?._id;
 
     // Recalculate Total Amount
-    const totalAmount = sale.items.reduce((sum, item) => sum + (item.quantity * item.pricePerUnit), 0);
+    const totalAmount = Math.round(sale.items.reduce((sum, item) => sum + (item.quantity * item.pricePerUnit), 0) * 100) / 100;
     sale.totalAmount = totalAmount;
 
     // Trigger schema validation (pre-save hook calculates totalAmountToBePaid)
@@ -855,43 +823,16 @@ async function updateSale(req, res, next) {
       );
     }
 
-    // 5. Overpayment / Financial Check
-    const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
+    // 5. Strict Financial Check
+    const totalPaid = Math.round(sale.payments.reduce((acc, p) => acc + p.amount, 0) * 100) / 100;
 
-    if (totalPaid > sale.totalAmountToBePaid && sale.customer?.customerId && sale.invoiceStatus === 'Invoiced') {
-      // ... existing overpayment logic ...
-      // (Keeping existing logic below but updating context)
-      const currentExcess = totalPaid - sale.totalAmountToBePaid;
-
-      // Check previous overpayment credits to avoid double-crediting
-      const CreditHistory = require("../models/creditHistory.model");
-      const previousOverpaymentStats = await CreditHistory.aggregate([
-        { $match: { reference: sale._id, reason: "Overpayment", type: "Credit" } },
-        { $group: { _id: null, total: { $sum: "$amount" } } }
-      ]).session(session);
-
-      const previousOverpayment = previousOverpaymentStats[0]?.total || 0;
-      const newExcess = currentExcess - previousOverpayment;
-
-      if (newExcess > 0) {
-        // Credit the difference to the customer
-        await Customer.findByIdAndUpdate(
-          sale.customer.customerId,
-          { $inc: { creditBalance: newExcess } },
-          { session }
-        );
-
-        await CreditHistory.create([{
-          customer: sale.customer.customerId,
-          amount: newExcess,
-          type: "Credit",
-          reason: "Overpayment",
-          reference: sale._id,
-          referenceModel: "Sale",
-          description: `Overpayment adjustment after sale update (ID: ${sale.saleId})`,
-          createdBy: req.user?._id
-        }], { session });
-      }
+    // If the update reduces the total amount below what has already been paid, we prevent it.
+    // The user must refund/remove payments first to lower the paid amount.
+    if (totalPaid > sale.totalAmountToBePaid) {
+      throw new ApiError(
+        400,
+        `Cannot update sale because the new total (${sale.totalAmountToBePaid}) is less than the amount already paid (${totalPaid}). Please remove or refund payments first.`
+      );
     }
 
     await sale.save({ session });
@@ -1509,56 +1450,14 @@ async function addPartialPayment(req, res, next) {
     sale.payments.push(payment);
     sale.modifiedBy = req.user?._id || null;
 
-    // --- Overpayment Reconciliation ---
-    if (sale.customer && sale.customer.customerId) {
-      const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
+    // --- Strict Payment Validation ---
+    const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
 
-      if (totalPaid > sale.totalAmountToBePaid) {
-        const currentExcess = totalPaid - sale.totalAmountToBePaid;
-
-        const previousOverpaymentStats = await CreditHistory.aggregate([
-          {
-            $match: {
-              reference: sale._id,
-              reason: "Overpayment",
-              type: "Credit"
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              total: { $sum: "$amount" }
-            }
-          }
-        ]).session(session);
-
-        const previousOverpayment = previousOverpaymentStats[0]?.total || 0;
-        const newExcess = currentExcess - previousOverpayment;
-
-        if (newExcess > 0) {
-          await Customer.findByIdAndUpdate(
-            sale.customer.customerId,
-            { $inc: { creditBalance: newExcess } },
-            { session }
-          );
-
-          await CreditHistory.create(
-            [
-              {
-                customer: sale.customer.customerId,
-                amount: newExcess,
-                type: "Credit",
-                reason: "Overpayment",
-                reference: sale._id,
-                referenceModel: "Sale",
-                description: `Additional overpayment from Sale ID: ${sale.saleId}`,
-                createdBy: req.user?._id,
-              },
-            ],
-            { session }
-          );
-        }
-      }
+    if (totalPaid > sale.totalAmountToBePaid) {
+      throw new ApiError(
+        400,
+        `Payment amount (${totalPaid}) cannot exceed the total amount to be paid (${sale.totalAmountToBePaid}).`
+      );
     }
 
     await sale.save({ session });
