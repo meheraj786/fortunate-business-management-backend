@@ -92,12 +92,11 @@ exports.validateStockForItems = async (items, warehouseId, session) => {
   const productIds = [...new Set(items.map((i) => i.product))];
 
   // Batch Fetch
-  const [units, products] = await Promise.all([
-    Unit.find({ _id: { $in: unitIds } }).session(session),
-    Product.find({ _id: { $in: productIds }, isDeleted: { $ne: true } })
-      .session(session)
-      .populate("unit"),
-  ]);
+  // Serialized Fetch to prevent transaction race conditions
+  const units = await Unit.find({ _id: { $in: unitIds } }).session(session);
+  const products = await Product.find({ _id: { $in: productIds }, isDeleted: { $ne: true } })
+    .session(session)
+    .populate({ path: "unit", strictPopulate: false });
 
   const unitMap = new Map(units.map((u) => [u._id.toString(), u]));
   const productMap = new Map(products.map((p) => [p._id.toString(), p]));
@@ -285,12 +284,11 @@ exports.calculateStockDiff = async (oldItems, newItems, session) => {
   });
 
   // Batch Fetch
-  const [products, units] = await Promise.all([
-    Product.find({ _id: { $in: [...productIds] }, isDeleted: { $ne: true } })
-      .session(session)
-      .populate("unit"),
-    Unit.find({ _id: { $in: [...unitIds] } }).session(session),
-  ]);
+  // Serialized Fetch
+  const products = await Product.find({ _id: { $in: [...productIds] }, isDeleted: { $ne: true } })
+    .session(session)
+    .populate({ path: "unit", strictPopulate: false });
+  const units = await Unit.find({ _id: { $in: [...unitIds] } }).session(session);
 
   const fetchedProductMap = new Map(products.map((p) => [p._id.toString(), p]));
   const fetchedUnitMap = new Map(units.map((u) => [u._id.toString(), u]));

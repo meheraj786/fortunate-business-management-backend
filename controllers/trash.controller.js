@@ -13,6 +13,7 @@ const logger = require("../utils/logger");
 
 // Import timezone helpers
 const { startOfDay, now } = require("../utils/timezone.util"); // Import startOfDay
+const { formatAccountLabel } = require("../utils/format.util");
 
 // ===============================
 // MOVE DOCUMENT TO TRASH
@@ -127,11 +128,15 @@ const restoreFromTrash = async (req, res, next) => {
       const Product = mongoose.model("Product");
       const Account = mongoose.model("Account");
       const Transaction = mongoose.model("Transaction");
+      const Customer = mongoose.model("Customer");
+      const CreditHistory = mongoose.model("CreditHistory");
 
       // Re-fetch sale with required relations
       const saleToRestore = await TargetModel.findById(docId)
-        .populate("unit")
-        .populate({ path: "product", populate: { path: "unit" } })
+        .populate({ path: "unit", strictPopulate: false })
+        .populate({ path: "product", strictPopulate: false, populate: { path: "unit", strictPopulate: false } })
+        .populate({ path: "items.unit", strictPopulate: false })
+        .populate({ path: "items.product", strictPopulate: false, populate: { path: "unit", strictPopulate: false } })
         .session(session);
 
       if (!saleToRestore) {
@@ -142,31 +147,64 @@ const restoreFromTrash = async (req, res, next) => {
       }
 
       // 🔹 Restore stock
-      const product = saleToRestore.product;
-      if (product && saleToRestore.unit && product.unit) {
-        if (product.unit.type !== saleToRestore.unit.type) {
-          throw new ApiError(
-            400,
-            "Stock restoration failed because product unit and sale unit do not match.",
+      // 🔹 Restore stock
+      // 1. Multi-item Sales
+      if (saleToRestore.items && saleToRestore.items.length > 0) {
+        for (const item of saleToRestore.items) {
+          const product = item.product;
+          const saleUnit = item.unit;
+
+          if (product && saleUnit && product.unit) {
+            if (product.unit.type !== saleUnit.type) {
+              // Log error but maybe continue? or throw? Throwing protects data integrity.
+              throw new ApiError(400, `Stock restoration failed: Unit mismatch for product ${product.name}`);
+            }
+
+            const deductQty =
+              (item.quantity * saleUnit.conversionFactor) /
+              product.unit.conversionFactor;
+
+            if (product.quantity < deductQty) {
+              throw new ApiError(400, `Not enough stock available to restore ${product.name}. Required: ${deductQty}, Available: ${product.quantity}`);
+            }
+
+            await Product.findByIdAndUpdate(
+              product._id,
+              { $inc: { quantity: -deductQty } },
+              { session }
+            );
+          }
+        }
+      }
+      // 2. Legacy Single-item Sales
+      else if (saleToRestore.product && saleToRestore.unit) {
+        const product = saleToRestore.product;
+        // Check if product exists and units are populated
+        if (product && product.unit && saleToRestore.unit) {
+          if (product.unit.type !== saleToRestore.unit.type) {
+            throw new ApiError(
+              400,
+              "Stock restoration failed because product unit and sale unit do not match.",
+            );
+          }
+
+          const deductQty =
+            (saleToRestore.quantity * saleToRestore.unit.conversionFactor) /
+            product.unit.conversionFactor;
+
+          if (product.quantity < deductQty) {
+            throw new ApiError(
+              400,
+              "Not enough stock available to restore this sale.",
+            );
+          }
+
+          await Product.findByIdAndUpdate(
+            product._id,
+            { $inc: { quantity: -deductQty } },
+            { session },
           );
         }
-
-        const deductQty =
-          (saleToRestore.quantity * saleToRestore.unit.conversionFactor) /
-          product.unit.conversionFactor;
-
-        if (product.quantity < deductQty) {
-          throw new ApiError(
-            400,
-            "Not enough stock available to restore this sale.",
-          );
-        }
-
-        await Product.findByIdAndUpdate(
-          product._id,
-          { $inc: { quantity: -deductQty } },
-          { session },
-        );
       }
 
       // Update sale status
@@ -194,36 +232,76 @@ const restoreFromTrash = async (req, res, next) => {
 
       // 🔹 Restore payments
       for (const payment of restoredDoc.payments || []) {
-        if (!["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
-          continue;
+        // Handle Real Money (Cash/Bank)
+        if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+          const account = await Account.findById(payment.accountId).session(
+            session,
+          );
+          if (!account) continue;
+
+          account.balance += payment.amount;
+          await account.save({ session });
+
+          await Transaction.create(
+            [
+              {
+                name: `Sale Payment Restored (Sale ID: ${restoredDoc.saleId})`,
+                accountId: payment.accountId,
+                date: now(),
+                description: `Restored from Trash - Payment for Sale ID: ${restoredDoc.saleId} (Customer: ${restoredDoc.customer?.name}) via ${payment.method}. Account: ${formatAccountLabel(account)}`,
+                transactionType: "Income",
+                amount: payment.amount,
+                source: "Auto",
+                category: "Sale Restoration",
+                paymentMethod: payment.method,
+                reference: restoredDoc._id,
+                referenceModel: "Sale",
+              },
+            ],
+            { session },
+          );
         }
+        // Handle Customer Credit
+        else if (payment.method === "Customer Credit") {
+          const customerId = restoredDoc.customer?.customerId;
+          if (!customerId) {
+            // Should not happen for credit sales, but safe guard
+            throw new ApiError(400, "Cannot restore credit payment: Customer not found on sale.");
+          }
 
-        const account = await Account.findById(payment.accountId).session(
-          session,
-        );
-        if (!account) continue;
+          const customer = await Customer.findById(customerId).session(session);
+          if (!customer) {
+            throw new ApiError(404, "Customer not found for credit restoration.");
+          }
 
-        account.balance += payment.amount;
-        await account.save({ session });
+          // Check if they have enough balance to "pay" again
+          // Restoration means we are taking money FROM them (Debit) because the sale is active again.
+          if (customer.creditBalance < payment.amount) {
+            throw new ApiError(
+              400,
+              `Customer does not have enough credit balance to restore this sale. Required: ${payment.amount}, Available: ${customer.creditBalance}`
+            );
+          }
 
-        await Transaction.create(
-          [
-            {
-              name: `Sale Payment Restored (Sale ID: ${restoredDoc.saleId})`,
-              accountId: payment.accountId,
-              date: now(),
-              description: `Payment amount restored for Sale ID ${restoredDoc.saleId}. This transaction was created automatically during sale restoration.`,
-              transactionType: "Income",
-              amount: payment.amount,
-              source: "Auto",
-              category: "Sale Restoration",
-              paymentMethod: payment.method,
-              reference: restoredDoc._id,
-              referenceModel: "Sale",
-            },
-          ],
-          { session },
-        );
+          customer.creditBalance -= payment.amount;
+          await customer.save({ session });
+
+          await CreditHistory.create(
+            [
+              {
+                customer: customerId,
+                amount: payment.amount,
+                type: "Debit",
+                reason: "Purchase Restoration",
+                reference: restoredDoc._id,
+                referenceModel: "Sale",
+                description: `Payment restored for Sale ID: ${restoredDoc.saleId}`,
+                createdBy: req.user?._id, // Assuming req.user is populated in middleware
+              },
+            ],
+            { session }
+          );
+        }
       }
     }
 

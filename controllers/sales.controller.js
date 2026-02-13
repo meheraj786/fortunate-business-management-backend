@@ -199,12 +199,11 @@ async function createSale(req, res, next) {
       dateStrings.add(startOfDay(new Date(d), req.businessTimezone).toISOString());
     });
 
-    const [accounts, dailyCashEntries] = await Promise.all([
-      Account.find({ _id: { $in: [...accountIds] } }).session(session),
-      DailyCash.find({
-        date: { $in: [...dateStrings] },
-      }).select("date status").session(session).lean(),
-    ]);
+    // Serialize operations to avoid transaction race conditions
+    const accounts = await Account.find({ _id: { $in: [...accountIds] } }).session(session);
+    const dailyCashEntries = await DailyCash.find({
+      date: { $in: [...dateStrings] },
+    }).select("date status").session(session).lean();
 
     const accountMap = new Map(accounts.map((a) => [a._id.toString(), a]));
     // Map ISO string to status
@@ -921,7 +920,7 @@ async function deleteSale(req, res, next) {
           path: "unit"
         }
       })
-      .populate("items.unit");
+      .populate({ path: "items.unit", strictPopulate: false });
 
     if (!saleToDelete) {
       throw new ApiError(404, "Sale not found");
@@ -1033,7 +1032,7 @@ async function deleteSale(req, res, next) {
                   name: "Sales Deletion Reversal",
                   accountId: payment.accountId,
                   date: now(),
-                  description: `Reversal for Deleted Sale ID: ${saleToDelete.saleId}`,
+                  description: `Reversal for Deleted Sale ID: ${saleToDelete.saleId} (Customer: ${saleToDelete.customer?.name}) via ${payment.method}. Account: ${formatAccountLabel(account)}`,
                   transactionType: "Expense",
                   amount: payment.amount,
                   source: "Auto",
@@ -1885,7 +1884,7 @@ async function cancelSale(req, res, next) {
                 name: "Sales Cancellation Reversal",
                 accountId: payment.accountId,
                 date: now(),
-                description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}.`,
+                description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}. Account: ${formatAccountLabel(account)}`,
                 transactionType: "Expense", // To reverse the Income
                 amount: payment.amount,
                 source: "Auto", // Auto generated reversal
