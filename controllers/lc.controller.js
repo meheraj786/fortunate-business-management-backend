@@ -11,6 +11,7 @@ const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
 const { ApiResponse } = require("../utils/ApiResponse");
 const { formatAccountLabel } = require("../utils/format.util");
+const mathUtil = require("../utils/math.util");
 
 // Models
 const LC = require("../models/lc.model");
@@ -248,7 +249,8 @@ async function _handleLCCostTransaction(cost, lc, session, timezone) {
     );
   }
 
-  account.balance -= cost.amount;
+  // account.balance -= cost.amount;
+  account.balance = mathUtil.sub(account.balance, cost.amount);
   await account.save({ session });
 
   // 3. Create Transaction for the LC cost
@@ -652,7 +654,8 @@ async function deleteLC(req, res, next) {
 
             if (account) {
               // Add money back to account
-              account.balance += cost.amount;
+              // account.balance += cost.amount;
+              account.balance = mathUtil.add(account.balance, cost.amount);
               await account.save({ session });
 
               // Create reversal transaction
@@ -1379,7 +1382,8 @@ async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
           session,
         );
         if (account) {
-          account.balance += oldCost.amount; // Refund
+          // account.balance += oldCost.amount; // Refund
+          account.balance = mathUtil.add(account.balance, oldCost.amount);
           await account.save({ session });
 
           await Transaction.create(
@@ -1441,7 +1445,8 @@ async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
           );
         }
 
-        account.balance -= newCost.amount; // Deduct
+        // account.balance -= newCost.amount; // Deduct
+        account.balance = mathUtil.sub(account.balance, newCost.amount);
         await account.save({ session });
 
         await Transaction.create(

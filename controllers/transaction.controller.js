@@ -9,6 +9,7 @@ const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
 const { moveToTrash } = require("../controllers/trash.controller");
 const { formatAccountLabel } = require("../utils/format.util");
+const mathUtil = require("../utils/math.util");
 
 async function createTransaction(req, res, next) {
   const session = await mongoose.startSession();
@@ -61,12 +62,14 @@ async function createTransaction(req, res, next) {
     }
 
     if (transactionType === "Income") {
-      account.balance += amount;
+      // account.balance += amount;
+      account.balance = mathUtil.add(account.balance, amount);
     } else if (transactionType === "Expense") {
       if (account.balance < amount) {
         throw new ApiError(400, "Insufficient balance for this expense.");
       }
-      account.balance -= amount;
+      // account.balance -= amount;
+      account.balance = mathUtil.sub(account.balance, amount);
     } else {
       throw new ApiError(
         400,
@@ -208,9 +211,11 @@ async function updateTransaction(req, res, next) {
           `Insufficient balance in ${currentAccount.accountName} to reverse old income.`,
         );
       }
-      currentAccount.balance -= oldAmount;
+      // currentAccount.balance -= oldAmount;
+      currentAccount.balance = mathUtil.sub(currentAccount.balance, oldAmount);
     } else if (oldTransactionType === "Expense") {
-      currentAccount.balance += oldAmount;
+      // currentAccount.balance += oldAmount;
+      currentAccount.balance = mathUtil.add(currentAccount.balance, oldAmount);
     }
     await currentAccount.save({ session });
 
@@ -221,12 +226,14 @@ async function updateTransaction(req, res, next) {
     }
 
     if (transactionType === "Income") {
-      newAccount.balance += amount;
+      // newAccount.balance += amount;
+      newAccount.balance = mathUtil.add(newAccount.balance, amount);
     } else if (transactionType === "Expense") {
       if (newAccount.balance < amount) {
         throw new ApiError(400, "Insufficient balance for this new expense.");
       }
-      newAccount.balance -= amount;
+      // newAccount.balance -= amount;
+      newAccount.balance = mathUtil.sub(newAccount.balance, amount);
     } else {
       throw new ApiError(
         400,
@@ -912,9 +919,11 @@ async function deleteTransaction(req, res, next) {
           `Insufficient balance in ${account.accountName} to reverse this income transaction.`,
         );
       }
-      account.balance -= transaction.amount;
+      // account.balance -= transaction.amount;
+      account.balance = mathUtil.sub(account.balance, transaction.amount);
     } else if (transaction.transactionType === "Expense") {
-      account.balance += transaction.amount;
+      // account.balance += transaction.amount;
+      account.balance = mathUtil.add(account.balance, transaction.amount);
     }
 
     await account.save({ session });
@@ -1018,7 +1027,8 @@ async function transferMoney(req, res, next) {
       );
     }
 
-    sourceAccount.balance -= amount;
+    // sourceAccount.balance -= amount;
+    sourceAccount.balance = mathUtil.sub(sourceAccount.balance, amount);
     await sourceAccount.save({ session });
 
     // 2. Handle Destination Account (Income)
@@ -1027,7 +1037,8 @@ async function transferMoney(req, res, next) {
       throw new ApiError(404, "Destination account not found.");
     }
 
-    destAccount.balance += amount;
+    // destAccount.balance += amount;
+    destAccount.balance = mathUtil.add(destAccount.balance, amount);
     await destAccount.save({ session });
 
     // Format Description

@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const mongoosePaginate = require("mongoose-paginate-v2");
+const mathUtil = require("../utils/math.util");
 
 /*
  * Cost Sub-schema
@@ -165,23 +166,26 @@ salesSchema.pre("validate", function (next) {
   if (this.items && this.items.length > 0) {
     this.totalAmount = this.items.reduce((sum, item) => {
       // Ensure item total is correct
-      item.total = item.quantity * item.pricePerUnit;
-      return sum + item.total;
+      item.total = mathUtil.mul(item.quantity, item.pricePerUnit);
+      return mathUtil.add(sum, item.total);
     }, 0);
   } else {
     this.totalAmount = 0;
   }
 
-  const costsTotal = this.costs.reduce((acc, cost) => acc + cost.amount, 0);
+  const costsTotal = this.costs.reduce((acc, cost) => mathUtil.add(acc, cost.amount), 0);
   const chargesTotal = this.charges.reduce(
-    (acc, charge) => acc + charge.amount,
+    (acc, charge) => mathUtil.add(acc, charge.amount),
     0,
   );
-  this.totalAmountToBePaid =
-    Math.round(
-      (this.totalAmount + chargesTotal + costsTotal - this.discount) * 100,
-    ) / 100;
-  this.totalAmount = Math.round(this.totalAmount * 100) / 100;
+
+  // totalAmountToBePaid = totalAmount + charges + costs - discount
+  // We round at the end to ensure 2 decimal places
+  const subTotal = mathUtil.add(this.totalAmount, mathUtil.add(chargesTotal, costsTotal));
+  const finalAmount = mathUtil.sub(subTotal, this.discount);
+
+  this.totalAmountToBePaid = mathUtil.round(finalAmount);
+  this.totalAmount = mathUtil.round(this.totalAmount);
 
   next();
 });
@@ -198,12 +202,17 @@ salesSchema.pre("validate", function (next) {
 salesSchema.pre("save", function (next) {
   if (this.invoiceStatus === "Invoiced") {
     const totalPaid = this.payments.reduce(
-      (acc, payment) => acc + payment.amount,
+      (acc, payment) => mathUtil.add(acc, payment.amount),
       0,
     );
     // Fix floating point precision issues (e.g. 179.2 vs 179.20000000000002)
-    // We consider it paid if the difference is negligible (less than 0.01)
-    if (totalPaid >= this.totalAmountToBePaid - 0.001) {
+    // We consider it paid if the difference is non-existent or tiny (handled by round/sub)
+    // Using mathUtil.sub to check difference
+    const diff = mathUtil.sub(this.totalAmountToBePaid, totalPaid);
+
+    // If diff <= 0.001 (allowing for negligible rounding artifacts if any, though decimal.js should match exact), 
+    // it is Paid.
+    if (diff <= 0.001) {
       this.paymentStatus = "Paid payment";
     } else {
       this.paymentStatus = "Due payment";

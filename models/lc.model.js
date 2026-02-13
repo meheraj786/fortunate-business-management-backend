@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const mathUtil = require("../utils/math.util");
 
 const costSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
@@ -137,37 +138,37 @@ lcSchema.pre("save", function (next) {
   let calculatedCost = 0;
 
   if (this.financialInfo && this.financialInfo.costs) {
-    calculatedCost += this.financialInfo.costs.reduce(
-      (sum, cost) => sum + (cost.amount || 0),
-      0,
+    calculatedCost = this.financialInfo.costs.reduce(
+      (sum, cost) => mathUtil.add(sum, cost.amount || 0),
+      calculatedCost,
     );
   }
   if (this.shippingCustomsInfo && this.shippingCustomsInfo.costs) {
-    calculatedCost += this.shippingCustomsInfo.costs.reduce(
-      (sum, cost) => sum + (cost.amount || 0),
-      0,
+    calculatedCost = this.shippingCustomsInfo.costs.reduce(
+      (sum, cost) => mathUtil.add(sum, cost.amount || 0),
+      calculatedCost,
     );
   }
   if (this.agentTransportInfo && this.agentTransportInfo.costs) {
-    calculatedCost += this.agentTransportInfo.costs.reduce(
-      (sum, cost) => sum + (cost.amount || 0),
-      0,
+    calculatedCost = this.agentTransportInfo.costs.reduce(
+      (sum, cost) => mathUtil.add(sum, cost.amount || 0),
+      calculatedCost,
     );
   }
   if (this.otherExpenses && this.otherExpenses.costs) {
-    calculatedCost += this.otherExpenses.costs.reduce(
-      (sum, cost) => sum + (cost.amount || 0),
-      0,
+    calculatedCost = this.otherExpenses.costs.reduce(
+      (sum, cost) => mathUtil.add(sum, cost.amount || 0),
+      calculatedCost,
     );
   }
   if (this.documentProductInfo && this.documentProductInfo.costs) {
-    calculatedCost += this.documentProductInfo.costs.reduce(
-      (sum, cost) => sum + (cost.amount || 0),
-      0,
+    calculatedCost = this.documentProductInfo.costs.reduce(
+      (sum, cost) => mathUtil.add(sum, cost.amount || 0),
+      calculatedCost,
     );
   }
 
-  this.totalCost = calculatedCost;
+  this.totalCost = mathUtil.round(calculatedCost);
   next();
 });
 

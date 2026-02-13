@@ -8,6 +8,7 @@ const mongoose = require("mongoose");
 const Trash = require("../models/trash.model");
 const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
 const { formatAccountLabel } = require("../utils/format.util");
+const mathUtil = require("../utils/math.util");
 
 // @desc    Open a new cash session for the current day
 // @route   POST /api/cash/open
@@ -575,7 +576,8 @@ async function _calculateDailyCashMetrics(dateString, timezone) {
 
   // Running balance is based on the day's starting opening balance + CASH ONLY transactions (Liquidity)
   // This ensures "Cash In Hand" is accurate regardless of Bank/Mobile transactions
-  const runningBalance = openingBalance + totalCashIncome - totalCashExpenses;
+  // const runningBalance = openingBalance + totalCashIncome - totalCashExpenses;
+  const runningBalance = mathUtil.add(openingBalance, mathUtil.sub(totalCashIncome, totalCashExpenses));
 
   return {
     date: targetDate,
@@ -790,7 +792,8 @@ async function addIncome(req, res, next) {
     }
 
     // 3. Update Account Balance
-    account.balance += amount;
+    // account.balance += amount;
+    account.balance = mathUtil.add(account.balance, amount);
     account.modifiedBy = req.user?._id || null;
     await account.save({ session });
 
@@ -1032,7 +1035,8 @@ async function addExpense(req, res, next) {
     }
 
     // 4. Update Account Balance and Create Transaction
-    account.balance -= amount;
+    // account.balance -= amount;
+    account.balance = mathUtil.sub(account.balance, amount);
     account.modifiedBy = req.user?._id || null;
     await account.save({ session });
 

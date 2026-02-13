@@ -8,6 +8,7 @@ const Transaction = require("../models/transaction.model");
 const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
 const { formatAccountLabel } = require("../utils/format.util");
+const mathUtil = require("../utils/math.util");
 
 /**
  * Generates a new sequential Sale ID (e.g., SALE-24-000001)
@@ -150,11 +151,12 @@ exports.validateStockForItems = async (items, warehouseId, session) => {
           `Incompatible units for product '${sellingProduct.name}'. Product is in '${sellingProduct.unit.type}' but sale item is in '${req.unitType}'.`
         );
       }
-      totalBaseUnitRequired += req.quantity * req.conversionFactor;
+      // totalBaseUnitRequired += req.quantity * req.conversionFactor;
+      const reqTotal = mathUtil.mul(req.quantity, req.conversionFactor);
+      totalBaseUnitRequired = mathUtil.add(totalBaseUnitRequired, reqTotal);
     }
 
-    const productStockInBaseUnit =
-      sellingProduct.quantity * sellingProduct.unit.conversionFactor;
+    const productStockInBaseUnit = mathUtil.mul(sellingProduct.quantity, sellingProduct.unit.conversionFactor);
 
     if (productStockInBaseUnit < totalBaseUnitRequired) {
       // Calculate max qty in the *last requested unit* for better error message,
@@ -165,16 +167,16 @@ exports.validateStockForItems = async (items, warehouseId, session) => {
       throw new ApiError(
         400,
         `Not enough stock for product '${sellingProduct.name}'. Requested: ${(
-          totalBaseUnitRequired / displayConversion
+          mathUtil.div(totalBaseUnitRequired, displayConversion)
         ).toFixed(2)} ${displayUnitName} (Available: ${(
-          productStockInBaseUnit / displayConversion
+          mathUtil.div(productStockInBaseUnit, displayConversion)
         ).toFixed(2)} ${displayUnitName})`
       );
     }
 
     // Calculate deduction in Product's Native Unit
-    const quantityToDeductFromProduct =
-      totalBaseUnitRequired / sellingProduct.unit.conversionFactor;
+    // const quantityToDeductFromProduct = totalBaseUnitRequired / sellingProduct.unit.conversionFactor;
+    const quantityToDeductFromProduct = mathUtil.div(totalBaseUnitRequired, sellingProduct.unit.conversionFactor);
     deductions.push({ productId, quantityToDeductFromProduct });
   }
 
@@ -201,8 +203,12 @@ exports.checkCustomerCreditLimit = async (
 
   const { totalAmount, costsTotal, chargesTotal, discount, totalPaid } =
     saleFinancials;
-  const prospectiveTotal = totalAmount + costsTotal + chargesTotal - discount;
-  const newSaleDueAmount = prospectiveTotal - totalPaid;
+
+  // prospectiveTotal = totalAmount + costsTotal + chargesTotal - discount
+  const subTotal = mathUtil.add(totalAmount, mathUtil.add(costsTotal, chargesTotal));
+  const prospectiveTotal = mathUtil.sub(subTotal, discount);
+
+  const newSaleDueAmount = mathUtil.sub(prospectiveTotal, totalPaid);
 
   // Only check if there is a due amount
   if (newSaleDueAmount > 0) {
@@ -229,7 +235,9 @@ exports.checkCustomerCreditLimit = async (
     const result = await Sales.aggregate(salesPipeline).session(session);
     const currentDues = result.length > 0 ? result[0].totalDue : 0;
 
-    if (currentDues + newSaleDueAmount > existingCustomer.creditLimit) {
+    const totalOutstanding = mathUtil.add(currentDues, newSaleDueAmount);
+
+    if (totalOutstanding > existingCustomer.creditLimit) {
       throw new ApiError(
         409,
         `Cannot create sale. This transaction exceeds the customer's credit limit of ${existingCustomer.creditLimit}. Current outstanding due is ${currentDues}.`,
@@ -310,9 +318,9 @@ exports.calculateStockDiff = async (oldItems, newItems, session) => {
       if (u) conversionFactor = u.conversionFactor;
     }
 
-    const baseQty = qty * conversionFactor;
+    const baseQty = mathUtil.mul(qty, conversionFactor);
     const current = productMap.get(productId) || 0;
-    productMap.set(productId, current - baseQty);
+    productMap.set(productId, mathUtil.sub(current, baseQty));
   }
 
   for (const item of newItems) {
@@ -324,10 +332,10 @@ exports.calculateStockDiff = async (oldItems, newItems, session) => {
     if (!unit)
       throw new ApiError(400, `Unit not found for product ${productId}`);
 
-    const baseQty = qty * unit.conversionFactor;
+    const baseQty = mathUtil.mul(qty, unit.conversionFactor);
 
     const current = productMap.get(productId) || 0;
-    productMap.set(productId, current + baseQty);
+    productMap.set(productId, mathUtil.add(current, baseQty));
   }
 
   // Now process the map
@@ -337,12 +345,14 @@ exports.calculateStockDiff = async (oldItems, newItems, session) => {
     const product = fetchedProductMap.get(productId);
     if (!product) throw new ApiError(404, `Product not found: ${productId}`);
 
-    const nativeQtyChange = Math.abs(netBaseQty) / product.unit.conversionFactor;
+    // const nativeQtyChange = Math.abs(netBaseQty) / product.unit.conversionFactor;
+    const nativeQtyChange = mathUtil.div(Math.abs(netBaseQty), product.unit.conversionFactor);
 
     if (netBaseQty > 0) {
       // Need MORE -> Deduct
       // Verify Stock Availability
-      if (product.quantity < nativeQtyChange - 0.0001) {
+      // if (product.quantity < nativeQtyChange - 0.0001) {
+      if (mathUtil.sub(product.quantity, nativeQtyChange) < -0.0001) {
         // Tiny tolerance for float comparison
         throw new ApiError(
           400,
@@ -405,17 +415,20 @@ exports.reconcileSaleFinancials = async (saleId, session) => {
   // Ideally, the pre-save hook handles the "ToBePaid" logic based on items/costs.
   // We focus on PAYMENTS and STATUS here.
 
-  const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  // const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalPaid = sale.payments.reduce((sum, p) => mathUtil.add(sum, p.amount || 0), 0);
   const totalDue = sale.totalAmountToBePaid;
 
   let balanceDue = 0;
   let overPayment = 0;
 
   if (totalPaid >= totalDue) {
-    overPayment = totalPaid - totalDue;
+    // overPayment = totalPaid - totalDue;
+    overPayment = mathUtil.sub(totalPaid, totalDue);
     balanceDue = 0;
   } else {
-    balanceDue = totalDue - totalPaid;
+    // balanceDue = totalDue - totalPaid;
+    balanceDue = mathUtil.sub(totalDue, totalPaid);
     overPayment = 0;
   }
 
@@ -426,15 +439,6 @@ exports.reconcileSaleFinancials = async (saleId, session) => {
   } else if (balanceDue <= 0 && overPayment >= 0) {
     // Fully paid or overpaid
     status = overPayment > 0 ? "Overpaid" : "Paid";
-    // Mapped to legacy string if needed, but we start using new enums internally.
-    // If we want to be safe with existing frontend filters:
-    // "Paid payment" / "Due payment".
-    // Let's use the new cleaner ones, and we will update frontend mapping if needed.
-    // Actually, to match current mismatched frontend expectations without breaking it immediately:
-    // "Paid" -> "Paid payment"
-    // "Due" -> "Due payment"
-    // "Overpaid" -> "Paid payment" (Technically it IS paid) OR a new status.
-    // The Schema now allows "Overpaid".
   } else if (totalPaid > 0) {
     status = "Partial";
   } else {
@@ -523,7 +527,8 @@ async function reverseCostTransaction(cost, sale, session, businessTimezone) {
   }
 
   // Restore Balance (Expense Reversal = Income/Add back)
-  account.balance += cost.amount;
+  // account.balance += cost.amount;
+  account.balance = mathUtil.add(account.balance, cost.amount);
   await account.save({ session });
 
   // Record Reversal Transaction
@@ -561,7 +566,8 @@ async function applyCostTransaction(cost, sale, session, businessTimezone) {
   }
 
   // Deduct Balance
-  account.balance -= cost.amount;
+  // account.balance -= cost.amount;
+  account.balance = mathUtil.sub(account.balance, cost.amount);
   await account.save({ session });
 
   // Record Transaction
