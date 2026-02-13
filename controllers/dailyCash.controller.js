@@ -685,7 +685,7 @@ async function addIncome(req, res, next) {
     } = req.body;
 
     // 1. Gatekeeper: Check if Daily Cash for today is Open
-    const today = startOfDay(now());
+    const today = startOfDay(now(), req.businessTimezone);
     const openSession = await DailyCash.findOne({
       date: today,
       status: "Open",
@@ -881,7 +881,7 @@ async function addExpense(req, res, next) {
     } = req.body;
 
     // 1. Gatekeeper: Check if Daily Cash for today is Open
-    const today = startOfDay(now());
+    const today = startOfDay(now(), req.businessTimezone);
     const openSession = await DailyCash.findOne({
       date: today,
       status: "Open",

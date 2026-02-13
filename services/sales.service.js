@@ -3,7 +3,7 @@ const Product = require("../models/product.model");
 const Customer = require("../models/customer.model");
 const Unit = require("../models/unit.model");
 const { ApiError } = require("../utils/ApiError");
-const { startOfDay, now } = require("../utils/timezone.util");
+const { startOfDay, now, formatInTimeZone, DEFAULT_TIMEZONE } = require("../utils/timezone.util");
 const Transaction = require("../models/transaction.model");
 const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
@@ -20,8 +20,11 @@ const Counter = require("../models/counter.model");
  * Uses a persistent Counter model to ensure IDs are never reused, even if sales are deleted.
  */
 exports.generateSaleId = async () => {
-  const currentYear = new Date().getFullYear();
-  const shortYear = currentYear.toString().slice(-2);
+  // Use the business timezone to determine the current year, ensuring ID sequences align with the business day.
+  // This prevents "future" IDs (e.g. 2025 IDs in 2024) if the server is behind, or vice versa.
+  const currentYearStr = formatInTimeZone(new Date(), "yyyy", DEFAULT_TIMEZONE);
+  const currentYear = parseInt(currentYearStr, 10);
+  const shortYear = currentYearStr.slice(-2);
   const counterId = `saleId_${shortYear}`;
 
   // 1. Atomically increment the counter
