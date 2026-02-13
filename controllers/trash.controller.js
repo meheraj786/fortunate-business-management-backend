@@ -231,7 +231,8 @@ const restoreFromTrash = async (req, res, next) => {
       }
 
       // 🔹 Restore payments
-      for (const payment of restoredDoc.payments || []) {
+      const totalPayments = (restoredDoc.payments || []).length;
+      for (const [index, payment] of (restoredDoc.payments || []).entries()) {
         // Handle Real Money (Cash/Bank)
         if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
           const account = await Account.findById(payment.accountId).session(
@@ -248,7 +249,7 @@ const restoreFromTrash = async (req, res, next) => {
                 name: `Sale Payment Restored (Sale ID: ${restoredDoc.saleId})`,
                 accountId: payment.accountId,
                 date: now(),
-                description: `Restored from Trash - Payment for Sale ID: ${restoredDoc.saleId} (Customer: ${restoredDoc.customer?.name}) via ${payment.method}. Account: ${formatAccountLabel(account)}`,
+                description: `Restored from Trash - Payment for Sale ID: ${restoredDoc.saleId} (Customer: ${restoredDoc.customer?.name}) via ${payment.method} (Payment ${index + 1} of ${totalPayments}). Account: ${formatAccountLabel(account)}`,
                 transactionType: "Income",
                 amount: payment.amount,
                 source: "Auto",
@@ -256,6 +257,12 @@ const restoreFromTrash = async (req, res, next) => {
                 paymentMethod: payment.method,
                 reference: restoredDoc._id,
                 referenceModel: "Sale",
+                miscReference: {
+                  saleId: restoredDoc.saleId,
+                  customerName: restoredDoc.customer?.name,
+                  paymentId: payment._id,
+                  paymentIndex: index,
+                },
               },
             ],
             { session },
@@ -295,7 +302,7 @@ const restoreFromTrash = async (req, res, next) => {
                 reason: "Purchase Restoration",
                 reference: restoredDoc._id,
                 referenceModel: "Sale",
-                description: `Payment restored for Sale ID: ${restoredDoc.saleId}`,
+                description: `Payment restored for Sale ID: ${restoredDoc.saleId} (Payment ${index + 1} of ${totalPayments})`,
                 createdBy: req.user?._id, // Assuming req.user is populated in middleware
               },
             ],

@@ -986,7 +986,8 @@ async function deleteSale(req, res, next) {
         );
       }
       // Reverse financial transactions for payments
-      for (const payment of saleToDelete.payments) {
+      const totalPayments = saleToDelete.payments.length;
+      for (const [index, payment] of saleToDelete.payments.entries()) {
         if (payment.method === "Customer Credit") {
           // Refund Customer Credit back to customer's balance
           if (saleToDelete.customer?.customerId) {
@@ -1005,7 +1006,7 @@ async function deleteSale(req, res, next) {
                   reason: "Sale Deleted",
                   reference: saleToDelete._id,
                   referenceModel: "Sale",
-                  description: `Refund for deleted Sale ID: ${saleToDelete.saleId}`,
+                  description: `Refund for deleted Sale ID: ${saleToDelete.saleId} (Payment ${index + 1} of ${totalPayments})`,
                   createdBy: user?._id,
                 },
               ],
@@ -1032,7 +1033,7 @@ async function deleteSale(req, res, next) {
                   name: "Sales Deletion Reversal",
                   accountId: payment.accountId,
                   date: now(),
-                  description: `Reversal for Deleted Sale ID: ${saleToDelete.saleId} (Customer: ${saleToDelete.customer?.name}) via ${payment.method}. Account: ${formatAccountLabel(account)}`,
+                  description: `Reversal for Deleted Sale ID: ${saleToDelete.saleId} (Customer: ${saleToDelete.customer?.name}) via ${payment.method} (Payment ${index + 1} of ${totalPayments}). Account: ${formatAccountLabel(account)}`,
                   transactionType: "Expense",
                   amount: payment.amount,
                   source: "Auto",
@@ -1040,6 +1041,12 @@ async function deleteSale(req, res, next) {
                   paymentMethod: payment.method,
                   reference: saleToDelete._id,
                   referenceModel: "Sale",
+                  miscReference: {
+                    saleId: saleToDelete.saleId,
+                    customerName: saleToDelete.customer?.name,
+                    paymentId: payment._id,
+                    paymentIndex: index,
+                  },
                 },
               ],
               { session },
@@ -1844,7 +1851,8 @@ async function cancelSale(req, res, next) {
     }
 
     // Reverse financial transactions by creating counter-transactions
-    for (const payment of saleToCancel.payments) {
+    const totalPayments = saleToCancel.payments ? saleToCancel.payments.length : 0;
+    for (const [index, payment] of saleToCancel.payments.entries()) {
       if (payment.method === "Customer Credit") {
         // Refund Customer Credit back to customer's balance
         if (saleToCancel.customer?.customerId) {
@@ -1863,7 +1871,7 @@ async function cancelSale(req, res, next) {
                 reason: "Sale Cancelled",
                 reference: saleToCancel._id,
                 referenceModel: "Sale",
-                description: `Refund for cancelled Sale ID: ${saleToCancel.saleId}`,
+                description: `Refund for cancelled Sale ID: ${saleToCancel.saleId} (Payment ${index + 1} of ${totalPayments})`,
                 createdBy: req.user?._id,
               },
             ],
@@ -1884,7 +1892,7 @@ async function cancelSale(req, res, next) {
                 name: "Sales Cancellation Reversal",
                 accountId: payment.accountId,
                 date: now(),
-                description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method}. Account: ${formatAccountLabel(account)}`,
+                description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method} (Payment ${index + 1} of ${totalPayments}). Account: ${formatAccountLabel(account)}`,
                 transactionType: "Expense", // To reverse the Income
                 amount: payment.amount,
                 source: "Auto", // Auto generated reversal
@@ -1897,6 +1905,8 @@ async function cancelSale(req, res, next) {
                   customerName: saleToCancel.customer.name,
                   originalPaymentAmount: payment.amount,
                   originalPaymentMethod: payment.method,
+                  paymentId: payment._id,
+                  paymentIndex: index,
                 },
               },
             ],
