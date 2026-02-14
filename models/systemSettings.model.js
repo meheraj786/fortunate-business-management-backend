@@ -103,6 +103,16 @@ const systemSettingsSchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
+      encryption: {
+        enabled: {
+          type: Boolean,
+          default: false,
+        },
+        password: {
+          type: String,
+          select: false, // Do not return by default
+        },
+      },
     },
   },
   {
@@ -124,10 +134,17 @@ systemSettingsSchema.statics.getSingleton = async function () {
         time: "02:00",
         retentionCount: 7,
         includeFiles: true,
+        encryption: {
+          enabled: false,
+        }
       },
     });
   }
   return settings;
+};
+
+systemSettingsSchema.statics.getSingletonWithPassword = async function () {
+  return this.findOne().select('+backup.encryption.password');
 };
 
 // Update settings (ensures only one document exists)

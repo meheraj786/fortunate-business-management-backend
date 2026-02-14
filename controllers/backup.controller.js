@@ -6,6 +6,7 @@ const { format } = require("date-fns");
 const logger = require("../utils/logger");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
+const crypto = require("crypto");
 
 // Configuration
 const BACKUP_DIR = path.join(__dirname, "..", "backups");
@@ -21,7 +22,7 @@ const SystemSettings = require("../models/systemSettings.model");
 
 // In-memory lock to prevent overlapping backups
 let isBackupRunning = false;
-const BACKUP_FILENAME_REGEX = /^backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$/;
+const BACKUP_FILENAME_REGEX = /^backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip(\.enc)?$/;
 
 /**
  * Creates a backup of the database and uploads folder.
@@ -41,11 +42,23 @@ async function createBackup(req, res, next) {
     const timestamp = format(new Date(), "yyyy-MM-dd_HH-mm-ss");
     const backupFolderName = `backup_${timestamp}`;
     const backupFolderPath = path.join(BACKUP_DIR, backupFolderName);
-    const zipFilePath = path.join(BACKUP_DIR, `${backupFolderName}.zip`);
 
     logger.info(`Starting backup process: ${backupFolderName}`);
 
     try {
+        // Fetch settings first to determine encryption
+        // Need password for encryption, so use custom method
+        const settings = await SystemSettings.getSingletonWithPassword();
+        const isEncryptionEnabled = settings.backup?.encryption?.enabled;
+        const password = settings.backup?.encryption?.password;
+
+        if (isEncryptionEnabled && !password) {
+            throw new Error("Encryption is enabled but no password is set. Cannot create backup.");
+        }
+
+        const extension = isEncryptionEnabled ? ".zip.enc" : ".zip";
+        const finalFilePath = path.join(BACKUP_DIR, `${backupFolderName}${extension}`);
+
         // 1. Create temporary backup folder
         if (!fs.existsSync(backupFolderPath)) {
             fs.mkdirSync(backupFolderPath);
@@ -89,22 +102,51 @@ async function createBackup(req, res, next) {
 
         logger.info("Database dump completed.");
 
-        // Fetch settings before starting archive process
-        const settings = await SystemSettings.getSingleton();
-
-        // 3. Copy Uploads
-        const output = fs.createWriteStream(zipFilePath);
+        // 3. Create Archive
         const archive = archiver("zip", {
             zlib: { level: 9 },
         });
 
+        const output = fs.createWriteStream(finalFilePath);
+
+        // Let's restructure the piping and promise:
+
         await new Promise((resolve, reject) => {
+            if (isEncryptionEnabled) {
+                const algorithm = "aes-256-gcm";
+                const salt = crypto.randomBytes(16);
+                const iv = crypto.randomBytes(12);
+                const key = crypto.pbkdf2Sync(password, salt, 100000, 32, "sha256");
+                const cipher = crypto.createCipheriv(algorithm, key, iv);
+
+                // Write header immediately
+                output.write(salt);
+                output.write(iv);
+
+                // Pipe archive to cipher
+                archive.pipe(cipher);
+
+                // Pipe cipher to output, but handle end manually to write auth tag
+                cipher.on("data", (chunk) => output.write(chunk));
+
+                cipher.on("end", () => {
+                    const tag = cipher.getAuthTag();
+                    output.write(tag);
+                    output.end();
+                    // Resolve handled by output finish
+                });
+
+                cipher.on("error", reject);
+            } else {
+                archive.pipe(output);
+            }
+
             output.on("close", () => {
                 logger.info(`${archive.pointer()} total bytes`);
                 resolve();
             });
 
-            archive.on("error", (err) => {
+            output.on("error", (err) => {
                 if (err.code === "ENOSPC") {
                     logger.error("Disk Full! Cannot create backup.");
                     reject(new Error("Disk space exhausted. Backup failed."));
@@ -113,15 +155,14 @@ async function createBackup(req, res, next) {
                 }
             });
 
-            archive.pipe(output);
+            archive.on("error", reject);
 
-            // Append database dump
+            // Append contents
             archive.directory(path.join(backupFolderPath, "db_dump"), "db_dump");
 
-            // Append uploads directory if it exists and is enabled in settings
-            if (fs.existsSync(UPLOADS_DIR) && settings.backup.includeFiles) {
+            if (fs.existsSync(UPLOADS_DIR) && settings.backup?.includeFiles) {
                 archive.directory(UPLOADS_DIR, "uploads");
-            } else if (!settings.backup.includeFiles) {
+            } else if (!settings.backup?.includeFiles) {
                 logger.info("Skipping uploads backup based on settings.");
             } else {
                 logger.warn("Uploads directory not found, skipping files backup.");
@@ -131,22 +172,21 @@ async function createBackup(req, res, next) {
         });
 
         // Verify Integrity
-        const stats = fs.statSync(zipFilePath);
+        const stats = fs.statSync(finalFilePath);
         if (stats.size === 0) {
             throw new Error("Backup created but file is empty. Integrity check failed.");
         }
-        logger.info("Backup integrity check passed.");
+        logger.info(`Backup integrity check passed. Encrypted: ${isEncryptionEnabled}`);
 
-
-        // 4. Cleanup: Delete the temporary dump folder
+        // 4. Cleanup
         fs.rmSync(backupFolderPath, { recursive: true, force: true });
         logger.info("Temporary backup folder cleaned up.");
 
         // 5. Enforce Retention Policy
-        const retentionCount = settings.backup.retentionCount || 7;
+        const retentionCount = settings.backup?.retentionCount || 7;
 
         const files = fs.readdirSync(BACKUP_DIR)
-            .filter(file => file.endsWith(".zip"))
+            .filter(file => file.endsWith(".zip") || file.endsWith(".zip.enc"))
             .map(file => ({
                 name: file,
                 time: fs.statSync(path.join(BACKUP_DIR, file)).birthtime.getTime()
@@ -161,13 +201,15 @@ async function createBackup(req, res, next) {
             });
         }
 
-        const successMessage = "Backup created successfully";
+        const successMessage = isEncryptionEnabled
+            ? "Encrypted backup created successfully"
+            : "Backup created successfully";
 
         // If called via API, return response
         if (res) {
             return res
                 .status(200)
-                .json(new ApiResponse(200, { filename: `${backupFolderName}.zip` }, successMessage));
+                .json(new ApiResponse(200, { filename: `${backupFolderName}${extension}` }, successMessage));
         }
 
         return true; // For cron
@@ -179,9 +221,15 @@ async function createBackup(req, res, next) {
         if (fs.existsSync(backupFolderPath)) {
             fs.rmSync(backupFolderPath, { recursive: true, force: true });
         }
-        // We might want to keep partial zip for debugging, or delete it. Let's delete to save space.
-        if (fs.existsSync(zipFilePath)) {
-            fs.unlinkSync(zipFilePath);
+        // Ideally verify variable existence before unlink, but backupFolderName is defined early
+        // Safe to try cleanup based on logic
+        // We need to know the final file path, which might be .zip or .zip.enc
+        // Best effort cleanup:
+        if (typeof backupFolderName !== 'undefined') {
+            const zip = path.join(BACKUP_DIR, `${backupFolderName}.zip`);
+            const enc = path.join(BACKUP_DIR, `${backupFolderName}.zip.enc`);
+            if (fs.existsSync(zip)) fs.unlinkSync(zip);
+            if (fs.existsSync(enc)) fs.unlinkSync(enc);
         }
 
         if (next) {
@@ -203,13 +251,14 @@ async function getBackups(req, res, next) {
         }
 
         const files = fs.readdirSync(BACKUP_DIR)
-            .filter(file => file.endsWith(".zip"))
+            .filter(file => file.endsWith(".zip") || file.endsWith(".zip.enc"))
             .map(file => {
                 const stats = fs.statSync(path.join(BACKUP_DIR, file));
                 return {
                     filename: file,
                     size: (stats.size / 1024 / 1024).toFixed(2) + " MB",
                     createdAt: stats.birthtime,
+                    encrypted: file.endsWith(".zip.enc") // Flag for frontend
                 };
             })
             .sort((a, b) => b.createdAt - a.createdAt); // Newest first

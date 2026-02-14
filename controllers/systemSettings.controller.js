@@ -109,9 +109,36 @@ async function updateSettings(req, res, next) {
           throw new ApiError(400, "Retention count must be between 1 and 365.");
         }
       }
+      // Encryption validation
+      if (updateData.backup.encryption && updateData.backup.encryption.enabled) {
+        if (!updateData.backup.encryption.password && !settings.backup?.encryption?.password) {
+          throw new ApiError(400, "Password is required to enable encryption.");
+        }
+      }
     }
 
     // Update settings via updateSingleton
+    // Handling nested updates for backup.encryption is tricky with Object.assign if not careful, 
+    // but Mongoose handles dot notation in update queries. Here we are assigning to a document instance.
+    // We need to be careful not to overwrite the password if it's not provided in the update but exists.
+
+    if (updateData.backup) {
+      // Merge backup settings carefully
+      settings.backup.frequency = updateData.backup.frequency || settings.backup.frequency;
+      settings.backup.time = updateData.backup.time || settings.backup.time;
+      settings.backup.retentionCount = updateData.backup.retentionCount || settings.backup.retentionCount;
+      if (updateData.backup.includeFiles !== undefined) settings.backup.includeFiles = updateData.backup.includeFiles;
+
+      if (updateData.backup.encryption) {
+        if (!settings.backup.encryption) settings.backup.encryption = {};
+        if (updateData.backup.encryption.enabled !== undefined) settings.backup.encryption.enabled = updateData.backup.encryption.enabled;
+        if (updateData.backup.encryption.password) settings.backup.encryption.password = updateData.backup.encryption.password;
+      }
+    }
+
+    // Remove backup from updateData to prevent overwriting the merged object above with Object.assign potentially
+    delete updateData.backup;
+
     Object.assign(settings, updateData);
     await settings.save();
 
