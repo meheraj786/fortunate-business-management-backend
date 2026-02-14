@@ -51,42 +51,66 @@ async function createBackup(req, res, next) {
             fs.mkdirSync(backupFolderPath);
         }
 
-        // 2. Dump Database
-        // Extract DB name from URI if needed, or stick to default behavior of mongodump which dumps all accessible DBs or specifies via --uri
-        // mongodump --uri="mongodb://..." --out="backup_folder/db_dump"
-        const dumpCommand = `mongodump --uri="${DB_URI}" --out="${path.join(backupFolderPath, "db_dump")}"`;
+        // 2. Dump Database using SPAWN for security (Command Injection Prevention)
+        const dumpArgs = [
+            "--uri", DB_URI,
+            "--out", path.join(backupFolderPath, "db_dump")
+        ];
+
+        const { spawn } = require("child_process");
+        const mongodump = spawn("mongodump", dumpArgs);
 
         await new Promise((resolve, reject) => {
-            exec(dumpCommand, { timeout: 15 * 60 * 1000 }, (error, stdout, stderr) => { // 15 min timeout
-                if (error) {
-                    logger.error(`mongodump failed: ${error.message}`);
-                    return reject(error);
+            let stderr = "";
+
+            mongodump.stderr.on("data", (data) => {
+                stderr += data.toString();
+            });
+
+            mongodump.on("error", (error) => {
+                logger.error(`mongodump process error: ${error.message}`);
+                reject(error);
+            });
+
+            mongodump.on("close", (code) => {
+                if (code !== 0) {
+                    logger.error(`mongodump failed with code ${code}: ${stderr}`);
+                    return reject(new Error(`mongodump failed with code ${code}`));
                 }
                 resolve();
             });
+
+            // 15 minute timeout for the process
+            setTimeout(() => {
+                mongodump.kill();
+                reject(new Error("Backup process timed out after 15 minutes"));
+            }, 15 * 60 * 1000);
         });
+
         logger.info("Database dump completed.");
 
         // Fetch settings before starting archive process
         const settings = await SystemSettings.getSingleton();
 
         // 3. Copy Uploads
-        // We will zip `backupFolderPath` contents AND `UPLOADS_DIR` into the final zip.
-
         const output = fs.createWriteStream(zipFilePath);
         const archive = archiver("zip", {
-            zlib: { level: 9 }, // Sets the compression level.
+            zlib: { level: 9 },
         });
 
         await new Promise((resolve, reject) => {
             output.on("close", () => {
                 logger.info(`${archive.pointer()} total bytes`);
-                logger.info("Backup zip created successfully.");
                 resolve();
             });
 
             archive.on("error", (err) => {
-                reject(err);
+                if (err.code === "ENOSPC") {
+                    logger.error("Disk Full! Cannot create backup.");
+                    reject(new Error("Disk space exhausted. Backup failed."));
+                } else {
+                    reject(err);
+                }
             });
 
             archive.pipe(output);
@@ -105,6 +129,14 @@ async function createBackup(req, res, next) {
 
             archive.finalize();
         });
+
+        // Verify Integrity
+        const stats = fs.statSync(zipFilePath);
+        if (stats.size === 0) {
+            throw new Error("Backup created but file is empty. Integrity check failed.");
+        }
+        logger.info("Backup integrity check passed.");
+
 
         // 4. Cleanup: Delete the temporary dump folder
         fs.rmSync(backupFolderPath, { recursive: true, force: true });
