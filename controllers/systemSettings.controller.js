@@ -95,6 +95,22 @@ async function updateSettings(req, res, next) {
       );
     }
 
+    // Validate Backup Settings
+    if (updateData.backup) {
+      if (updateData.backup.frequency && !["Daily", "Weekly", "Monthly"].includes(updateData.backup.frequency)) {
+        throw new ApiError(400, "Invalid frequency. Must be Daily, Weekly, or Monthly.");
+      }
+      if (updateData.backup.time && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(updateData.backup.time)) {
+        throw new ApiError(400, "Invalid time format. Must be HH:mm (24h).");
+      }
+      if (updateData.backup.retentionCount) {
+        const count = parseInt(updateData.backup.retentionCount);
+        if (isNaN(count) || count < 1 || count > 365) {
+          throw new ApiError(400, "Retention count must be between 1 and 365.");
+        }
+      }
+    }
+
     // Update settings via updateSingleton
     Object.assign(settings, updateData);
     await settings.save();

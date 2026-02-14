@@ -19,11 +19,25 @@ if (!fs.existsSync(BACKUP_DIR)) {
 
 const SystemSettings = require("../models/systemSettings.model");
 
+// In-memory lock to prevent overlapping backups
+let isBackupRunning = false;
+const BACKUP_FILENAME_REGEX = /^backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$/;
+
 /**
  * Creates a backup of the database and uploads folder.
  * This function can be called by cron job or manually via API.
  */
 async function createBackup(req, res, next) {
+    if (isBackupRunning) {
+        const errorMsg = "A backup process is already running. Please wait.";
+        logger.warn(errorMsg);
+        if (res) {
+            return res.status(409).json(new ApiError(409, errorMsg));
+        }
+        return; // For cron
+    }
+
+    isBackupRunning = true;
     const timestamp = format(new Date(), "yyyy-MM-dd_HH-mm-ss");
     const backupFolderName = `backup_${timestamp}`;
     const backupFolderPath = path.join(BACKUP_DIR, backupFolderName);
@@ -43,7 +57,7 @@ async function createBackup(req, res, next) {
         const dumpCommand = `mongodump --uri="${DB_URI}" --out="${path.join(backupFolderPath, "db_dump")}"`;
 
         await new Promise((resolve, reject) => {
-            exec(dumpCommand, (error, stdout, stderr) => {
+            exec(dumpCommand, { timeout: 15 * 60 * 1000 }, (error, stdout, stderr) => { // 15 min timeout
                 if (error) {
                     logger.error(`mongodump failed: ${error.message}`);
                     return reject(error);
@@ -142,6 +156,8 @@ async function createBackup(req, res, next) {
             return next(new ApiError(500, "Backup creation failed", [], error.message));
         }
         throw error; // For cron to catch
+    } finally {
+        isBackupRunning = false;
     }
 }
 
@@ -178,6 +194,12 @@ async function getBackups(req, res, next) {
 async function downloadBackup(req, res, next) {
     try {
         const { filename } = req.params;
+
+        // Path Traversal Protection
+        if (!BACKUP_FILENAME_REGEX.test(filename)) {
+            throw new ApiError(400, "Invalid filename provided");
+        }
+
         const filePath = path.join(BACKUP_DIR, filename);
 
         if (!fs.existsSync(filePath)) {
@@ -201,6 +223,12 @@ async function downloadBackup(req, res, next) {
 async function deleteBackup(req, res, next) {
     try {
         const { filename } = req.params;
+
+        // Path Traversal Protection
+        if (!BACKUP_FILENAME_REGEX.test(filename)) {
+            throw new ApiError(400, "Invalid filename provided");
+        }
+
         const filePath = path.join(BACKUP_DIR, filename);
 
         if (!fs.existsSync(filePath)) {
