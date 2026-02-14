@@ -17,6 +17,8 @@ if (!fs.existsSync(BACKUP_DIR)) {
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
+const SystemSettings = require("../models/systemSettings.model");
+
 /**
  * Creates a backup of the database and uploads folder.
  * This function can be called by cron job or manually via API.
@@ -51,14 +53,10 @@ async function createBackup(req, res, next) {
         });
         logger.info("Database dump completed.");
 
-        // 3. Copy Uploads (We will zip them directly from source to destination zip to save IO, 
-        // but the requirement was "zip the uploads directory INTO the backup folder". 
-        // Actually, physically copying files is slow. 
-        // Better strategy: Create a ZIP file that contains:
-        //  - db_dump/ (from the temp folder)
-        //  - uploads/ (streamed directly from source)
+        // Fetch settings before starting archive process
+        const settings = await SystemSettings.getSingleton();
 
-        // So we already have db_dump in `backupFolderPath/db_dump`.
+        // 3. Copy Uploads
         // We will zip `backupFolderPath` contents AND `UPLOADS_DIR` into the final zip.
 
         const output = fs.createWriteStream(zipFilePath);
@@ -82,9 +80,11 @@ async function createBackup(req, res, next) {
             // Append database dump
             archive.directory(path.join(backupFolderPath, "db_dump"), "db_dump");
 
-            // Append uploads directory if it exists
-            if (fs.existsSync(UPLOADS_DIR)) {
+            // Append uploads directory if it exists and is enabled in settings
+            if (fs.existsSync(UPLOADS_DIR) && settings.backup.includeFiles) {
                 archive.directory(UPLOADS_DIR, "uploads");
+            } else if (!settings.backup.includeFiles) {
+                logger.info("Skipping uploads backup based on settings.");
             } else {
                 logger.warn("Uploads directory not found, skipping files backup.");
             }
@@ -95,6 +95,25 @@ async function createBackup(req, res, next) {
         // 4. Cleanup: Delete the temporary dump folder
         fs.rmSync(backupFolderPath, { recursive: true, force: true });
         logger.info("Temporary backup folder cleaned up.");
+
+        // 5. Enforce Retention Policy
+        const retentionCount = settings.backup.retentionCount || 7;
+
+        const files = fs.readdirSync(BACKUP_DIR)
+            .filter(file => file.endsWith(".zip"))
+            .map(file => ({
+                name: file,
+                time: fs.statSync(path.join(BACKUP_DIR, file)).birthtime.getTime()
+            }))
+            .sort((a, b) => b.time - a.time); // Newest first
+
+        if (files.length > retentionCount) {
+            const filesToDelete = files.slice(retentionCount);
+            filesToDelete.forEach(file => {
+                fs.unlinkSync(path.join(BACKUP_DIR, file.name));
+                logger.info(`Deleted old backup: ${file.name} (Retention Policy)`);
+            });
+        }
 
         const successMessage = "Backup created successfully";
 

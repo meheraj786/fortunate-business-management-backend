@@ -99,6 +99,12 @@ async function updateSettings(req, res, next) {
     Object.assign(settings, updateData);
     await settings.save();
 
+    // Reschedule backup job if backup settings changed
+    if (updateData.backup) {
+      const { rescheduleBackupJob } = require("../services/backupScheduler.service");
+      await rescheduleBackupJob();
+    }
+
     return res
       .status(200)
       .json(

@@ -80,6 +80,30 @@ const systemSettingsSchema = new mongoose.Schema(
       default: "12h",
       enum: ["12h", "24h"],
     },
+    timeFormat: {
+      type: String,
+      default: "12h",
+      enum: ["12h", "24h"],
+    },
+    backup: {
+      frequency: {
+        type: String,
+        enum: ["Daily", "Weekly", "Monthly"],
+        default: "Daily",
+      },
+      time: {
+        type: String,
+        default: "02:00", // 24h format
+      },
+      retentionCount: {
+        type: Number,
+        default: 7,
+      },
+      includeFiles: {
+        type: Boolean,
+        default: true,
+      },
+    },
   },
   {
     timestamps: true,
@@ -95,6 +119,12 @@ systemSettingsSchema.statics.getSingleton = async function () {
       timezone: process.env.TZ || "Asia/Dhaka",
       businessName: "Fortunate Business Management",
       currency: "USD",
+      backup: {
+        frequency: "Daily",
+        time: "02:00",
+        retentionCount: 7,
+        includeFiles: true,
+      },
     });
   }
   return settings;
