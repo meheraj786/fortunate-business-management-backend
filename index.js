@@ -23,6 +23,7 @@ const {
   autoCloseDailyCashForCron,
   closeMissedDailyCashEntries,
 } = require("./controllers/dailyCash.controller"); // Cron controllers
+const { createBackup } = require("./controllers/backup.controller"); // Backup controller
 const { attachTimezone } = require("./middleware/timezone.middleware"); // Timezone middleware
 const { checkDbStatus } = require("./middleware/dbStatus.middleware"); // DB status middleware
 
@@ -145,5 +146,18 @@ cron.schedule(
   {
     scheduled: true, // Enable cron
     timezone: "Asia/Dhaka", // Set timezone
+  },
+);
+
+// Backup Cron Job (runs daily at 02:00)
+cron.schedule(
+  "0 2 * * *",
+  () => {
+    logger.info("Running daily backup job");
+    createBackup();
+  },
+  {
+    scheduled: true,
+    timezone: "Asia/Dhaka",
   },
 );
