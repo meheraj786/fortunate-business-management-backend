@@ -9,6 +9,7 @@ const Trash = require("../models/trash.model");
 const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
 const { formatAccountLabel } = require("../utils/format.util");
 const mathUtil = require("../utils/math.util");
+const auditService = require("../services/audit.service");
 
 // @desc    Open a new cash session for the current day
 // @route   POST /api/cash/open
@@ -109,6 +110,15 @@ async function openCash(req, res, next) {
       createdBy: req.user?._id || null, // Opened by
     });
 
+    auditService.log({
+      action: "OPEN",
+      module: "DailyCash",
+      documentId: newDailyCashSession._id,
+      userId: req.user?._id,
+      description: `Opened daily cash for ${today.toDateString()} with opening balance ${openingBalance}`,
+      req,
+    });
+
     return res
       .status(201)
       .json(
@@ -201,6 +211,15 @@ async function closeCash(req, res, next) {
       targetDate.toISOString(),
       req.businessTimezone,
     );
+
+    auditService.log({
+      action: "CLOSE",
+      module: "DailyCash",
+      documentId: openSession._id,
+      userId: req.user?._id,
+      description: `Closed daily cash for ${targetDate.toDateString()} with closing balance ${finalRunningBalance}`,
+      req,
+    });
 
     return res
       .status(200)
@@ -817,6 +836,16 @@ async function addIncome(req, res, next) {
     await session.commitTransaction();
     session.endSession();
 
+    auditService.log({
+      action: "CREATE",
+      module: "DailyCash",
+      documentId: newTransaction._id,
+      userId: req.user?._id,
+      description: `Added income "${name}" of ${amount} via ${paymentMethod}`,
+      metadata: { amount, category, paymentMethod },
+      req,
+    });
+
     return res
       .status(201)
       .json(new ApiResponse(201, newTransaction, "Income added successfully."));
@@ -1058,6 +1087,16 @@ async function addExpense(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    auditService.log({
+      action: "CREATE",
+      module: "DailyCash",
+      documentId: newTransaction._id,
+      userId: req.user?._id,
+      description: `Added expense "${transactionName}" of ${amount} via ${paymentMethod}`,
+      metadata: { amount, category, paymentMethod },
+      req,
+    });
 
     return res
       .status(201)

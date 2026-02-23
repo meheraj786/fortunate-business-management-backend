@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const { ApiResponse } = require("../utils/ApiResponse");
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
+const auditService = require("../services/audit.service");
 
 // Import all models to be cleared
 const Sale = require("../models/sales.model");
@@ -86,6 +87,15 @@ exports.clearModuleData = async (req, res, next) => {
 
     logger.info(`Module Data Cleared: ${moduleName} by ${req.user.email}`);
 
+    auditService.log({
+      action: "WIPE",
+      module: "System",
+      userId: req.user?._id,
+      description: `Wiped ${moduleName} module data`,
+      metadata: { moduleName },
+      req,
+    });
+
     return res.status(200).json(new ApiResponse(200, null, message));
   } catch (error) {
     await session.abortTransaction();
@@ -130,6 +140,14 @@ exports.clearBusinessData = async (req, res, next) => {
     session.endSession();
 
     logger.info(`Business Data Wipeout performed by ${req.user.email}`);
+
+    auditService.log({
+      action: "WIPE",
+      module: "System",
+      userId: req.user?._id,
+      description: `Wiped all business data (users & settings preserved)`,
+      req,
+    });
 
     return res
       .status(200)
@@ -180,6 +198,14 @@ exports.factoryReset = async (req, res, next) => {
     session.endSession();
 
     logger.warn(`FACORY RESET performed by ${req.user.email}`);
+
+    auditService.log({
+      action: "WIPE",
+      module: "System",
+      userId: req.user?._id,
+      description: `Performed factory reset — all data deleted`,
+      req,
+    });
 
     return res
       .status(200)

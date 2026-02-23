@@ -5,6 +5,7 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const { now } = require("../utils/timezone.util");
 const logger = require("../utils/logger");
+const auditService = require("../services/audit.service");
 
 /* ================= CREATE ================= */
 exports.createCategory = async (req, res, next) => {
@@ -15,6 +16,15 @@ exports.createCategory = async (req, res, next) => {
       name: name.trim(),
       description,
       createdBy: req.user?._id || null,
+    });
+
+    auditService.log({
+      action: "CREATE",
+      module: "Category",
+      documentId: category._id,
+      userId: req.user?._id,
+      description: `Created category "${category.name}"`,
+      req,
     });
 
     res
@@ -119,6 +129,15 @@ exports.updateCategory = async (req, res, next) => {
 
     if (!category) return next(new ApiError(404, "Category not found"));
 
+    auditService.log({
+      action: "UPDATE",
+      module: "Category",
+      documentId: category._id,
+      userId: req.user?._id,
+      description: `Updated category "${category.name}"`,
+      req,
+    });
+
     res
       .status(200)
       .json(new ApiResponse(200, category, "Category updated successfully"));
@@ -186,6 +205,15 @@ exports.deleteCategory = async (req, res, next) => {
       model: "Category",
       deletedBy,
       deletedAt: now(),
+    });
+
+    auditService.log({
+      action: "DELETE",
+      module: "Category",
+      documentId: category._id,
+      userId: deletedBy,
+      description: `Deleted category "${category.name}"`,
+      req,
     });
 
     res

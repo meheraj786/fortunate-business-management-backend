@@ -7,6 +7,7 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
 const Trash = require("../models/trash.model");
+const auditService = require("../services/audit.service");
 
 const createWarehouse = async (req, res, next) => {
   try {
@@ -27,6 +28,15 @@ const createWarehouse = async (req, res, next) => {
         await creator.save({ validateBeforeSave: false }); // Skip validation for this save as only pushing ID
       }
     }
+
+    auditService.log({
+      action: "CREATE",
+      module: "Warehouse",
+      documentId: warehouse._id,
+      userId: req.user?._id,
+      description: `Created warehouse "${warehouse.name}"`,
+      req,
+    });
 
     return res
       .status(201)
@@ -482,6 +492,15 @@ const updateWarehouse = async (req, res, next) => {
       return next(new ApiError(404, "Warehouse not found"));
     }
 
+    auditService.log({
+      action: "UPDATE",
+      module: "Warehouse",
+      documentId: warehouse._id,
+      userId: req.user?._id,
+      description: `Updated warehouse "${warehouse.name}"`,
+      req,
+    });
+
     return res
       .status(200)
       .json(new ApiResponse(200, warehouse, "Warehouse updated successfully"));
@@ -557,6 +576,15 @@ const deleteWarehouse = async (req, res, next) => {
       deletedBy: req.user?._id || null,
       deletedAt: now(),
       metadata: { warehouseId: new mongoose.Types.ObjectId(id) },
+    });
+
+    auditService.log({
+      action: "DELETE",
+      module: "Warehouse",
+      documentId: warehouse._id,
+      userId: req.user?._id,
+      description: `Deleted warehouse "${warehouse.name}"`,
+      req,
     });
 
     return res

@@ -6,6 +6,7 @@ const LC = require("../models/lc.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
+const auditService = require("../services/audit.service");
 
 /* ================= CREATE UNIT ================= */
 exports.createUnit = async (req, res, next) => {
@@ -24,6 +25,15 @@ exports.createUnit = async (req, res, next) => {
       type: type.trim(),
       conversionFactor,
       createdBy: req.user?._id || null,
+    });
+
+    auditService.log({
+      action: "CREATE",
+      module: "Unit",
+      documentId: unit._id,
+      userId: req.user?._id,
+      description: `Created unit "${unit.name}" (${unit.type})`,
+      req,
     });
 
     res
@@ -129,6 +139,15 @@ exports.updateUnit = async (req, res, next) => {
 
     if (!unit) return next(new ApiError(404, "Unit not found"));
 
+    auditService.log({
+      action: "UPDATE",
+      module: "Unit",
+      documentId: unit._id,
+      userId: req.user?._id,
+      description: `Updated unit "${unit.name}"`,
+      req,
+    });
+
     res
       .status(200)
       .json(new ApiResponse(200, unit, "Unit updated successfully"));
@@ -209,6 +228,15 @@ exports.deleteUnit = async (req, res, next) => {
       docId: unit._id,
       model: "Unit",
       deletedBy,
+    });
+
+    auditService.log({
+      action: "DELETE",
+      module: "Unit",
+      documentId: unit._id,
+      userId: deletedBy,
+      description: `Deleted unit "${unit.name}"`,
+      req,
     });
 
     res
