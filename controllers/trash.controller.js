@@ -15,6 +15,7 @@ const logger = require("../utils/logger");
 const { startOfDay, now } = require("../utils/timezone.util"); // Import startOfDay
 const { formatAccountLabel } = require("../utils/format.util");
 const mathUtil = require("../utils/math.util");
+const auditService = require("../services/audit.service");
 
 // ===============================
 // MOVE DOCUMENT TO TRASH
@@ -394,6 +395,9 @@ const restoreFromTrash = async (req, res, next) => {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Item restored
+    auditService.log({ action: "RESTORE", module: modelName, documentId: restoredDoc._id, userId: req.user?._id, description: `Restored ${modelName} record from trash`, req });
 
     res
       .status(200)

@@ -14,6 +14,7 @@ const trashRouter = require("./trash.api");
 const permissionsRouter = require("./permissions.api"); // New line
 const systemSettingsRoutes = require("./systemSettings.api"); // System settings
 const cleanupRoutes = require("../dataCleanup.routes"); // Data cleanup
+const auditRouter = require("./audit.api"); // Audit trail
 const apiRoutes = express.Router();
 
 apiRoutes.use("/user", userRoutes);
@@ -32,5 +33,6 @@ apiRoutes.use("/trash", trashRouter);
 apiRoutes.use("/permissions", permissionsRouter); // New line
 apiRoutes.use("/settings", systemSettingsRoutes); // System settings
 apiRoutes.use("/cleanup", cleanupRoutes); // Data cleanup
+apiRoutes.use("/audit", auditRouter); // Audit trail
 
 module.exports = apiRoutes;

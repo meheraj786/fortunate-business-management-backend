@@ -3,6 +3,7 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
 const { invalidateTimezoneCache } = require("../middleware/timezone.middleware");
+const auditService = require("../services/audit.service");
 
 /**
  * Get system settings
@@ -152,6 +153,9 @@ async function updateSettings(req, res, next) {
       const { rescheduleBackupJob } = require("../services/backupScheduler.service");
       await rescheduleBackupJob();
     }
+
+    // Audit: Settings updated
+    auditService.log({ action: "SETTINGS_UPDATE", module: "System", userId: req.user?._id, description: updateData.isTimezoneSet ? `Timezone permanently set to ${settings.timezone}` : "System settings updated", req });
 
     return res
       .status(200)

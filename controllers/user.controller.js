@@ -10,6 +10,7 @@ const {
   PERMISSIONS,
 } = require("../utils/permissions.constants");
 const Trash = require("../models/trash.model");
+const auditService = require("../services/audit.service");
 
 const registerUser = async (req, res, next) => {
   try {
@@ -141,6 +142,9 @@ const loginUser = async (req, res, next) => {
 
     res.cookie("accessToken", token, cookieOptions);
 
+    // Audit: Login
+    auditService.log({ action: "LOGIN", module: "User", documentId: user._id, userId: user._id, description: `User ${user.name} (${user.email}) logged in`, req });
+
     return res
       .status(200)
       .json(new ApiResponse(200, userObj, "Logged in successfully"));
@@ -195,6 +199,9 @@ const logoutUser = async (req, res, next) => {
     if (req.user?._id) {
       await User.findByIdAndUpdate(req.user._id, { lastLogoutAt: new Date() });
     }
+
+    // Audit: Logout
+    auditService.log({ action: "LOGOUT", module: "User", documentId: req.user?._id, userId: req.user?._id, description: `User ${req.user?.name || "Unknown"} logged out`, req });
 
     return res
       .status(200)
@@ -418,6 +425,9 @@ const updateUser = async (req, res, next) => {
 
     const updatedUser = await User.findById(id).populate("warehouse");
 
+    // Audit: User updated
+    auditService.log({ action: "UPDATE", module: "User", documentId: id, userId: req.user?._id, description: `Updated user ${updatedUser.name} (${updatedUser.email})`, changes: auditService.diffChanges(user, updatedUser, ["name", "email", "phone", "roleName", "description", "location"]), req });
+
     return res
       .status(200)
       .json(new ApiResponse(200, updatedUser, "User updated successfully"));
@@ -492,6 +502,9 @@ const deleteUser = async (req, res, next) => {
       deletedBy,
       deletedAt: now(),
     });
+    // Audit: User deleted
+    auditService.log({ action: "DELETE", module: "User", documentId: deletedUser._id, userId: deletedBy, description: `Deleted user ${deletedUser.name} (${deletedUser.email})`, req });
+
     return res
       .status(200)
       .json(

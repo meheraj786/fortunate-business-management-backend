@@ -10,6 +10,7 @@ const DailyCash = require("../models/dailyCash.model");
 const { moveToTrash } = require("../controllers/trash.controller");
 const { formatAccountLabel } = require("../utils/format.util");
 const mathUtil = require("../utils/math.util");
+const auditService = require("../services/audit.service");
 
 async function createTransaction(req, res, next) {
   const session = await mongoose.startSession();
@@ -102,6 +103,9 @@ async function createTransaction(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Transaction created
+    auditService.log({ action: "CREATE", module: "Transaction", documentId: newTransaction[0]._id, userId: req.user?._id, description: `Created ${transactionType} transaction of ${amount} (${name}) in ${account.accountName}`, req });
 
     return res
       .status(201)
@@ -257,6 +261,9 @@ async function updateTransaction(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Transaction updated
+    auditService.log({ action: "UPDATE", module: "Transaction", documentId: transaction._id, userId: req.user?._id, description: `Updated transaction ${name} (${transactionType}: ${amount})`, req });
 
     return res
       .status(200)
@@ -943,6 +950,9 @@ async function deleteTransaction(req, res, next) {
     await session.commitTransaction();
     session.endSession();
 
+    // Audit: Transaction deleted
+    auditService.log({ action: "DELETE", module: "Transaction", documentId: transaction._id, userId: user?._id, description: `Deleted transaction ${transaction.name} (${transaction.transactionType}: ${transaction.amount})`, req });
+
     return res
       .status(200)
       .json(
@@ -1103,6 +1113,9 @@ async function transferMoney(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Transfer
+    auditService.log({ action: "TRANSFER", module: "Transaction", documentId: expenseTrx[0]._id, userId: req.user?._id, description: `Transferred ${amount} from ${sourceAccount.accountName} to ${destAccount.accountName}`, metadata: { fromAccountId, toAccountId, amount }, req });
 
     return res.status(200).json(
       new ApiResponse(

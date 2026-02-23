@@ -17,6 +17,7 @@ const mathUtil = require("../utils/math.util");
 const { startOfDay } = require("../utils/timezone.util");
 const { formatAccountLabel } = require("../utils/format.util");
 const Counter = require("../models/counter.model");
+const auditService = require("../services/audit.service");
 
 // --- Multer Configuration ---
 const storage = multer.diskStorage({
@@ -132,6 +133,9 @@ async function createCustomer(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Customer created
+    auditService.log({ action: "CREATE", module: "Customer", documentId: customer._id, displayId: customer.customerId, userId: req.user?._id, description: `Created customer ${customer.name} (${customer.customerId})`, req });
 
     return res
       .status(201)
@@ -490,6 +494,9 @@ async function updateCustomer(req, res, next) {
     await session.commitTransaction();
     session.endSession();
 
+    // Audit: Customer updated
+    auditService.log({ action: "UPDATE", module: "Customer", documentId: updatedCustomer._id, displayId: updatedCustomer.customerId, userId: req.user?._id, description: `Updated customer ${updatedCustomer.name} (${updatedCustomer.customerId})`, req });
+
     return res
       .status(200)
       .json(
@@ -570,6 +577,9 @@ async function deleteCustomer(req, res, next) {
       deletedBy: req.user?._id || null,
       deletedAt: now(),
     });
+
+    // Audit: Customer deleted
+    auditService.log({ action: "DELETE", module: "Customer", documentId: deleted._id, displayId: deleted.customerId, userId: req.user?._id, description: `Deleted customer ${deleted.name} (${deleted.customerId})`, req });
 
     return res
       .status(200)
@@ -995,6 +1005,10 @@ async function addStoreCredit(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Store credit added
+    auditService.log({ action: "PAYMENT", module: "Customer", documentId: customer._id, displayId: customer.customerId, userId: req.user?._id, description: `Added store credit of ${amount} to ${customer.name} via ${paymentMethod}`, metadata: { amount, paymentMethod, accountId }, req });
+
     return res
       .status(200)
       .json(new ApiResponse(200, customer, "Credit added successfully"));

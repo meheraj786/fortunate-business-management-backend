@@ -7,6 +7,7 @@ const logger = require("../utils/logger");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const crypto = require("crypto");
+const auditService = require("../services/audit.service");
 
 // Configuration
 const BACKUP_DIR = path.join(__dirname, "..", "backups");
@@ -208,6 +209,9 @@ async function createBackup(req, res, next) {
 
         // If called via API, return response
         if (res) {
+            // Audit: Backup created
+            auditService.log({ action: "BACKUP", module: "System", userId: req?.user?._id, description: `${successMessage}: ${backupFolderName}${extension}`, req });
+
             return res
                 .status(200)
                 .json(new ApiResponse(200, { filename: `${backupFolderName}${extension}` }, successMessage));
@@ -319,6 +323,9 @@ async function deleteBackup(req, res, next) {
 
         fs.unlinkSync(filePath);
         logger.info(`Backup deleted: ${filename}`);
+
+        // Audit: Backup deleted
+        auditService.log({ action: "DELETE", module: "System", userId: req.user?._id, description: `Deleted backup: ${filename}`, req });
 
         return res.status(200).json(new ApiResponse(200, null, "Backup deleted successfully"));
     } catch (error) {

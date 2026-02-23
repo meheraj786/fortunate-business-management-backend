@@ -12,6 +12,7 @@ const {
   now,
   formatInTimeZone,
 } = require("../utils/timezone.util");
+const auditService = require("../services/audit.service");
 
 async function createAccount(req, res, next) {
   const session = await mongoose.startSession();
@@ -200,6 +201,9 @@ async function createAccount(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Account created
+    auditService.log({ action: "CREATE", module: "Account", documentId: createdAccount._id, userId: req.user?._id, description: `Created ${accountType} account: ${createdAccount.accountName}`, req });
 
     return res
       .status(201)
@@ -404,6 +408,9 @@ async function updateAccount(req, res, next) {
       return next(new ApiError(404, "Account not found"));
     }
 
+    // Audit: Account updated
+    auditService.log({ action: "UPDATE", module: "Account", documentId: id, userId: req.user?._id, description: `Updated account: ${updatedAccount.accountName}`, changes: auditService.diffChanges(existingAccount, updatedAccount, ["accountName", "accountHolderName", "bankName", "branchName", "accountNumber", "mobileNumber"]), req });
+
     return res
       .status(200)
       .json(
@@ -510,6 +517,9 @@ async function deleteAccount(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Account archived/deleted
+    auditService.log({ action: "DELETE", module: "Account", documentId: archivedAccount._id, userId: req.user?._id, description: `Archived account: ${archivedAccount.accountName} (${archivedAccount.accountType})`, req });
 
     return res
       .status(200)

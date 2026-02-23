@@ -12,6 +12,7 @@ const logger = require("../utils/logger");
 const { ApiResponse } = require("../utils/ApiResponse");
 const { formatAccountLabel } = require("../utils/format.util");
 const mathUtil = require("../utils/math.util");
+const auditService = require("../services/audit.service");
 
 // Models
 const LC = require("../models/lc.model");
@@ -170,6 +171,9 @@ async function createLC(req, res, next) {
     // 6. Commit the database transaction
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: LC created
+    auditService.log({ action: "CREATE", module: "LC", documentId: lc._id, displayId: lc.basicInfo.lcNumber, userId: req.user?._id, description: `Created LC ${lc.basicInfo.lcNumber}`, req });
 
     return res
       .status(201)
@@ -488,6 +492,9 @@ async function updateLC(req, res, next) {
     await session.commitTransaction();
     session.endSession();
 
+    // Audit: LC updated
+    auditService.log({ action: "UPDATE", module: "LC", documentId: updatedLC._id, displayId: updatedLC.basicInfo.lcNumber, userId: req.user?._id, description: `Updated LC ${updatedLC.basicInfo.lcNumber}`, req });
+
     return res
       .status(200)
       .json(new ApiResponse(200, updatedLC, "LC updated successfully"));
@@ -693,6 +700,9 @@ async function deleteLC(req, res, next) {
     // Commit transaction
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: LC deleted
+    auditService.log({ action: "DELETE", module: "LC", documentId: deletedLC._id, displayId: deletedLC.basicInfo.lcNumber, userId: req.user?._id, description: `Deleted LC ${deletedLC.basicInfo.lcNumber}`, req });
 
     return res
       .status(200)

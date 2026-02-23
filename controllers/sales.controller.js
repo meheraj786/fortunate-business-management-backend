@@ -15,6 +15,7 @@ const SalesService = require("../services/sales.service");
 const { formatAccountLabel } = require("../utils/format.util");
 const CreditHistory = require("../models/creditHistory.model");
 const mathUtil = require("../utils/math.util");
+const auditService = require("../services/audit.service");
 
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
@@ -426,6 +427,9 @@ async function createSale(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Sale created
+    auditService.log({ action: "CREATE", module: "Sale", documentId: sale._id, displayId: sale.saleId, userId: req.user?._id, description: `Created sale ${sale.saleId} for ${finalCustomerInfo.name || "Guest"} — Total: ${sale.totalAmountToBePaid}`, req });
 
     return res
       .status(201)
@@ -859,6 +863,9 @@ async function updateSale(req, res, next) {
     await session.commitTransaction();
     session.endSession();
 
+    // Audit: Sale updated
+    auditService.log({ action: "UPDATE", module: "Sale", documentId: sale._id, displayId: sale.saleId, userId: req.user?._id, description: `Updated sale ${sale.saleId}`, req });
+
     return res
       .status(200)
       .json(new ApiResponse(200, sale, "Sale updated successfully"));
@@ -1106,6 +1113,9 @@ async function deleteSale(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Sale deleted
+    auditService.log({ action: "DELETE", module: "Sale", documentId: saleToDelete._id, displayId: saleToDelete.saleId, userId: user?._id, description: `Deleted sale ${saleToDelete.saleId} (${saleToDelete.customer?.name || "Guest"})`, req });
 
     return res
       .status(200)
@@ -1492,6 +1502,9 @@ async function addPartialPayment(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Partial payment
+    auditService.log({ action: "PAYMENT", module: "Sale", documentId: sale._id, displayId: sale.saleId, userId: req.user?._id, description: `Added partial payment of ${amount} to sale ${sale.saleId} via ${paymentMethod}`, metadata: { amount, paymentMethod, accountId }, req });
 
     return res
       .status(200)
@@ -1988,6 +2001,9 @@ async function cancelSale(req, res, next) {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Audit: Sale cancelled
+    auditService.log({ action: "CANCEL", module: "Sale", documentId: saleToCancel._id, displayId: saleToCancel.saleId, userId: req.user?._id, description: `Cancelled sale ${saleToCancel.saleId} (${saleToCancel.customer?.name || "Guest"})`, req });
 
     return res
       .status(200)

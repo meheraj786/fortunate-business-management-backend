@@ -71,6 +71,7 @@ const userSchema = new mongoose.Schema(
             "UNIT",
             "SETTINGS",
             "TRASH",
+            "AUDIT",
           ],
         },
         permissions: [String],

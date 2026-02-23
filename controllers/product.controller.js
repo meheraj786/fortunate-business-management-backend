@@ -2,6 +2,7 @@ const productService = require("../services/product.service");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
+const auditService = require("../services/audit.service");
 
 // New function to create a product within a specific warehouse
 async function createProductInWarehouse(req, res, next) {
@@ -15,6 +16,9 @@ async function createProductInWarehouse(req, res, next) {
       productData,
       warehouseId,
     );
+
+    // Audit: Product created
+    auditService.log({ action: "CREATE", module: "Product", documentId: product._id, userId: req.user?._id, description: `Created product ${product.name}`, req });
 
     return res
       .status(201)
@@ -122,6 +126,9 @@ async function updateProductInWarehouse(req, res, next) {
       userId,
     );
 
+    // Audit: Product updated
+    auditService.log({ action: "UPDATE", module: "Product", documentId: updated._id, userId: req.user?._id, description: `Updated product ${updated.name}`, req });
+
     return res
       .status(200)
       .json(new ApiResponse(200, updated, "Product updated successfully"));
@@ -161,6 +168,9 @@ async function deleteProductInWarehouse(req, res, next) {
       warehouseId,
       userId,
     );
+
+    // Audit: Product deleted
+    auditService.log({ action: "DELETE", module: "Product", documentId: deleted._id, userId: req.user?._id, description: `Deleted product ${deleted.name}`, req });
 
     return res
       .status(200)
