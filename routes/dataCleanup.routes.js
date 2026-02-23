@@ -2,11 +2,11 @@ const express = require("express");
 const router = express.Router();
 const cleanupController = require("../controllers/dataCleanup.controller");
 const { authenticate } = require("../middleware/auth.middleware");
-const { authorize } = require("../middleware/authorize.middleware");
+const { authorizeRole } = require("../middleware/authorize.middleware");
 
 // All cleanup routes require SUPER_ADMIN privileges
 router.use(authenticate); // Ensure user is logged in
-router.use(authorize("SUPER_ADMIN")); // Strict restriction
+router.use(authorizeRole("SUPER_ADMIN")); // Strict role-based restriction
 
 // Clear specific module
 router.post("/module/:moduleName", cleanupController.clearModuleData);

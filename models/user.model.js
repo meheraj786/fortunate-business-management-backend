@@ -40,6 +40,7 @@ const userSchema = new mongoose.Schema(
 
     roleName: {
       type: String,
+      enum: ["SUPER_ADMIN", "ADMIN", "USER", "No Role"],
       default: "No Role",
     },
     description: {
@@ -118,6 +119,7 @@ userSchema.methods.generateToken = function () {
       role: this.roleName,
     },
     process.env.SECRET_KEY,
+    { expiresIn: "7d" },
   );
 };
 

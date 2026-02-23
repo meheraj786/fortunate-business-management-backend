@@ -2,6 +2,7 @@ const User = require("../models/user.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
 const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
 const {
@@ -12,6 +13,8 @@ const Trash = require("../models/trash.model");
 
 const registerUser = async (req, res, next) => {
   try {
+    // Strip roleName from body to prevent self-role-assignment
+    delete req.body.roleName;
     const user = new User(req.body);
 
     // Ensure access array exists
@@ -125,8 +128,9 @@ const loginUser = async (req, res, next) => {
 
     const token = user.generateToken();
 
-    // Ensure password hash is not sent in the response
-    delete user.password;
+    // Convert to plain object and strip password hash before sending response
+    const userObj = user.toObject();
+    delete userObj.password;
 
     const cookieOptions = {
       httpOnly: true,
@@ -138,7 +142,7 @@ const loginUser = async (req, res, next) => {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, user, "Logged in successfully"));
+      .json(new ApiResponse(200, userObj, "Logged in successfully"));
   } catch (error) {
     logger.error(error);
     if (error instanceof ApiError) {
@@ -428,8 +432,12 @@ const updateUser = async (req, res, next) => {
       });
     }
 
+    // Only allow updating specific fields (allowlist)
+    const allowedFields = ['name', 'email', 'phone', 'roleName', 'description', 'location', 'access', 'warehouse', 'password', 'avatar'];
     Object.keys(updates).forEach((key) => {
-      user[key] = updates[key];
+      if (allowedFields.includes(key)) {
+        user[key] = updates[key];
+      }
     });
 
     user.modifiedBy = req.user._id;
