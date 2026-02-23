@@ -67,7 +67,7 @@ app.use(
 
 // Security middlewares
 app.use(helmet()); // Add security headers
-app.use(express.json()); // Parse JSON body
+app.use(express.json({ limit: "2mb" })); // Parse JSON body with size limit
 app.use(express.urlencoded({ extended: true })); // Parse URL encoded body
 app.use(cookieParser()); // Parse cookies
 

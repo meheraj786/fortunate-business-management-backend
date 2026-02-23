@@ -2,6 +2,7 @@ const SystemSettings = require("../models/systemSettings.model");
 const { ApiResponse } = require("../utils/ApiResponse");
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
+const { invalidateTimezoneCache } = require("../middleware/timezone.middleware");
 
 /**
  * Get system settings
@@ -141,6 +142,9 @@ async function updateSettings(req, res, next) {
 
     Object.assign(settings, updateData);
     await settings.save();
+
+    // Invalidate timezone cache so changes take effect immediately
+    invalidateTimezoneCache();
 
     // Reschedule backup job if backup settings changed
     if (updateData.backup) {

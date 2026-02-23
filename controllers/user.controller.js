@@ -236,7 +236,8 @@ const getUser = async (req, res, next) => {
       .populate("warehouse")
       .populate("createdBy", "name email")
       .populate("modifiedBy", "name email")
-      .populate("deletedBy", "name email");
+      .populate("deletedBy", "name email")
+      .lean();
     if (!fetchedUser || fetchedUser.isDeleted) {
       return next(new ApiError(404, "User not found"));
     }
@@ -284,9 +285,7 @@ const getProfile = async (req, res, next) => {
   try {
     const fetchedUser = await User.findById(req.user._id)
       .populate("warehouse")
-      .populate("createdBy", "name email")
-      .populate("modifiedBy", "name email")
-      .populate("deletedBy", "name email");
+      .lean();
     if (!fetchedUser || fetchedUser.isDeleted) {
       return next(new ApiError(404, "User not found"));
     }
@@ -332,21 +331,9 @@ const getProfile = async (req, res, next) => {
 };
 const getAllUser = async (req, res, next) => {
   try {
-    const fetchedUser = await User.aggregate([
-      {
-        $match: {
-          isDeleted: false,
-        },
-      },
-      {
-        $lookup: {
-          from: "warehouses",
-          localField: "warehouse",
-          foreignField: "_id",
-          as: "warehouse",
-        },
-      },
-    ]);
+    const fetchedUser = await User.find({ isDeleted: false })
+      .populate("warehouse")
+      .lean();
 
     if (fetchedUser.length === 0) {
       return next(new ApiError(404, "No users found"));
