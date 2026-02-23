@@ -1175,6 +1175,17 @@ async function addExpenseToLC(req, res, next) {
       { path: "documentProductInfo.products.quantityUnit", select: "name type conversionFactor" },
     ]);
 
+    auditService.log({
+      action: "UPDATE",
+      module: "LC",
+      documentId: lc._id,
+      displayId: lc.basicInfo.lcNumber,
+      userId: req.user?._id,
+      description: `Added expense "${expense.name}" (${expense.amount}) to LC ${lc.basicInfo.lcNumber} under ${category}`,
+      metadata: { category, expenseName: expense.name, amount: expense.amount },
+      req,
+    });
+
     return res
       .status(200)
       .json(new ApiResponse(200, lc, "Expense added successfully"));

@@ -59,6 +59,15 @@ const registerUser = async (req, res, next) => {
     }
     await user.save();
 
+    auditService.log({
+      action: "CREATE",
+      module: "User",
+      documentId: user._id,
+      userId: req.user?._id,
+      description: `Created user ${user.name} (${user.email})`,
+      req,
+    });
+
     return res
       .status(201)
       .json(new ApiResponse(201, user, "User registered successfully"));
