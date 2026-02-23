@@ -101,12 +101,7 @@ async function createCustomer(req, res, next) {
           phone: customer.phone,
           address: customer.billingAddress,
         },
-        product: null,
-        warehouse: null,
         category: null,
-        quantity: 1,
-        unit: null,
-        pricePerUnit: openingDue,
         costs: [],
         charges: [],
         discount: 0,
@@ -404,7 +399,6 @@ async function updateCustomer(req, res, next) {
 
       if (existingOpeningSale) {
         if (existingOpeningSale.totalAmountToBePaid !== newOpeningDue) {
-          existingOpeningSale.pricePerUnit = newOpeningDue;
           existingOpeningSale.totalAmount = newOpeningDue;
           existingOpeningSale.totalAmountToBePaid = newOpeningDue;
           await existingOpeningSale.save({ session });
@@ -418,12 +412,7 @@ async function updateCustomer(req, res, next) {
             phone: customer.phone,
             address: customer.billingAddress,
           },
-          product: null,
-          warehouse: null,
           category: null,
-          quantity: 1,
-          unit: null,
-          pricePerUnit: newOpeningDue,
           costs: [],
           charges: [],
           discount: 0,

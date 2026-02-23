@@ -162,8 +162,10 @@ salesSchema.plugin(mongoosePaginate);
  * 2. `totalAmountToBePaid` is calculated based on totalAmount, charges, costs, and discount.
  */
 salesSchema.pre("validate", function (next) {
-  // Calculate total amount from items
-  if (this.items && this.items.length > 0) {
+  // Calculate total amount from items, except for opening balance sales
+  if (this.saleId && this.saleId.startsWith("OPEN-BAL-")) {
+    // Preserve the manually set totalAmount
+  } else if (this.items && this.items.length > 0) {
     this.totalAmount = this.items.reduce((sum, item) => {
       // Ensure item total is correct
       item.total = mathUtil.mul(item.quantity, item.pricePerUnit);
