@@ -66,6 +66,18 @@ const systemSettingsSchema = new mongoose.Schema(
       type: String,
       default: "Fortunate Business Management",
     },
+    businessAddress: {
+      type: String,
+      default: "",
+    },
+    businessEmail: {
+      type: String,
+      default: "",
+    },
+    businessPhone: {
+      type: String,
+      default: "",
+    },
     currency: {
       type: String,
       default: "USD",

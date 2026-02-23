@@ -1,11 +1,9 @@
 const { generatePdf, generatePng } = require("../utils/invoiceGenerator");
+const Invoice = require("../models/invoice.model");
 const { ApiError } = require("../utils/ApiError");
 
 /**
  * Handles the request to generate and send an invoice as a PDF.
- * @param {object} req - Express request object.
- * @param {object} res - Express response object.
- * @param {function} next - Express next middleware function.
  */
 async function getInvoiceAsPdf(req, res, next) {
     try {
@@ -14,12 +12,27 @@ async function getInvoiceAsPdf(req, res, next) {
             throw new ApiError(400, "Invoice ID is required.");
         }
 
+        // Fetch the invoice to get the human-readable invoiceId for the filename
+        const invoice = await Invoice.findById(invoiceId).select("invoiceId updatedAt").lean();
+        if (!invoice) {
+            throw new ApiError(404, "Invoice not found.");
+        }
+
         const pdfBuffer = await generatePdf(invoiceId);
+
+        // Use human-readable invoice ID (e.g., INV-26-000001) in the filename
+        const safeFilename = invoice.invoiceId.replace(/[^a-zA-Z0-9-_]/g, "_");
+
+        // Cache headers — invoice content is immutable once generated, safe to cache
+        const lastModified = invoice.updatedAt || new Date();
+        res.setHeader("Last-Modified", lastModified.toUTCString());
+        res.setHeader("ETag", `"pdf-${invoiceId}-${lastModified.getTime()}"`);
+        res.setHeader("Cache-Control", "private, max-age=300"); // 5 min cache
 
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader(
             "Content-Disposition",
-            `attachment; filename=invoice-${invoiceId}.pdf`
+            `attachment; filename=${safeFilename}.pdf`,
         );
         res.send(pdfBuffer);
     } catch (error) {
@@ -33,9 +46,6 @@ async function getInvoiceAsPdf(req, res, next) {
 
 /**
  * Handles the request to generate and send an invoice as a PNG.
- * @param {object} req - Express request object.
- * @param {object} res - Express response object.
- * @param {function} next - Express next middleware function.
  */
 async function getInvoiceAsPng(req, res, next) {
     try {
@@ -44,7 +54,19 @@ async function getInvoiceAsPng(req, res, next) {
             throw new ApiError(400, "Invoice ID is required.");
         }
 
+        // Fetch the invoice to get updatedAt for caching
+        const invoice = await Invoice.findById(invoiceId).select("updatedAt").lean();
+        if (!invoice) {
+            throw new ApiError(404, "Invoice not found.");
+        }
+
         const pngBuffer = await generatePng(invoiceId);
+
+        // Cache headers
+        const lastModified = invoice.updatedAt || new Date();
+        res.setHeader("Last-Modified", lastModified.toUTCString());
+        res.setHeader("ETag", `"png-${invoiceId}-${lastModified.getTime()}"`);
+        res.setHeader("Cache-Control", "private, max-age=300");
 
         res.setHeader("Content-Type", "image/png");
         res.send(pngBuffer);

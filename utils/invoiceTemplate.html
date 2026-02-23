@@ -5,193 +5,412 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invoice {{invoice.invoiceId}}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #111;
+      background: #fff;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Invoice Paper ── */
+    #invoice-paper {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 40px 48px;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding-bottom: 16px;
+      border-bottom: 2px solid #111;
+      margin-bottom: 28px;
+    }
+    .header-left h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+    .header-left .business-info {
+      font-size: 11px;
+      color: #555;
+      line-height: 1.6;
+    }
+    .header-right {
+      text-align: right;
+    }
+    .header-right .invoice-title {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: #111;
+    }
+    .header-right .invoice-number {
+      font-size: 13px;
+      color: #555;
+      margin-top: 2px;
+    }
+
+    /* ── Status Badge ── */
+    .status-badge {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 3px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border: 2px solid #111;
+    }
+    .status-badge.paid {
+      background: #111;
+      color: #fff;
+    }
+    .status-badge.due {
+      background: #fff;
+      color: #111;
+    }
+
+    /* ── Meta Section ── */
+    .meta-section {
+      display: flex;
+      justify-content: space-between;
+      gap: 40px;
+      margin-bottom: 28px;
+    }
+    .meta-section .bill-to,
+    .meta-section .invoice-meta {
+      flex: 1;
+    }
+    .meta-section .invoice-meta {
+      text-align: right;
+    }
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 6px;
+    }
+    .customer-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: #111;
+    }
+    .customer-detail, .meta-value {
+      font-size: 12px;
+      color: #555;
+      line-height: 1.7;
+    }
+    .meta-row {
+      margin-bottom: 2px;
+    }
+    .meta-label {
+      font-weight: 600;
+      color: #333;
+    }
+
+    /* ── Items Table ── */
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 28px;
+    }
+    .items-table thead th {
+      background: #222;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    .items-table thead th.text-center { text-align: center; }
+    .items-table thead th.text-right { text-align: right; }
+    .items-table tbody tr {
+      border-bottom: 1px solid #e5e5e5;
+    }
+    .items-table tbody tr:nth-child(even) {
+      background: #f7f7f7;
+    }
+    .items-table tbody td {
+      padding: 8px 10px;
+      vertical-align: top;
+      font-size: 12px;
+    }
+    .items-table tbody td.text-center { text-align: center; }
+    .items-table tbody td.text-right { text-align: right; }
+    .item-name {
+      font-weight: 600;
+      color: #111;
+    }
+    .item-category {
+      font-size: 11px;
+      color: #888;
+    }
+
+    /* ── Financial Summary ── */
+    .financial-section {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 28px;
+    }
+    .payments-col {
+      flex: 1;
+    }
+    .totals-col {
+      flex: 1;
+    }
+    .payments-title, .totals-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #ddd;
+    }
+    .payment-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+    .payment-meta {
+      color: #555;
+    }
+    .payment-amount {
+      font-weight: 600;
+      color: #111;
+    }
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+    .total-label {
+      color: #555;
+    }
+    .total-value {
+      font-weight: 600;
+      color: #111;
+      text-align: right;
+    }
+    .total-row.net-amount {
+      padding-top: 8px;
+      margin-top: 4px;
+      border-top: 2px solid #111;
+      font-size: 14px;
+    }
+    .total-row.net-amount .total-label,
+    .total-row.net-amount .total-value {
+      font-weight: 700;
+      color: #111;
+    }
+    .total-row.balance-due {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border: 2px solid #111;
+      font-size: 13px;
+    }
+    .total-row.balance-due .total-label,
+    .total-row.balance-due .total-value {
+      font-weight: 700;
+      color: #111;
+    }
+    .total-row.credited-wallet {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border: 1px dashed #555;
+      font-size: 12px;
+    }
+
+    /* ── Notes ── */
+    .notes-section {
+      margin-bottom: 28px;
+    }
+    .notes-section .section-label {
+      margin-bottom: 4px;
+    }
+    .notes-text {
+      font-size: 12px;
+      color: #555;
+      white-space: pre-line;
+    }
+
+    /* ── Footer ── */
+    .invoice-footer {
+      text-align: center;
+      padding-top: 20px;
+      border-top: 1px solid #ddd;
+      font-size: 11px;
+      color: #888;
+    }
+  </style>
 </head>
 
 <body>
-  <div class="max-w-5xl mx-auto bg-white" id="invoice-paper">
-    <article class="p-6 sm:p-12 text-sm">
-      <!-- Header -->
-      <div class="flex flex-col sm:flex-row justify-between items-start mb-12">
-        <div class="flex flex-col mb-4 sm:mb-0">
-          <h1 class="text-3xl font-bold text-black">INVOICE</h1>
-          <p class="text-gray-600"># {{invoice.invoiceId}}</p>
-        </div>
-        <div class="text-left sm:text-right">
-          <h2 class="text-xl font-bold text-black">
-            {{invoice.settings.businessName}}
-          </h2>
-          <p class="text-gray-600">123 Business Rd, Dhaka, Bangladesh</p>
-          <p class="text-gray-600">contact@yourcompany.com</p>
+  <div id="invoice-paper">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        <h1>{{invoice.settings.businessName}}</h1>
+        <div class="business-info">
+          {{#if invoice.settings.businessAddress}}{{invoice.settings.businessAddress}}<br />{{/if}}
+          {{#if invoice.settings.businessEmail}}{{invoice.settings.businessEmail}}{{/if}}
+          {{#if invoice.settings.businessPhone}} &bull; {{invoice.settings.businessPhone}}{{/if}}
         </div>
       </div>
-
-      <!-- Bill To & Invoice Details -->
-      <div class="grid sm:grid-cols-2 gap-8 mb-12">
-        <div>
-          <h3 class="font-semibold text-gray-800 mb-2">Bill To</h3>
-          <p class="font-bold text-black">{{invoice.customerDetails.name}}</p>
-          <p class="text-gray-600">{{invoice.customerDetails.address}}</p>
-          <p class="text-gray-600">{{invoice.customerDetails.phone}}</p>
-          {{#if invoice.currentCreditBalance}}
-          <p class="text-gray-600 font-medium">Credit Balance: {{invoice.currencySymbol}} {{formatNumber
-            invoice.currentCreditBalance}}</p>
-          {{/if}}
-        </div>
-        <div class="text-left sm:text-right">
-          <div>
-            <p>
-              <span class="font-semibold text-gray-800">Invoice Date:</span>
-              {{invoice.formattedInvoiceDate}}
-            </p>
-            <p>
-              <span class="font-semibold text-gray-800">Sale Date:</span>
-              {{invoice.formattedSaleDate}}
-            </p>
-            <p>
-              <span class="font-semibold text-gray-800">Sale ID:</span>
-              #{{invoice.shortSalesId}}
-            </p>
-          </div>
-        </div>
+      <div class="header-right">
+        <div class="invoice-title">INVOICE</div>
+        <div class="invoice-number"># {{invoice.invoiceId}}</div>
+        {{#if invoice.paymentStatus}}
+        <div class="status-badge {{invoice.paymentStatusClass}}">{{invoice.paymentStatus}}</div>
+        {{/if}}
       </div>
+    </div>
 
-      <!-- Items Table -->
-      <div class="overflow-x-auto mb-12">
-        <table class="w-full">
-          <thead class="border-b-2 border-black">
-            <tr>
-              <th class="p-1 sm:p-2 text-left font-bold text-black">Item</th>
-              <th class="p-1 sm:p-2 text-center font-bold text-black">Qty</th>
-              <th class="p-1 sm:p-2 text-right font-bold text-black">
-                Unit Price
-              </th>
-              <th class="p-1 sm:p-2 text-right font-bold text-black">
-                Total
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {{#each invoice.items}}
-            <tr class="border-b border-gray-200">
-              <td class="p-1 sm:p-2 align-top">
-                <p class="font-semibold text-black">
-                  {{this.name}}
-                </p>
-                <p class="text-gray-600">
-                  {{this.category}}
-                </p>
-              </td>
-              <td class="p-1 sm:p-2 text-center align-top">
-                {{this.quantity}}
-                {{this.unitName}}
-              </td>
-              <td class="p-1 sm:p-2 text-right align-top">
-                {{@root.invoice.currencySymbol}} {{formatNumber this.pricePerUnit}}
-              </td>
-              <td class="p-1 sm:p-2 text-right align-top">
-                {{@root.invoice.currencySymbol}} {{formatNumber this.total}}
-              </td>
-            </tr>
-            {{/each}}
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Financial Summary -->
-      <div class="grid sm:grid-cols-2 gap-x-6 gap-y-4 sm:gap-x-12 sm:gap-y-8 mb-12">
-        <!-- Payments Section -->
-        <div>
-          {{#if invoice.paymentAndAmountInfo.payments.length}}
-          <h3 class="font-semibold text-gray-800 mb-3 border-b pb-1">
-            Payments Received
-          </h3>
-          <div class="space-y-2">
-            {{#each invoice.paymentAndAmountInfo.payments}}
-            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center">
-              <p class="text-gray-600">
-                {{this.formattedDate}} - {{this.method}}
-                {{#if this.accountDetails}}
-                ({{this.accountDetails.accountName}})
-                {{/if}}
-              </p>
-              <p class="font-semibold text-black text-left sm:text-right">
-                {{@root.invoice.currencySymbol}} {{formatNumber this.amount}}
-              </p>
-            </div>
-            {{/each}}
-          </div>
-          {{/if}}
+    <!-- Bill To & Invoice Meta -->
+    <div class="meta-section">
+      <div class="bill-to">
+        <div class="section-label">Bill To</div>
+        <div class="customer-name">{{invoice.customerDetails.name}}</div>
+        {{#if invoice.customerDetails.address}}<div class="customer-detail">{{invoice.customerDetails.address}}</div>{{/if}}
+        {{#if invoice.customerDetails.phone}}<div class="customer-detail">{{invoice.customerDetails.phone}}</div>{{/if}}
+        {{#if invoice.currentCreditBalance}}
+        <div class="customer-detail" style="margin-top: 4px; font-weight: 600;">
+          Credit Balance: {{invoice.currencySymbol}} {{formatNumber invoice.currentCreditBalance}}
         </div>
-
-        <!-- Totals Section -->
-        <div class="space-y-2">
-          <div class="flex justify-between">
-            <p class="text-gray-600">Subtotal:</p>
-            <p class="font-semibold text-black">
-              {{@root.invoice.currencySymbol}} {{formatNumber
-              invoice.paymentAndAmountInfo.totalAmount}}
-            </p>
-          </div>
-          {{#each invoice.allChargesAndCosts}}
-          <div class="flex justify-between">
-            <p class="text-gray-600">{{this.name}}:</p>
-            <p class="font-semibold text-black">
-              {{@root.invoice.currencySymbol}} {{formatNumber this.amount}}
-            </p>
-          </div>
-          {{/each}} {{#if invoice.paymentAndAmountInfo.discount}}
-          <div class="flex justify-between">
-            <p class="text-gray-600">Discount:</p>
-            <p class="font-semibold text-black">
-              -{{@root.invoice.currencySymbol}} {{formatNumber
-              invoice.paymentAndAmountInfo.discount}}
-            </p>
-          </div>
-          {{/if}}
-          <div class="flex justify-between pt-2 border-t-2 border-black">
-            <p class="font-bold text-black text-base">Net Amount:</p>
-            <p class="font-bold text-black text-base">
-              {{@root.invoice.currencySymbol}} {{formatNumber
-              invoice.paymentAndAmountInfo.totalAmountToBePaid}}
-            </p>
-          </div>
-          <div class="flex justify-between">
-            <p class="text-gray-600">Total Paid:</p>
-            <p class="font-semibold text-black">
-              {{@root.invoice.currencySymbol}} {{formatNumber invoice.totalPayments}}
-            </p>
-          </div>
-          <div class="flex justify-between bg-gray-100 p-2 rounded-md">
-            <p class="font-bold text-black text-base">Balance Due:</p>
-            <p class="font-bold text-black text-base">
-              {{@root.invoice.currencySymbol}} {{formatNumber invoice.balanceDue}}
-            </p>
-          </div>
-          {{#if invoice.creditedToWallet}}
-          <div class="flex justify-between bg-blue-50 p-2 rounded-md text-blue-800">
-            <p class="font-bold text-base">Credited to Wallet:</p>
-            <p class="font-bold text-base">
-              {{@root.invoice.currencySymbol}} {{formatNumber invoice.creditedToWallet}}
-            </p>
-          </div>
-          {{/if}}
+        {{/if}}
+      </div>
+      <div class="invoice-meta">
+        <div class="section-label">Invoice Details</div>
+        <div class="meta-row">
+          <span class="meta-label">Invoice Date:</span>
+          <span class="meta-value">{{invoice.formattedInvoiceDate}}</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-label">Sale Date:</span>
+          <span class="meta-value">{{invoice.formattedSaleDate}}</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-label">Sale ID:</span>
+          <span class="meta-value">#{{invoice.shortSalesId}}</span>
         </div>
       </div>
+    </div>
 
-      <!-- Notes -->
-      {{#if invoice.notes}}
-      <div class="mb-12">
-        <h3 class="font-semibold text-gray-800 mb-2">Notes</h3>
-        <p class="text-gray-600 whitespace-pre-line">{{invoice.notes}}</p>
+    <!-- Items Table -->
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th style="width: 40px;" class="text-center">Sl.</th>
+          <th>Item</th>
+          <th class="text-center" style="width: 100px;">Qty</th>
+          <th class="text-right" style="width: 120px;">Unit Price</th>
+          <th class="text-right" style="width: 120px;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each invoice.items}}
+        <tr>
+          <td class="text-center">{{addOne @index}}</td>
+          <td>
+            <div class="item-name">{{this.name}}</div>
+            <div class="item-category">{{this.category}}</div>
+          </td>
+          <td class="text-center">{{this.quantity}} {{this.unitName}}</td>
+          <td class="text-right">{{@root.invoice.currencySymbol}} {{formatNumber this.pricePerUnit}}</td>
+          <td class="text-right">{{@root.invoice.currencySymbol}} {{formatNumber this.total}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+
+    <!-- Financial Summary -->
+    <div class="financial-section">
+      <!-- Payments Column -->
+      <div class="payments-col">
+        {{#if invoice.paymentAndAmountInfo.payments.length}}
+        <div class="payments-title">Payments Received</div>
+        {{#each invoice.paymentAndAmountInfo.payments}}
+        <div class="payment-row">
+          <span class="payment-meta">
+            {{this.formattedDate}} &mdash; {{this.method}}{{#if this.accountDetails}} ({{this.accountDetails.accountName}}){{/if}}
+          </span>
+          <span class="payment-amount">
+            {{@root.invoice.currencySymbol}} {{formatNumber this.amount}}
+          </span>
+        </div>
+        {{/each}}
+        {{/if}}
       </div>
-      {{/if}}
 
-      <!-- Footer -->
-      <footer class="text-center pt-8 border-t">
-        <p class="text-gray-600">Thank you for your business.</p>
-      </footer>
-    </article>
+      <!-- Totals Column -->
+      <div class="totals-col">
+        <div class="total-row">
+          <span class="total-label">Subtotal</span>
+          <span class="total-value">{{invoice.currencySymbol}} {{formatNumber invoice.paymentAndAmountInfo.totalAmount}}</span>
+        </div>
+        {{#each invoice.allChargesAndCosts}}
+        <div class="total-row">
+          <span class="total-label">{{this.name}}</span>
+          <span class="total-value">{{@root.invoice.currencySymbol}} {{formatNumber this.amount}}</span>
+        </div>
+        {{/each}}
+        {{#if invoice.paymentAndAmountInfo.discount}}
+        <div class="total-row">
+          <span class="total-label">Discount</span>
+          <span class="total-value">-{{invoice.currencySymbol}} {{formatNumber invoice.paymentAndAmountInfo.discount}}</span>
+        </div>
+        {{/if}}
+        <div class="total-row net-amount">
+          <span class="total-label">Net Amount</span>
+          <span class="total-value">{{invoice.currencySymbol}} {{formatNumber invoice.paymentAndAmountInfo.totalAmountToBePaid}}</span>
+        </div>
+        <div class="total-row">
+          <span class="total-label">Total Paid</span>
+          <span class="total-value">{{invoice.currencySymbol}} {{formatNumber invoice.totalPayments}}</span>
+        </div>
+        <div class="total-row balance-due">
+          <span class="total-label">Balance Due</span>
+          <span class="total-value">{{invoice.currencySymbol}} {{formatNumber invoice.balanceDue}}</span>
+        </div>
+        {{#if invoice.creditedToWallet}}
+        <div class="total-row credited-wallet">
+          <span class="total-label">Credited to Wallet</span>
+          <span class="total-value">{{invoice.currencySymbol}} {{formatNumber invoice.creditedToWallet}}</span>
+        </div>
+        {{/if}}
+      </div>
+    </div>
+
+    <!-- Notes -->
+    {{#if invoice.notes}}
+    <div class="notes-section">
+      <div class="section-label">Notes</div>
+      <div class="notes-text">{{invoice.notes}}</div>
+    </div>
+    {{/if}}
+
+    <!-- Footer -->
+    <footer class="invoice-footer">
+      Thank you for your business.
+    </footer>
   </div>
 </body>
 

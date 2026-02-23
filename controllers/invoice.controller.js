@@ -4,8 +4,40 @@ const Invoice = require("../models/invoice.model");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
-const Trash = require("../models/trash.model");
 const mongoose = require("mongoose");
+
+// --- Shared error handler for invoice operations ---
+function handleInvoiceError(error, next) {
+  if (error instanceof ApiError) {
+    return next(error);
+  }
+  if (error.code === 11000 && error.keyPattern && error.keyValue) {
+    const field = Object.keys(error.keyPattern)[0];
+    const value = error.keyValue[field];
+    return next(
+      new ApiError(
+        409,
+        `An invoice with the same ${field} '${value}' already exists.`,
+      ),
+    );
+  }
+  if (error.name === "ValidationError") {
+    const firstErrorField = Object.keys(error.errors)[0];
+    const msg = firstErrorField
+      ? `The field ${firstErrorField} is required.`
+      : "Validation failed.";
+    return next(new ApiError(400, msg, error.errors));
+  }
+  logger.error(error);
+  next(
+    new ApiError(
+      500,
+      "An unexpected error occurred. Please try again.",
+      [],
+      error.message,
+    ),
+  );
+}
 
 async function generateInvoice(req, res, next) {
   try {
@@ -29,8 +61,8 @@ async function generateInvoice(req, res, next) {
         strictPopulate: false,
         populate: {
           path: "category",
-          select: "name"
-        }
+          select: "name",
+        },
       });
 
     if (!sale) {
@@ -50,11 +82,9 @@ async function generateInvoice(req, res, next) {
 
     // If an invoice already exists, check if there have been meaningful changes.
     if (latestInvoice) {
-      // Helper to sort and stringify financial arrays for comparison
       const areFinancialArraysEqual = (arrA, arrB) => {
         if (arrA.length !== arrB.length) return false;
 
-        // Create a simplified, sorted string representation for comparison
         const sortAndStringify = (arr) =>
           arr
             .map(({ amount, name, method, date, accountId }) =>
@@ -93,7 +123,6 @@ async function generateInvoice(req, res, next) {
     const currentYear = new Date().getFullYear();
     const shortYear = currentYear.toString().slice(-2);
 
-    // Find the last invoice to get the highest sequential number
     const lastInvoice = await Invoice.findOne({
       invoiceId: new RegExp(`^INV-${shortYear}-`, "i"),
     }).sort({ invoiceId: -1 });
@@ -146,26 +175,21 @@ async function generateInvoice(req, res, next) {
       0,
     );
     const totalAmountToBePaid = sale.totalAmountToBePaid || 0;
-    const balanceDue = Math.max(0, Math.round((totalAmountToBePaid - paymentsMade) * 100) / 100);
-    const overPayment = 0; // Strict payment enforced, no overpayment recorded
+    const balanceDue = Math.max(
+      0,
+      Math.round((totalAmountToBePaid - paymentsMade) * 100) / 100,
+    );
+    const overPayment = 0;
 
-    // Map sale items to invoice items
-    const invoiceItems = sale.items.map(item => ({
+    const invoiceItems = sale.items.map((item) => ({
       productId: item.product._id,
       name: item.product.name,
-      category: item.product.category?.name || "N/A", // assuming product has populated category but we didn't populate product.category explicitly in the findById above.
-      // Wait, "populate('items.product category items.unit')" populates product. But does it populate product.category? No.
-      // We need to fetch category name. 
-      // Let's rely on sale.category for main category or just put N/A if it's too complex.
-      // Actually, let's leave category blank or generic if needed, but the schema requires it.
-      // Let's populate 'items.product' which is a Product model. Product model has 'category'.
-      // If we want item category, we need to populate 'items.product.category'.
-      // Let's try to populate deep.
+      category: item.product.category?.name || "N/A",
       quantity: item.quantity,
       unit: item.unit._id,
       unitName: item.unit.name,
       pricePerUnit: item.pricePerUnit,
-      total: item.total
+      total: item.total,
     }));
 
     const invoice = await Invoice.create({
@@ -196,135 +220,86 @@ async function generateInvoice(req, res, next) {
       .status(201)
       .json(new ApiResponse(201, invoice, "Invoice generated successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `An invoice with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Specific message for invoice
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    logger.error(error);
-    next(
-      new ApiError(
-        500,
-        "An unexpected error occurred. Please try again.",
-        [],
-        error.message,
-      ),
-    );
+    handleInvoiceError(error, next);
   }
 }
 
 async function getAllInvoices(req, res, next) {
   try {
-    const invoices = await Invoice.aggregate([
-      {
-        $lookup: {
-          from: "users",
-          localField: "createdBy",
-          foreignField: "_id",
-          as: "creator",
-        },
-      },
-      {
-        $addFields: {
-          createdBy: { $arrayElemAt: ["$creator", 0] },
-        },
-      },
-      {
-        $project: {
-          creator: 0,
-          "createdBy.password": 0,
-        },
-      },
-      // --- Nested Lookups for Items ---
-      { $unwind: { path: "$items", preserveNullAndEmptyArrays: true } },
+    // Pagination support
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
 
-      // Populate items.unit
-      {
-        $lookup: {
-          from: "units",
-          localField: "items.unit",
-          foreignField: "_id",
-          as: "items.unit"
-        }
-      },
-      { $unwind: { path: "$items.unit", preserveNullAndEmptyArrays: true } },
-
-      // Group back items
-      {
-        $group: {
-          _id: "$_id",
-          root: { $first: "$$ROOT" },
-          items: { $push: "$items" }
-        }
-      },
-      {
-        $replaceRoot: {
-          newRoot: {
-            $mergeObjects: ["$root", { items: "$items" }]
-          }
-        }
-      },
-      // --- End Nested Lookups for Items ---
-      {
-        $sort: { createdAt: -1 },
-      },
+    const [invoices, totalCount] = await Promise.all([
+      Invoice.aggregate([
+        {
+          $lookup: {
+            from: "users",
+            localField: "createdBy",
+            foreignField: "_id",
+            as: "creator",
+          },
+        },
+        {
+          $addFields: {
+            createdBy: { $arrayElemAt: ["$creator", 0] },
+          },
+        },
+        {
+          $project: {
+            creator: 0,
+            "createdBy.password": 0,
+          },
+        },
+        { $unwind: { path: "$items", preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: "units",
+            localField: "items.unit",
+            foreignField: "_id",
+            as: "items.unit",
+          },
+        },
+        { $unwind: { path: "$items.unit", preserveNullAndEmptyArrays: true } },
+        {
+          $group: {
+            _id: "$_id",
+            root: { $first: "$$ROOT" },
+            items: { $push: "$items" },
+          },
+        },
+        {
+          $replaceRoot: {
+            newRoot: {
+              $mergeObjects: ["$root", { items: "$items" }],
+            },
+          },
+        },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+      ]),
+      Invoice.countDocuments(),
     ]);
-    return res
-      .status(200)
-      .json(new ApiResponse(200, invoices, "Invoices fetched successfully"));
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `An invoice with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Specific message for invoice
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
 
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    logger.error(error);
-    next(
-      new ApiError(
-        500,
-        "An unexpected error occurred. Please try again.",
-        [],
-        error.message,
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          invoices,
+          pagination: {
+            currentPage: page,
+            totalPages: Math.ceil(totalCount / limit),
+            totalCount,
+            limit,
+          },
+        },
+        "Invoices fetched successfully",
       ),
     );
+  } catch (error) {
+    handleInvoiceError(error, next);
   }
 }
 
@@ -335,6 +310,7 @@ async function getInvoiceById(req, res, next) {
     const results = await Invoice.aggregate([
       { $match: { _id: new mongoose.Types.ObjectId(id) } },
 
+      // Lookup creator user
       {
         $lookup: {
           from: "users",
@@ -355,115 +331,33 @@ async function getInvoiceById(req, res, next) {
         },
       },
 
-      // Populate productDetails.unit
-      // --- Nested Lookups for Items ---
-      { $unwind: { path: "$items", preserveNullAndEmptyArrays: true } },
-
       // Populate items.unit
+      { $unwind: { path: "$items", preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: "units",
           localField: "items.unit",
           foreignField: "_id",
-          as: "items.unit"
-        }
+          as: "items.unit",
+        },
       },
       { $unwind: { path: "$items.unit", preserveNullAndEmptyArrays: true } },
-
-      // Group back items
       {
         $group: {
           _id: "$_id",
           root: { $first: "$$ROOT" },
-          items: { $push: "$items" }
-        }
+          items: { $push: "$items" },
+        },
       },
       {
         $replaceRoot: {
           newRoot: {
-            $mergeObjects: ["$root", { items: "$items" }]
-          }
-        }
+            $mergeObjects: ["$root", { items: "$items" }],
+          },
+        },
       },
-      // --- End Nested Lookups for Items ---
 
-      // Populate accountDetails for each payment in paymentAndAmountInfo.payments
-      {
-        $addFields: {
-          "paymentAndAmountInfo.payments": {
-            $map: {
-              input: "$paymentAndAmountInfo.payments",
-              as: "payment",
-              in: {
-                $mergeObjects: [
-                  "$$payment",
-                  {
-                    accountDetails: {
-                      $cond: {
-                        if: "$$payment.accountId",
-                        then: {
-                          $arrayElemAt: [
-                            {
-                              $filter: {
-                                input: "$$ROOT.accounts", // Assuming accounts are looked up globally or passed in
-                                as: "account",
-                                cond: {
-                                  $eq: ["$$account._id", "$$payment.accountId"],
-                                },
-                              },
-                            },
-                            0,
-                          ],
-                        },
-                        else: null,
-                      },
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        },
-      },
-      // Populate accountDetails for each cost in paymentAndAmountInfo.costs
-      {
-        $addFields: {
-          "paymentAndAmountInfo.costs": {
-            $map: {
-              input: "$paymentAndAmountInfo.costs",
-              as: "cost",
-              in: {
-                $mergeObjects: [
-                  "$$cost",
-                  {
-                    accountDetails: {
-                      $cond: {
-                        if: "$$cost.accountId",
-                        then: {
-                          $arrayElemAt: [
-                            {
-                              $filter: {
-                                input: "$$ROOT.accounts", // Assuming accounts are looked up globally or passed in
-                                as: "account",
-                                cond: {
-                                  $eq: ["$$account._id", "$$cost.accountId"],
-                                },
-                              },
-                            },
-                            0,
-                          ],
-                        },
-                        else: null,
-                      },
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        },
-      },
-      // Lookup all accounts needed (for payments and costs) in a single lookup stage
+      // Lookup all accounts needed for payments and costs in a single stage
       {
         $lookup: {
           from: "accounts",
@@ -486,7 +380,18 @@ async function getInvoiceById(req, res, next) {
           as: "accounts",
         },
       },
-      // Final project to reshape the document into the desired output format
+
+      // Lookup customer credit balance
+      {
+        $lookup: {
+          from: "customers",
+          localField: "customerDetails.customerId",
+          foreignField: "_id",
+          as: "customerLookup",
+        },
+      },
+
+      // Final project — resolve account details inline
       {
         $project: {
           _id: 1,
@@ -495,7 +400,19 @@ async function getInvoiceById(req, res, next) {
           invoiceGeneratedDate: 1,
           salesDate: 1,
           items: 1,
-          customerDetails: 1,
+          customerDetails: {
+            $mergeObjects: [
+              "$customerDetails",
+              {
+                creditBalance: {
+                  $ifNull: [
+                    { $arrayElemAt: ["$customerLookup.creditBalance", 0] },
+                    null,
+                  ],
+                },
+              },
+            ],
+          },
           notes: 1,
           createdAt: 1,
           updatedAt: 1,
@@ -575,53 +492,19 @@ async function getInvoiceById(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, invoice, "Invoice fetched successfully"));
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `An invoice with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Specific message for invoice
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    logger.error(error);
-    next(
-      new ApiError(
-        500,
-        "An unexpected error occurred. Please try again.",
-        [],
-        error.message,
-      ),
-    );
+    handleInvoiceError(error, next);
   }
 }
 
 async function getInvoicesBySaleId(req, res, next) {
   try {
-    const { saleId } = req.params; // This is the _id of the sale
+    const { saleId } = req.params;
 
-    // Find the sale by its _id to get the string saleId
     const sale = await Sales.findById(saleId).select("saleId").lean();
     if (!sale) {
       return next(new ApiError(404, "Sale not found"));
     }
 
-    // Use the string sale.saleId to find all associated invoices
     const invoices = await Invoice.aggregate([
       { $match: { salesId: sale.saleId } },
       {
@@ -662,39 +545,7 @@ async function getInvoicesBySaleId(req, res, next) {
         ),
       );
   } catch (error) {
-    if (error instanceof ApiError) {
-      return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyPattern[field];
-      return next(
-        new ApiError(
-          409,
-          `An invoice with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Specific message for invoice
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
-    }
-    logger.error(error);
-    next(
-      new ApiError(
-        500,
-        "An unexpected error occurred. Please try again.",
-        [],
-        error.message,
-      ),
-    );
+    handleInvoiceError(error, next);
   }
 }
 

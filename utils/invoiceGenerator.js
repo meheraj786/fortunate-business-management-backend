@@ -1,98 +1,121 @@
 const fs = require("fs").promises;
 const path = require("path");
 const handlebars = require("handlebars");
-const Invoice = require("../models/invoice.model"); // Assuming the path to your model
+const Invoice = require("../models/invoice.model");
 const Customer = require("../models/customer.model");
-const SystemSettings = require("../models/systemSettings.model"); // Import SystemSettings
+const SystemSettings = require("../models/systemSettings.model");
 const { ApiError } = require("./ApiError");
-const { getBrowser } = require("./browserManager"); // Import the shared browser manager
+const { getBrowser } = require("./browserManager");
 
-// --- Template Caching ---
-// Read and compile the template once when the module is loaded.
+// --- Template Caching (Promise-based, race-condition safe) ---
 const templatePath = path.resolve(__dirname, "./invoiceTemplate.html");
-let compiledTemplate;
-// Immediately-invoked function to load and compile the template
-(async () => {
-  try {
-    const templateHtml = await fs.readFile(templatePath, "utf-8");
-    compiledTemplate = handlebars.compile(templateHtml);
-    console.log("Invoice template successfully compiled and cached.");
-  } catch (error) {
-    console.error("Failed to load and compile invoice template:", error);
-    process.exit(1); // Exit if the template cannot be loaded, as it's critical
+let templatePromise;
+
+function getCompiledTemplate() {
+  if (!templatePromise) {
+    templatePromise = fs.readFile(templatePath, "utf-8").then((html) => {
+      console.log("Invoice template successfully compiled and cached.");
+      return handlebars.compile(html);
+    });
   }
-})();
+  return templatePromise;
+}
 // --- End Template Caching ---
 
 /**
- * Helper to format a number with commas.
- * @param {number} number - The number to format.
- * @returns {string} - The formatted number.
+ * Helper to format a number with commas (matches frontend's Number.toLocaleString).
  */
 function formatNumber(number) {
   if (number === undefined || number === null) return "0.00";
-  return new Intl.NumberFormat("en-IN", {
+  return new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(number);
 }
 
 /**
- * Helper to format a date string.
- * @param {string | Date} dateString - The date to format.
- * @param {string} dateFormat - The format string (MM/DD/YYYY, etc).
- * @returns {string} - The formatted date.
+ * Format a date string to match the frontend's SettingsContext.formatDate logic exactly.
+ * Maps dateFormat setting to the correct Intl locale.
  */
-function formatDate(dateString, dateFormat = "MM/DD/YYYY") {
+function formatDate(dateString, dateFormat = "MM/DD/YYYY", timezone) {
   if (!dateString) return "N/A";
-  const date = new Date(dateString);
 
-  // Map settings format to Intl options or custom logic
-  // Simplified mapping for Intl:
-  let options = { year: "numeric", month: "short", day: "2-digit" };
-  if (dateFormat === "DD/MM/YYYY")
-    options = { day: "2-digit", month: "2-digit", year: "numeric" };
-  if (dateFormat === "YYYY-MM-DD")
-    options = { year: "numeric", month: "2-digit", day: "2-digit" };
+  try {
+    const date = new Date(dateString);
 
-  return new Intl.DateTimeFormat("en-GB", options).format(date);
+    // Match frontend: MM/DD/YYYY → en-US, DD/MM/YYYY → en-GB, YYYY-MM-DD → en-CA
+    const formatMap = {
+      "MM/DD/YYYY": "en-US",
+      "DD/MM/YYYY": "en-GB",
+      "YYYY-MM-DD": "en-CA",
+    };
+    const locale = formatMap[dateFormat] || "en-US";
+
+    const options = {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    };
+
+    if (timezone) {
+      options.timeZone = timezone;
+    }
+
+    return new Intl.DateTimeFormat(locale, options).format(date);
+  } catch {
+    return "N/A";
+  }
 }
 
-// Register the helpers with Handlebars
+// Register Handlebars helpers
 handlebars.registerHelper("formatNumber", formatNumber);
 handlebars.registerHelper("formatDate", formatDate);
+handlebars.registerHelper("addOne", (index) => index + 1);
+
+/**
+ * Returns a human-readable payment status and its CSS class.
+ */
+function getPaymentStatusInfo(paymentStatus) {
+  if (!paymentStatus) return { label: "", cssClass: "" };
+  if (paymentStatus === "Paid payment") return { label: "PAID", cssClass: "paid" };
+  if (paymentStatus === "Due payment") return { label: "DUE", cssClass: "due" };
+  return { label: paymentStatus.toUpperCase(), cssClass: "due" };
+}
 
 /**
  * Fetches invoice data and prepares it for the template.
- * @param {string} invoiceId - The ID of the invoice to fetch.
- * @returns {object} - The prepared invoice data.
  */
 async function getPreparedInvoiceData(invoiceId) {
-  const invoice = await Invoice.findById(invoiceId)
-    .populate("items.unit")
-    .populate({
-      path: "paymentAndAmountInfo.payments.accountId",
-      select: "accountName",
-    })
-    .lean(); // Use .lean() for faster performance with templates
+  // Parallelize: fetch invoice and settings simultaneously
+  const [invoice, settings] = await Promise.all([
+    Invoice.findById(invoiceId)
+      .populate("items.unit")
+      .populate({
+        path: "paymentAndAmountInfo.payments.accountId",
+        select: "accountName",
+      })
+      .lean(),
+    SystemSettings.getSingleton(),
+  ]);
 
   if (!invoice) {
     throw new ApiError(404, "Invoice not found");
   }
 
-  // Fetch System Settings
-  const settings = await SystemSettings.getSingleton();
   const currencySymbol = getCurrencySymbol(settings.currency);
 
+  // Fetch customer credit balance if applicable
   let currentCreditBalance = null;
   if (invoice.customerDetails && invoice.customerDetails.customerId) {
-    const customer = await Customer.findById(invoice.customerDetails.customerId);
+    const customer = await Customer.findById(
+      invoice.customerDetails.customerId,
+    ).lean();
     if (customer) {
       currentCreditBalance = customer.creditBalance;
     }
   }
 
-  // --- Prepare data for the template ---
+  // Calculate financial totals
   const totalPayments = invoice.paymentAndAmountInfo.payments.reduce(
     (sum, p) => sum + p.amount,
     0,
@@ -108,28 +131,41 @@ async function getPreparedInvoiceData(invoiceId) {
   }
 
   // Format Items
-  const formattedItems = (invoice.items || []).map(item => ({
+  const formattedItems = (invoice.items || []).map((item) => ({
     ...item,
-    unitName: item.unit?.name || item.unitName || "N/A", // Fallback to populated unit name or stored string
-    total: item.total || (item.quantity * item.pricePerUnit)
+    unitName: item.unit?.name || item.unitName || "N/A",
+    total: item.total || item.quantity * item.pricePerUnit,
   }));
 
+  // Payment status
+  const statusInfo = getPaymentStatusInfo(
+    invoice.paymentAndAmountInfo.paymentStatus,
+  );
 
-  // Combine and format data
   const preparedData = {
     ...invoice,
     items: formattedItems,
     settings: {
       businessName: settings.businessName,
+      businessAddress: settings.businessAddress || "",
+      businessEmail: settings.businessEmail || "",
+      businessPhone: settings.businessPhone || "",
       currency: settings.currency,
     },
     currencySymbol,
     currentCreditBalance,
+    paymentStatus: statusInfo.label,
+    paymentStatusClass: statusInfo.cssClass,
     formattedInvoiceDate: formatDate(
       invoice.invoiceGeneratedDate,
       settings.dateFormat,
+      settings.timezone,
     ),
-    formattedSaleDate: formatDate(invoice.salesDate, settings.dateFormat),
+    formattedSaleDate: formatDate(
+      invoice.salesDate,
+      settings.dateFormat,
+      settings.timezone,
+    ),
     shortSalesId: invoice.salesId.toString().slice(-6),
     allChargesAndCosts: [
       ...(invoice.paymentAndAmountInfo.charges || []),
@@ -142,8 +178,7 @@ async function getPreparedInvoiceData(invoiceId) {
       ...invoice.paymentAndAmountInfo,
       payments: (invoice.paymentAndAmountInfo.payments || []).map((p) => ({
         ...p,
-        formattedDate: formatDate(p.date, settings.dateFormat),
-        // Handle cases where account details might not be populated
+        formattedDate: formatDate(p.date, settings.dateFormat, settings.timezone),
         accountDetails: p.accountId
           ? { accountName: p.accountId.accountName }
           : null,
@@ -156,32 +191,25 @@ async function getPreparedInvoiceData(invoiceId) {
 
 /**
  * Generates HTML from the cached Handlebars template and invoice data.
- * @param {object} data - The prepared invoice data.
- * @returns {string} - The compiled HTML string.
  */
-function compileTemplate(data) {
-  if (!compiledTemplate) {
-    throw new Error("Invoice template is not compiled or available.");
-  }
-  return compiledTemplate(data);
+async function compileTemplate(data) {
+  const compiled = await getCompiledTemplate();
+  return compiled(data);
 }
 
 /**
  * Generates a PDF from invoice data.
- * @param {string} invoiceId - The ID of the invoice.
- * @returns {Buffer} - The generated PDF buffer.
  */
 async function generatePdf(invoiceId) {
   const data = await getPreparedInvoiceData(invoiceId);
-  const html = compileTemplate({ invoice: data });
+  const html = await compileTemplate({ invoice: data });
 
   const browser = await getBrowser();
   const page = await browser.newPage();
 
   try {
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "load" });
 
-    // Emulate print media type to apply print-specific CSS
     await page.emulateMediaType("print");
 
     const pdfBuffer = await page.pdf({
@@ -203,22 +231,19 @@ async function generatePdf(invoiceId) {
 
 /**
  * Generates a PNG image from invoice data.
- * @param {string} invoiceId - The ID of the invoice.
- * @returns {Buffer} - The generated PNG buffer.
  */
 async function generatePng(invoiceId) {
   const data = await getPreparedInvoiceData(invoiceId);
-  const html = compileTemplate({ invoice: data });
+  const html = await compileTemplate({ invoice: data });
 
   const browser = await getBrowser();
   const page = await browser.newPage();
 
   try {
-    await page.setViewport({ width: 800, height: 1120, deviceScaleFactor: 2 }); // A4-like aspect ratio, high-res
+    await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 2 });
 
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "load" });
 
-    // Find the invoice element to screenshot
     const element = await page.$("#invoice-paper");
     if (!element) {
       throw new ApiError(

@@ -53,9 +53,14 @@ async function getBrowser() {
  */
 async function closeBrowser() {
   if (browserInstance) {
+    const browserToClose = browserInstance;
+    browserInstance = null; // Clear synchronously to prevent double-closing
     logger.info("Closing Puppeteer browser instance...");
-    await browserInstance.close();
-    browserInstance = null;
+    try {
+      await browserToClose.close();
+    } catch (error) {
+      logger.error("Error closing Puppeteer browser instance:", error);
+    }
   }
 }
 
