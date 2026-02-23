@@ -106,8 +106,12 @@ const updateProduct = async (productId, warehouseId, data, userId) => {
  * @param {string} userId - User ID performing the delete
  */
 const deleteProduct = async (productId, warehouseId, userId) => {
+  // Check both the new items[] array and the legacy single-product field
   const existingSale = await Sales.findOne({
-    product: productId,
+    $or: [
+      { "items.product": productId },
+      { product: productId }, // Legacy fallback
+    ],
     isDeleted: { $ne: true },
   });
 

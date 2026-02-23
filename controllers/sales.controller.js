@@ -14,6 +14,7 @@ const { startOfDay, endOfDay, now } = require("../utils/timezone.util");
 const SalesService = require("../services/sales.service");
 const { formatAccountLabel } = require("../utils/format.util");
 const CreditHistory = require("../models/creditHistory.model");
+const mathUtil = require("../utils/math.util");
 
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
@@ -106,27 +107,21 @@ async function createSale(req, res, next) {
       accountId: p.account || p.accountId,
     }));
 
-    // Calculate Total Amount from items
-    const totalAmount = Math.round(items.reduce((sum, item) => sum + (item.quantity * item.pricePerUnit), 0) * 100) / 100;
+    // Calculate Total Amount from items (using Decimal.js for precision)
+    const totalAmount = mathUtil.round(mathUtil.sum(items.map(item => mathUtil.mul(item.quantity, item.pricePerUnit))));
 
     // Prepare items with totals for saving
     const saleItems = items.map(item => ({
       ...item,
-      total: item.quantity * item.pricePerUnit
+      total: mathUtil.mul(item.quantity, item.pricePerUnit)
     }));
 
     // Credit Limit Check
     if (customerInfo.customerId) {
-      const costsTotal = costs.reduce((acc, cost) => acc + cost.amount, 0);
-      const chargesTotal = charges.reduce(
-        (acc, charge) => acc + charge.amount,
-        0,
-      );
+      const costsTotal = mathUtil.sum(costs.map(c => c.amount));
+      const chargesTotal = mathUtil.sum(charges.map(c => c.amount));
       // totalAmount calculated above
-      const totalPaidInThisTransaction = transformedPayments.reduce(
-        (acc, p) => acc + p.amount,
-        0,
-      );
+      const totalPaidInThisTransaction = mathUtil.sum(transformedPayments.map(p => p.amount));
 
       const existingCustomer = await SalesService.checkCustomerCreditLimit(
         customerInfo.customerId,
@@ -315,8 +310,8 @@ async function createSale(req, res, next) {
           );
         }
 
-        // Increase account balance
-        account.balance += payment.amount;
+        // Increase account balance (using precise math)
+        account.balance = mathUtil.add(account.balance, payment.amount);
         await account.save({ session });
 
         // DailyCash Gatekeeper Check
@@ -374,7 +369,7 @@ async function createSale(req, res, next) {
         // DailyCash check for the cost transaction date
         checkDailyCash(cost.date || sale.saleDate);
 
-        costAccount.balance -= cost.amount;
+        costAccount.balance = mathUtil.sub(costAccount.balance, cost.amount);
         await costAccount.save({ session });
 
         await Transaction.create(
@@ -414,18 +409,11 @@ async function createSale(req, res, next) {
       }
     }
 
-    if (finalCustomerInfo.customerId) {
-      await Customer.findOneAndUpdate(
-        { _id: finalCustomerInfo.customerId, isDeleted: { $ne: true } },
-        {
-          $push: { transactions: sale._id },
-        },
-        { session },
-      );
-    }
+    // Note: Customer.transactions field was removed from the schema.
+    // Sale linkage is maintained via sale.customer.customerId instead.
 
     // --- Strict Payment Logic ---
-    const totalPaid = Math.round(sale.payments.reduce((acc, p) => acc + p.amount, 0) * 100) / 100;
+    const totalPaid = mathUtil.round(mathUtil.sum(sale.payments.map(p => p.amount)));
 
     if (totalPaid > sale.totalAmountToBePaid) {
       throw new ApiError(
@@ -814,7 +802,7 @@ async function updateSale(req, res, next) {
     sale.modifiedBy = req.user?._id;
 
     // Recalculate Total Amount
-    const totalAmount = Math.round(sale.items.reduce((sum, item) => sum + (item.quantity * item.pricePerUnit), 0) * 100) / 100;
+    const totalAmount = mathUtil.round(mathUtil.sum(sale.items.map(item => mathUtil.mul(item.quantity, item.pricePerUnit))));
     sale.totalAmount = totalAmount;
 
     // Trigger schema validation (pre-save hook calculates totalAmountToBePaid)
@@ -823,9 +811,9 @@ async function updateSale(req, res, next) {
     // [NEW] 4.5. Check Customer Credit Limit
     if (sale.customer?.customerId) {
       // We need to pass the *prospective* financials
-      const costsTotal = sale.costs.reduce((acc, c) => acc + c.amount, 0);
-      const chargesTotal = sale.charges.reduce((acc, c) => acc + c.amount, 0);
-      const currentTotalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0); // Assuming payments largely static here
+      const costsTotal = mathUtil.sum(sale.costs.map(c => c.amount));
+      const chargesTotal = mathUtil.sum(sale.charges.map(c => c.amount));
+      const currentTotalPaid = mathUtil.sum(sale.payments.map(p => p.amount)); // Assuming payments largely static here
 
       await SalesService.checkCustomerCreditLimit(
         sale.customer.customerId,
@@ -852,7 +840,7 @@ async function updateSale(req, res, next) {
     }
 
     // 5. Strict Financial Check
-    const totalPaid = Math.round(sale.payments.reduce((acc, p) => acc + p.amount, 0) * 100) / 100;
+    const totalPaid = mathUtil.round(mathUtil.sum(sale.payments.map(p => p.amount)));
 
     // If the update reduces the total amount below what has already been paid, we prevent it.
     // The user must refund/remove payments first to lower the paid amount.
@@ -974,7 +962,7 @@ async function deleteSale(req, res, next) {
     // Only reverse financial transactions if there were actual payments made.
     if (saleToDelete.payments && saleToDelete.payments.length > 0) {
       // DailyCash Gatekeeper Check (only for sales with payments that need reversal)
-      const today = startOfDay(now());
+      const today = startOfDay(now(), req.businessTimezone);
       const dailyCash = await DailyCash.findOne({ date: today })
         .sort({ createdAt: -1 })
         .session(session);
@@ -1024,7 +1012,7 @@ async function deleteSale(req, res, next) {
             );
           }
           if (account) {
-            account.balance -= payment.amount;
+            account.balance = mathUtil.sub(account.balance, payment.amount);
             await account.save({ session });
 
             await Transaction.create(
@@ -1108,11 +1096,12 @@ async function deleteSale(req, res, next) {
     saleToDelete.deletedBy = user?._id || null;
     await saleToDelete.save({ session });
 
-    // Move to trash
+    // Move to trash (pass session for transactional safety)
     await moveToTrash({
       docId: saleToDelete._id,
       modelName: "Sale",
-      deletedBy: user?._id, // Pass the user's ID
+      deletedBy: user?._id,
+      session,
     });
 
     await session.commitTransaction();
@@ -1452,7 +1441,7 @@ async function addPartialPayment(req, res, next) {
         );
       }
 
-      account.balance += amount;
+      account.balance = mathUtil.add(account.balance, amount);
       await account.save({ session });
 
       await Transaction.create(
@@ -1486,7 +1475,7 @@ async function addPartialPayment(req, res, next) {
     sale.modifiedBy = req.user?._id || null;
 
     // --- Strict Payment Validation ---
-    const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
+    const totalPaid = mathUtil.sum(sale.payments.map(p => p.amount));
 
     if (totalPaid > sale.totalAmountToBePaid) {
       throw new ApiError(
@@ -1883,7 +1872,7 @@ async function cancelSale(req, res, next) {
           session,
         );
         if (account) {
-          account.balance -= payment.amount;
+          account.balance = mathUtil.sub(account.balance, payment.amount);
           await account.save({ session });
 
           await Transaction.create(
@@ -1921,7 +1910,7 @@ async function cancelSale(req, res, next) {
       if (cost.accountId) {
         const account = await Account.findById(cost.accountId).session(session);
         if (account) {
-          account.balance += cost.amount;
+          account.balance = mathUtil.add(account.balance, cost.amount);
           await account.save({ session });
 
           await Transaction.create(

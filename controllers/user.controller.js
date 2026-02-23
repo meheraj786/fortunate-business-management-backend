@@ -118,12 +118,12 @@ const loginUser = async (req, res, next) => {
 
     const user = await User.findOne({ email }).select("+password");
     if (!user) {
-      return next(new ApiError(404, "User not found"));
+      return next(new ApiError(401, "Invalid email or password"));
     }
 
     const isValid = await user.isPasswordCorrect(password);
     if (!isValid) {
-      return next(new ApiError(401, "Invalid credentials"));
+      return next(new ApiError(401, "Invalid email or password"));
     }
 
     const token = user.generateToken();
@@ -477,6 +477,21 @@ const deleteUser = async (req, res, next) => {
   try {
     const { id } = req.params;
     const deletedBy = req.user?._id || null;
+
+    // Prevent self-deletion
+    if (id === req.user?._id?.toString()) {
+      return next(new ApiError(400, "You cannot delete your own account."));
+    }
+
+    // Check if the target user is a SUPER_ADMIN
+    const targetUser = await User.findById(id);
+    if (!targetUser) {
+      return next(new ApiError(404, "User not found"));
+    }
+    if (targetUser.roleName === "SUPER_ADMIN") {
+      return next(new ApiError(403, "The SUPER_ADMIN account cannot be deleted."));
+    }
+
     const deletedUser = await User.findByIdAndUpdate(
       id,
       { isDeleted: true, deletedBy },

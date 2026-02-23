@@ -80,11 +80,6 @@ const systemSettingsSchema = new mongoose.Schema(
       default: "12h",
       enum: ["12h", "24h"],
     },
-    timeFormat: {
-      type: String,
-      default: "12h",
-      enum: ["12h", "24h"],
-    },
     backup: {
       frequency: {
         type: String,

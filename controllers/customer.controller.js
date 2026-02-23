@@ -13,6 +13,7 @@ const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
 const Transaction = require("../models/transaction.model");
 const CreditHistory = require("../models/creditHistory.model");
+const mathUtil = require("../utils/math.util");
 const { startOfDay } = require("../utils/timezone.util");
 const { formatAccountLabel } = require("../utils/format.util");
 const Counter = require("../models/counter.model");
@@ -946,7 +947,7 @@ async function addStoreCredit(req, res, next) {
       );
     }
 
-    account.balance += Number(amount);
+    account.balance = mathUtil.add(account.balance, Number(amount));
     await account.save({ session });
 
     // 2. Transaction Record
@@ -972,7 +973,7 @@ async function addStoreCredit(req, res, next) {
     );
 
     // 3. Update Customer Credit
-    customer.creditBalance = (customer.creditBalance || 0) + Number(amount);
+    customer.creditBalance = mathUtil.add(customer.creditBalance || 0, Number(amount));
     await customer.save({ session });
 
     // 4. Credit History Record

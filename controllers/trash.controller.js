@@ -14,17 +14,22 @@ const logger = require("../utils/logger");
 // Import timezone helpers
 const { startOfDay, now } = require("../utils/timezone.util"); // Import startOfDay
 const { formatAccountLabel } = require("../utils/format.util");
+const mathUtil = require("../utils/math.util");
 
 // ===============================
 // MOVE DOCUMENT TO TRASH
 // ===============================
-const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
+const moveToTrash = async ({ docId, modelName, deletedBy = null, session = null }) => {
   // Validate required data
   if (!docId || !modelName) {
     throw new Error(
       "Document ID and module name are required to move item to trash.",
     );
   }
+
+  // Build query options (support optional session for transactional safety)
+  const options = { upsert: true, new: true };
+  if (session) options.session = session;
 
   // Create or update trash entry
   await Trash.findOneAndUpdate(
@@ -35,7 +40,7 @@ const moveToTrash = async ({ docId, modelName, deletedBy = null }) => {
       deletedBy,
       deletedAt: now(),
     },
-    { upsert: true, new: true },
+    options,
   );
 };
 
@@ -107,7 +112,7 @@ const restoreFromTrash = async (req, res, next) => {
       }
 
       if (restoredDoc.transactionType === "Income") {
-        account.balance += restoredDoc.amount;
+        account.balance = mathUtil.add(account.balance, restoredDoc.amount);
       } else {
         if (account.balance < restoredDoc.amount) {
           throw new ApiError(
@@ -115,7 +120,7 @@ const restoreFromTrash = async (req, res, next) => {
             "The account does not have enough balance to restore this expense transaction.",
           );
         }
-        account.balance -= restoredDoc.amount;
+        account.balance = mathUtil.sub(account.balance, restoredDoc.amount);
       }
 
       await account.save({ session });
@@ -240,7 +245,7 @@ const restoreFromTrash = async (req, res, next) => {
           );
           if (!account) continue;
 
-          account.balance += payment.amount;
+          account.balance = mathUtil.add(account.balance, payment.amount);
           await account.save({ session });
 
           await Transaction.create(
@@ -290,7 +295,7 @@ const restoreFromTrash = async (req, res, next) => {
             );
           }
 
-          customer.creditBalance -= payment.amount;
+          customer.creditBalance = mathUtil.sub(customer.creditBalance, payment.amount);
           await customer.save({ session });
 
           await CreditHistory.create(
@@ -359,7 +364,7 @@ const restoreFromTrash = async (req, res, next) => {
           }
 
           // Deduct again
-          account.balance -= cost.amount;
+          account.balance = mathUtil.sub(account.balance, cost.amount);
           await account.save({ session });
 
           await Transaction.create(
