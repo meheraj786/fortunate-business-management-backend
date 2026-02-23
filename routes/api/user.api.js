@@ -12,7 +12,6 @@ const {
 const { authenticate } = require("../../middleware/auth.middleware");
 const {
   authorize,
-  authorizeRole,
 } = require("../../middleware/authorize.middleware");
 const { PERMISSIONS } = require("../../utils/permissions.constants");
 const userRoutes = express.Router();
@@ -29,25 +28,25 @@ userRoutes.get("/get-profile", authenticate, getProfile);
 userRoutes.patch(
   "/update-user/:id",
   authenticate,
-  authorizeRole("SUPER_ADMIN"),
+  authorize(PERMISSIONS.USER_UPDATE),
   updateUser
 );
 userRoutes.get(
   "/get-users",
   authenticate,
-  authorizeRole("SUPER_ADMIN"),
+  authorize(PERMISSIONS.USER_VIEW_ALL),
   getAllUser
 );
 userRoutes.get(
   "/get-user/:id",
   authenticate,
-  authorizeRole("SUPER_ADMIN"),
+  authorize(PERMISSIONS.USER_VIEW_DETAILS),
   getUser
 );
 userRoutes.delete(
   "/delete-user/:id",
   authenticate,
-  authorizeRole("SUPER_ADMIN"),
+  authorize(PERMISSIONS.USER_DELETE),
   deleteUser
 );
 

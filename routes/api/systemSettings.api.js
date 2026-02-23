@@ -16,7 +16,7 @@ systemSettingsRoutes.get("/get-settings", authenticate, getSettings);
 systemSettingsRoutes.patch(
   "/update-settings",
   authenticate,
-  authorize(PERMISSIONS.USER_CREATE), // Use USER_CREATE as proxy for admin
+  authorize(PERMISSIONS.SETTINGS_UPDATE),
   updateSettings,
 );
 

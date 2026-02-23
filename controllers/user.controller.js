@@ -348,8 +348,8 @@ const getAllUser = async (req, res, next) => {
       },
     ]);
 
-    if (!fetchedUser) {
-      return next(new ApiError(404, "User not found"));
+    if (fetchedUser.length === 0) {
+      return next(new ApiError(404, "No users found"));
     }
     return res
       .status(200)

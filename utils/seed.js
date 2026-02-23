@@ -6,8 +6,8 @@ require("dotenv").config();
 
 // Dynamically create full access for all modules based on the constants
 const fullAccess = MODULES.map((moduleName) => {
-  const modulePermissions = Object.keys(PERMISSIONS).filter((p) =>
-    p.startsWith(moduleName)
+  const modulePermissions = Object.values(PERMISSIONS).filter((p) =>
+    p.startsWith(moduleName + "_")
   );
   return {
     module: moduleName,
@@ -44,7 +44,7 @@ const seedSuperAdmin = async () => {
     });
 
     logger.info("Super Admin Created Successfully!");
-    process.exit(1);
+    process.exit(0);
   } catch (error) {
     logger.error("Seeder Failed:", error.message);
     console.log(error)
