@@ -21,13 +21,18 @@ exports.authenticate = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.SECRET_KEY);
 
     // OPTIMIZATION: Select only needed fields and use .lean() for faster queries
-    // This reduces query time by ~60-70% and memory usage by ~40%
+    // Include lastLogoutAt for token revocation check
     const user = await User.findById(decoded._id)
-      .select("_id name email roleName access warehouse isDeleted")
+      .select("_id name email roleName access warehouse isDeleted +lastLogoutAt")
       .lean();
 
     if (!user || user.isDeleted) {
       return res.status(401).json({ message: "User not found or access denied" });
+    }
+
+    // SEC-1: Token revocation check — reject tokens issued before last logout
+    if (user.lastLogoutAt && decoded.iat < Math.floor(user.lastLogoutAt.getTime() / 1000)) {
+      return res.status(401).json({ message: "Session expired. Please log in again." });
     }
 
     req.user = user;

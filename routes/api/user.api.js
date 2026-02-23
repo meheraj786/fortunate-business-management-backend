@@ -1,4 +1,5 @@
 const express = require("express");
+const rateLimit = require("express-rate-limit");
 const {
   registerUser,
   loginUser,
@@ -16,14 +17,23 @@ const {
 const { PERMISSIONS } = require("../../utils/permissions.constants");
 const userRoutes = express.Router();
 
+// SEC-4: Stricter rate limiter for login endpoint (brute-force protection)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15-minute window
+  max: 10, // Max 10 attempts per window
+  message: { message: "Too many login attempts. Please try again after 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 userRoutes.post(
   "/create-user",
   authenticate,
   authorize(PERMISSIONS.USER_CREATE),
   registerUser
 );
-userRoutes.post("/login", loginUser);
-userRoutes.post("/logout", logoutUser);
+userRoutes.post("/login", loginLimiter, loginUser);
+userRoutes.post("/logout", authenticate, logoutUser);
 userRoutes.get("/get-profile", authenticate, getProfile);
 userRoutes.patch(
   "/update-user/:id",

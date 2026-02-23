@@ -98,6 +98,11 @@ const userSchema = new mongoose.Schema(
       ref: "User",
       default: null,
     },
+    lastLogoutAt: {
+      type: Date,
+      default: null,
+      select: false, // Not needed in most queries, only auth check
+    },
   },
   { timestamps: true },
 );

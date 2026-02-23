@@ -112,8 +112,9 @@ async function updateSettings(req, res, next) {
       }
       // Encryption validation
       if (updateData.backup.encryption && updateData.backup.encryption.enabled) {
-        if (!updateData.backup.encryption.password && !settings.backup?.encryption?.password) {
-          throw new ApiError(400, "Password is required to enable encryption.");
+        // SEC-3: Password must be set via BACKUP_ENCRYPTION_PASSWORD env variable
+        if (!process.env.BACKUP_ENCRYPTION_PASSWORD) {
+          throw new ApiError(400, "Cannot enable encryption: BACKUP_ENCRYPTION_PASSWORD environment variable is not set. Please set it in your .env file.");
         }
       }
     }
@@ -133,7 +134,7 @@ async function updateSettings(req, res, next) {
       if (updateData.backup.encryption) {
         if (!settings.backup.encryption) settings.backup.encryption = {};
         if (updateData.backup.encryption.enabled !== undefined) settings.backup.encryption.enabled = updateData.backup.encryption.enabled;
-        if (updateData.backup.encryption.password) settings.backup.encryption.password = updateData.backup.encryption.password;
+        // SEC-3: Do NOT store password in DB — it's read from env variable only
       }
     }
 

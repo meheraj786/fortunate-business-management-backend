@@ -47,13 +47,14 @@ async function createBackup(req, res, next) {
 
     try {
         // Fetch settings first to determine encryption
-        // Need password for encryption, so use custom method
-        const settings = await SystemSettings.getSingletonWithPassword();
+        const settings = await SystemSettings.getSingleton();
         const isEncryptionEnabled = settings.backup?.encryption?.enabled;
-        const password = settings.backup?.encryption?.password;
+
+        // SEC-3: Read encryption password from environment variable (not DB)
+        const password = process.env.BACKUP_ENCRYPTION_PASSWORD;
 
         if (isEncryptionEnabled && !password) {
-            throw new Error("Encryption is enabled but no password is set. Cannot create backup.");
+            throw new Error("Encryption is enabled but BACKUP_ENCRYPTION_PASSWORD env variable is not set. Cannot create backup.");
         }
 
         const extension = isEncryptionEnabled ? ".zip.enc" : ".zip";

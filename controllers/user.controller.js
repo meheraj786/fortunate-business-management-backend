@@ -136,6 +136,7 @@ const loginUser = async (req, res, next) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days — matches JWT expiry
     };
 
     res.cookie("accessToken", token, cookieOptions);
@@ -180,7 +181,7 @@ const loginUser = async (req, res, next) => {
     );
   }
 };
-const logoutUser = async (_, res, next) => {
+const logoutUser = async (req, res, next) => {
   try {
     const cookieOptions = {
       httpOnly: true,
@@ -190,33 +191,17 @@ const logoutUser = async (_, res, next) => {
 
     res.clearCookie("accessToken", cookieOptions);
 
+    // SEC-1: Invalidate all tokens issued before this moment
+    if (req.user?._id) {
+      await User.findByIdAndUpdate(req.user._id, { lastLogoutAt: new Date() });
+    }
+
     return res
       .status(200)
       .json(new ApiResponse(200, {}, "Logged out successfully"));
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
-    }
-    // Handle MongoServerError for duplicate key (unique: true)
-    if (error.code === 11000 && error.keyPattern && error.keyValue) {
-      const field = Object.keys(error.keyPattern)[0];
-      const value = error.keyValue[field];
-      return next(
-        new ApiError(
-          409,
-          `A user with the same ${field} '${value}' already exists.`,
-        ),
-      ); // Specific message for user
-    }
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      const firstErrorField = Object.keys(error.errors)[0];
-      let userFriendlyMessage = "Validation failed.";
-
-      if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
-      }
-      return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
     logger.error(error);
     next(
