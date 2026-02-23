@@ -109,6 +109,17 @@ const systemSettingsSchema = new mongoose.Schema(
         },
       },
     },
+    logging: {
+      consoleEnabled: {
+        type: Boolean,
+        default: true,
+      },
+      consoleLevel: {
+        type: String,
+        enum: ["error", "warn", "info", "debug"],
+        default: "error",
+      },
+    },
   },
   {
     timestamps: true,

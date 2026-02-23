@@ -2,6 +2,7 @@ const SystemSettings = require("../models/systemSettings.model");
 const { ApiResponse } = require("../utils/ApiResponse");
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
+const { reloadConsoleTransport } = require("../utils/logger");
 const { invalidateTimezoneCache } = require("../middleware/timezone.middleware");
 const auditService = require("../services/audit.service");
 
@@ -139,8 +140,20 @@ async function updateSettings(req, res, next) {
       }
     }
 
-    // Remove backup from updateData to prevent overwriting the merged object above with Object.assign potentially
+    // Handle logging settings
+    if (updateData.logging) {
+      const validLevels = ["error", "warn", "info", "debug"];
+      if (updateData.logging.consoleLevel && !validLevels.includes(updateData.logging.consoleLevel)) {
+        throw new ApiError(400, `Invalid console level. Must be one of: ${validLevels.join(", ")}`);
+      }
+      if (!settings.logging) settings.logging = {};
+      if (updateData.logging.consoleEnabled !== undefined) settings.logging.consoleEnabled = updateData.logging.consoleEnabled;
+      if (updateData.logging.consoleLevel) settings.logging.consoleLevel = updateData.logging.consoleLevel;
+    }
+
+    // Remove backup and logging from updateData to prevent overwriting the merged objects above with Object.assign
     delete updateData.backup;
+    delete updateData.logging;
 
     Object.assign(settings, updateData);
     await settings.save();
@@ -153,6 +166,12 @@ async function updateSettings(req, res, next) {
       const { rescheduleBackupJob } = require("../services/backupScheduler.service");
       await rescheduleBackupJob();
     }
+
+    // Hot-reload console transport if logging settings changed
+    reloadConsoleTransport(
+      settings.logging?.consoleEnabled ?? true,
+      settings.logging?.consoleLevel ?? "error"
+    );
 
     // Audit: Settings updated
     auditService.log({ action: "SETTINGS_UPDATE", module: "System", userId: req.user?._id, description: updateData.isTimezoneSet ? `Timezone permanently set to ${settings.timezone}` : "System settings updated", req });
