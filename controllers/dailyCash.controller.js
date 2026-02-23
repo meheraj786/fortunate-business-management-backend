@@ -86,8 +86,9 @@ async function openCash(req, res, next) {
         }
       } else {
         // No session found before today. This is the very first opening in the system.
-        // Sum all account balances as the very first opening balance
+        // Sum only Cash account balances as the very first opening balance
         const totalAccountBalance = await Account.aggregate([
+          { $match: { accountType: "Cash" } },
           { $group: { _id: null, totalBalance: { $sum: "$balance" } } },
         ]);
         openingBalance =
@@ -347,10 +348,7 @@ async function getDailyCashStatus(req, res, next) {
 // Helper function to calculate daily cash metrics for a whole day
 async function _calculateDailyCashMetrics(dateString, timezone) {
   const targetDate = startOfDay(new Date(dateString), timezone);
-  const nextDay = startOfDay(
-    new Date(targetDate.getTime() + 24 * 60 * 60 * 1000),
-    timezone,
-  );
+  const nextDay = new Date(endOfDay(targetDate, timezone).getTime() + 1);
 
   // Get all sessions for the target date, sorted by creation time
   const sessions = await DailyCash.find({ date: targetDate }).sort({
@@ -366,23 +364,18 @@ async function _calculateDailyCashMetrics(dateString, timezone) {
     // The day's overall status is the status of the very last session
     status = sessions[sessions.length - 1].status;
   } else {
-    // If no sessions for today, calculate opening balance from previous day's last session
-    const previousDay = startOfDay(
-      new Date(targetDate.getTime() - 24 * 60 * 60 * 1000),
-      timezone,
-    );
+    // If no sessions for today, calculate opening balance from the most recent previous session
+    const lastPreviousSession = await DailyCash.findOne({
+      date: { $lt: targetDate },
+    }).sort({ date: -1, createdAt: -1 });
 
-    const prevDayLastSession = await DailyCash.findOne({
-      date: previousDay,
-    }).sort({ createdAt: -1 });
-
-    if (prevDayLastSession) {
-      if (prevDayLastSession.status === "Closed") {
-        openingBalance = prevDayLastSession.closingBalance || 0;
-      } else if (prevDayLastSession.status === "Open") {
+    if (lastPreviousSession) {
+      if (lastPreviousSession.status === "Closed") {
+        openingBalance = lastPreviousSession.closingBalance || 0;
+      } else if (lastPreviousSession.status === "Open") {
         // This case should ideally be handled by the startup/cron jobs, but as a fallback:
         const prevDayMetrics = await _calculateDailyCashMetrics(
-          previousDay.toISOString(),
+          lastPreviousSession.date.toISOString(),
           timezone,
         );
         openingBalance = prevDayMetrics.runningBalance;
