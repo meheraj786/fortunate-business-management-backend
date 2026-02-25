@@ -242,14 +242,21 @@ async function getAllAdvancePayments(req, res, next) {
 
         // Manually compute virtuals for lean results
         result.docs = result.docs.map((doc) => {
+            const addedAmount = (doc.additions || []).reduce(
+                (sum, a) => sum + (a.amount || 0),
+                0,
+            );
             const refundedAmount = (doc.refunds || []).reduce(
                 (sum, r) => sum + (r.amount || 0),
                 0,
             );
+            const totalAmount = doc.amount + addedAmount;
             return {
                 ...doc,
+                addedAmount,
+                totalAmount,
                 refundedAmount,
-                remainingAmount: doc.amount - refundedAmount,
+                remainingAmount: totalAmount - refundedAmount,
             };
         });
 
@@ -277,6 +284,7 @@ async function getAdvancePaymentById(req, res, next) {
         const advancePayment = await AdvancePayment.findById(id)
             .populate("accountId", "accountName accountType bankName serviceName mobileNumber accountNumber")
             .populate("refunds.accountId", "accountName accountType bankName serviceName mobileNumber")
+            .populate("additions.accountId", "accountName accountType bankName serviceName mobileNumber")
             .populate("createdBy", "name email")
             .populate("modifiedBy", "name email");
 
@@ -297,6 +305,134 @@ async function getAdvancePaymentById(req, res, next) {
         if (error instanceof ApiError) return next(error);
         logger.error("GetAdvancePaymentById Error:", error);
         next(new ApiError(500, "Failed to fetch advance payment details."));
+    }
+}
+
+// ============================================================
+// ADD TO ADVANCE PAYMENT (Top Up)
+// ============================================================
+async function addToAdvancePayment(req, res, next) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+        const { id } = req.params;
+        const { amount: addAmount, accountId, paymentMethod, date, note } = req.body;
+
+        // --- Validation ---
+        if (!addAmount || !accountId || !paymentMethod || !date) {
+            throw new ApiError(
+                400,
+                "Amount, account, payment method, and date are required.",
+            );
+        }
+        if (addAmount <= 0) {
+            throw new ApiError(400, "Amount must be greater than zero.");
+        }
+
+        const advancePayment = await AdvancePayment.findById(id).session(session);
+        if (!advancePayment) {
+            throw new ApiError(404, "Advance payment not found.");
+        }
+        if (advancePayment.status === "Settled" || advancePayment.status === "Refunded") {
+            throw new ApiError(
+                400,
+                `This advance payment is already ${advancePayment.status.toLowerCase()}. Cannot add more funds.`,
+            );
+        }
+
+        // --- Daily Cash Gatekeeper ---
+        const addDate = startOfDay(new Date(date), req.businessTimezone);
+        const dailyCash = await DailyCash.findOne({
+            date: addDate,
+            status: "Open",
+            isDeleted: false,
+        }).session(session);
+        if (!dailyCash) {
+            throw new ApiError(
+                400,
+                `Daily cash is closed for ${addDate.toDateString()}. Cannot add to advance payment.`,
+            );
+        }
+
+        // --- Account Balance Check ---
+        const account = await Account.findById(accountId).session(session);
+        if (!account) {
+            throw new ApiError(404, "Account not found.");
+        }
+        if (account.balance < addAmount) {
+            throw new ApiError(
+                400,
+                `Insufficient balance in account '${account.accountName}'. Available: ${account.balance}, Required: ${addAmount}.`,
+            );
+        }
+
+        // --- Deduct from Account ---
+        account.balance = mathUtil.sub(account.balance, addAmount);
+        await account.save({ session });
+
+        // --- Create Transaction ---
+        const [transaction] = await Transaction.create(
+            [
+                {
+                    accountId,
+                    date,
+                    description: `Additional Advance Payment to ${advancePayment.supplierName} (${advancePayment.advanceId}) via ${paymentMethod} Account: ${formatAccountLabel(account)}.`,
+                    transactionType: "Expense",
+                    amount: addAmount,
+                    name: `Advance Top-Up: ${advancePayment.supplierName}`,
+                    source: "Auto",
+                    category: "Advance Payment",
+                    paymentMethod,
+                    reference: advancePayment._id,
+                    referenceModel: "AdvancePayment",
+                    createdBy: req.user?._id || null,
+                },
+            ],
+            { session },
+        );
+
+        // --- Update Advance Payment ---
+        advancePayment.additions.push({
+            amount: addAmount,
+            date,
+            accountId,
+            paymentMethod,
+            transactionId: transaction._id,
+            note,
+        });
+
+        // If it was Partially Settled, keep it. Otherwise keep Pending.
+        if (advancePayment.status !== "Partially Settled") {
+            advancePayment.status = "Pending";
+        }
+        advancePayment.modifiedBy = req.user?._id || null;
+        await advancePayment.save({ session });
+
+        await session.commitTransaction();
+        session.endSession();
+
+        // Audit
+        auditService.log({
+            action: "UPDATE",
+            module: "AdvancePayment",
+            documentId: advancePayment._id,
+            displayId: advancePayment.advanceId,
+            userId: req.user?._id,
+            description: `Added ${addAmount} to advance payment ${advancePayment.advanceId} (${advancePayment.supplierName})`,
+            req,
+        });
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(200, advancePayment, "Amount added to advance payment successfully."),
+            );
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        if (error instanceof ApiError) return next(error);
+        logger.error("AddToAdvancePayment Error:", error);
+        next(new ApiError(500, "Failed to add to advance payment. Please try again."));
     }
 }
 
@@ -380,12 +516,17 @@ async function refundAdvancePayment(req, res, next) {
             );
         }
 
-        // Calculate remaining amount
+        // Calculate remaining amount (including additions)
+        const addedSoFar = (advancePayment.additions || []).reduce(
+            (sum, a) => mathUtil.add(sum, a.amount || 0),
+            0,
+        );
+        const totalEffective = mathUtil.add(advancePayment.amount, addedSoFar);
         const refundedSoFar = (advancePayment.refunds || []).reduce(
             (sum, r) => mathUtil.add(sum, r.amount || 0),
             0,
         );
-        const remaining = mathUtil.sub(advancePayment.amount, refundedSoFar);
+        const remaining = mathUtil.sub(totalEffective, refundedSoFar);
 
         if (refundAmount > remaining + 0.001) {
             throw new ApiError(
@@ -449,7 +590,7 @@ async function refundAdvancePayment(req, res, next) {
 
         const newRefundedTotal = mathUtil.add(refundedSoFar, refundAmount);
         // Determine new status
-        if (mathUtil.sub(advancePayment.amount, newRefundedTotal) <= 0.001) {
+        if (mathUtil.sub(totalEffective, newRefundedTotal) <= 0.001) {
             advancePayment.status = "Refunded";
             advancePayment.settledDate = now();
         } else {
@@ -576,6 +717,27 @@ async function deleteAdvancePayment(req, res, next) {
             }
         }
 
+        // --- Reverse and hard-delete all addition (top-up) transactions ---
+        for (const addition of advancePayment.additions || []) {
+            // Return addition amount to the source account
+            const addAccount = await Account.findById(addition.accountId).session(
+                session,
+            );
+            if (addAccount) {
+                addAccount.balance = mathUtil.add(
+                    addAccount.balance,
+                    addition.amount,
+                );
+                await addAccount.save({ session });
+            }
+            // Hard-delete the addition transaction
+            if (addition.transactionId) {
+                await Transaction.deleteOne(
+                    { _id: addition.transactionId },
+                ).session(session);
+            }
+        }
+
         // --- Soft-delete advance payment → Trash ---
         advancePayment.isDeleted = true;
         advancePayment.deletedBy = req.user?._id || null;
@@ -682,6 +844,7 @@ module.exports = {
     createAdvancePayment,
     getAllAdvancePayments,
     getAdvancePaymentById,
+    addToAdvancePayment,
     settleAdvancePayment,
     refundAdvancePayment,
     deleteAdvancePayment,

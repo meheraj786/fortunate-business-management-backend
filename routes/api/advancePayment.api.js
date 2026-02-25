@@ -3,6 +3,7 @@ const {
     createAdvancePayment,
     getAllAdvancePayments,
     getAdvancePaymentById,
+    addToAdvancePayment,
     settleAdvancePayment,
     refundAdvancePayment,
     deleteAdvancePayment,
@@ -44,6 +45,12 @@ advancePaymentRoutes.put(
     "/:id/settle",
     authorize(PERMISSIONS.ADVANCE_PAYMENT_SETTLE),
     settleAdvancePayment,
+);
+
+advancePaymentRoutes.put(
+    "/:id/add",
+    authorize(PERMISSIONS.ADVANCE_PAYMENT_CREATE),
+    addToAdvancePayment,
 );
 
 advancePaymentRoutes.put(

@@ -21,6 +21,26 @@ const refundSchema = new mongoose.Schema({
     note: { type: String, trim: true },
 });
 
+const additionSchema = new mongoose.Schema({
+    amount: { type: Number, required: true, min: 0 },
+    date: { type: Date, required: true },
+    accountId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Account",
+        required: true,
+    },
+    paymentMethod: {
+        type: String,
+        required: true,
+        enum: ["Cash", "Bank", "Mobile Banking"],
+    },
+    transactionId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Transaction",
+    },
+    note: { type: String, trim: true },
+});
+
 const advancePaymentSchema = new mongoose.Schema(
     {
         advanceId: { type: String, required: true, unique: true, trim: true },
@@ -50,6 +70,7 @@ const advancePaymentSchema = new mongoose.Schema(
         settledDate: { type: Date, default: null },
 
         refunds: [refundSchema],
+        additions: [additionSchema],
 
         transactionId: {
             type: mongoose.Schema.Types.ObjectId,
@@ -79,18 +100,30 @@ const advancePaymentSchema = new mongoose.Schema(
 
 advancePaymentSchema.plugin(mongoosePaginate);
 
+// Virtual: total additions
+advancePaymentSchema.virtual("addedAmount").get(function () {
+    return (this.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
+});
+
+// Virtual: effective total (original + all additions)
+advancePaymentSchema.virtual("totalAmount").get(function () {
+    const added = (this.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
+    return this.amount + added;
+});
+
 // Virtual: computed refunded amount
 advancePaymentSchema.virtual("refundedAmount").get(function () {
     return (this.refunds || []).reduce((sum, r) => sum + (r.amount || 0), 0);
 });
 
-// Virtual: remaining amount
+// Virtual: remaining amount (totalAmount - refunded)
 advancePaymentSchema.virtual("remainingAmount").get(function () {
+    const added = (this.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
     const refunded = (this.refunds || []).reduce(
         (sum, r) => sum + (r.amount || 0),
         0,
     );
-    return this.amount - refunded;
+    return (this.amount + added) - refunded;
 });
 
 // Ensure virtuals are included in JSON and Object output
