@@ -4,6 +4,8 @@ const mathUtil = require("../utils/math.util");
 const costSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   amount: { type: Number, required: true },
+  amountUsd: { type: Number },
+  costExchangeRate: { type: Number },
   date: { type: Date, required: true, default: Date.now }, // date and time
   paymentMethod: {
     type: String,
@@ -110,6 +112,8 @@ const lcSchema = new mongoose.Schema(
       costs: [costSchema],
     },
     totalCost: { type: Number, default: 0 },
+    totalDocumentValue: { type: Number, default: 0 },
+    totalDocumentCostUsd: { type: Number, default: 0 },
     isDeleted: {
       type: Boolean,
       default: false,
@@ -174,6 +178,23 @@ lcSchema.pre("save", function (next) {
   }
 
   this.totalCost = mathUtil.round(calculatedCost);
+
+  // Calculate Total Document Value (sum of document products' totalValueUsd)
+  this.totalDocumentValue = mathUtil.round(
+    (this.documentProductInfo?.products || []).reduce(
+      (sum, p) => mathUtil.add(sum, p.totalValueUsd || 0),
+      0,
+    ),
+  );
+
+  // Calculate Total Document Cost in USD (sum of document costs' amountUsd)
+  this.totalDocumentCostUsd = mathUtil.round(
+    (this.documentProductInfo?.costs || []).reduce(
+      (sum, c) => mathUtil.add(sum, c.amountUsd || 0),
+      0,
+    ),
+  );
+
   next();
 });
 

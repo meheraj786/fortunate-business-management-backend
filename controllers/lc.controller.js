@@ -59,6 +59,21 @@ async function createLC(req, res, next) {
       lcData = req.body;
     }
 
+    // --- Sanitize empty ObjectId fields (prevents BSONError: Cast to ObjectId failed for "") ---
+    if (lcData.basicInfo && (!lcData.basicInfo.accountId || lcData.basicInfo.accountId === "")) {
+      lcData.basicInfo.accountId = null;
+    }
+    if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
+      lcData.productInfo.forEach((p) => {
+        if (!p.quantityUnit || p.quantityUnit === "") p.quantityUnit = null;
+      });
+    }
+    if (lcData.documentProductInfo?.products && Array.isArray(lcData.documentProductInfo.products)) {
+      lcData.documentProductInfo.products.forEach((p) => {
+        if (!p.quantityUnit || p.quantityUnit === "") p.quantityUnit = null;
+      });
+    }
+
     // --- Status-Aware Validation ---
     const status = lcData.basicInfo?.status;
     const isDraft = status === "Draft" || status === "Cancelled";
@@ -315,6 +330,8 @@ async function _handleLCCostTransaction(cost, lc, session, timezone) {
           lcNumber: lc.basicInfo.lcNumber,
           costName: cost.name,
           costAmount: cost.amount,
+          costAmountUsd: cost.amountUsd || null,
+          costExchangeRate: cost.costExchangeRate || null,
           paymentMethod: cost.paymentMethod,
           accountId: cost.accountId,
         },
@@ -389,6 +406,21 @@ async function updateLC(req, res, next) {
       updateData = JSON.parse(req.body.lc_data);
     } else {
       updateData = req.body;
+    }
+
+    // --- Sanitize empty ObjectId fields (prevents BSONError: Cast to ObjectId failed for "") ---
+    if (updateData.basicInfo && (!updateData.basicInfo.accountId || updateData.basicInfo.accountId === "")) {
+      updateData.basicInfo.accountId = null;
+    }
+    if (updateData.productInfo && Array.isArray(updateData.productInfo)) {
+      updateData.productInfo.forEach((p) => {
+        if (!p.quantityUnit || p.quantityUnit === "") p.quantityUnit = null;
+      });
+    }
+    if (updateData.documentProductInfo?.products && Array.isArray(updateData.documentProductInfo.products)) {
+      updateData.documentProductInfo.products.forEach((p) => {
+        if (!p.quantityUnit || p.quantityUnit === "") p.quantityUnit = null;
+      });
     }
 
     // --- Status-Aware Validation ---
@@ -1501,6 +1533,8 @@ async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
                 miscReference: {
                   lcNumber: originalLC.basicInfo.lcNumber,
                   costName: oldCost.name,
+                  costAmountUsd: oldCost.amountUsd || null,
+                  costExchangeRate: oldCost.costExchangeRate || null,
                   modificationType: "Update/Delete",
                 },
               },
@@ -1564,6 +1598,8 @@ async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
               miscReference: {
                 lcNumber: originalLC.basicInfo.lcNumber,
                 costName: newCost.name,
+                costAmountUsd: newCost.amountUsd || null,
+                costExchangeRate: newCost.costExchangeRate || null,
                 modificationType: isNew ? "Create" : "Update",
               },
             },
