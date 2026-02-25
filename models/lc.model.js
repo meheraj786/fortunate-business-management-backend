@@ -19,6 +19,11 @@ const costSchema = new mongoose.Schema({
   },
 });
 
+// Helper: returns true (making the field required) only when status is NOT "Draft"
+const requiredIfNotDraft = function () {
+  return this.basicInfo?.status !== "Draft";
+};
+
 const lcSchema = new mongoose.Schema(
   {
     basicInfo: {
@@ -30,35 +35,34 @@ const lcSchema = new mongoose.Schema(
         required: true,
         enum: ["Draft", "Active", "Completed", "Cancelled"],
       },
-      supplierName: { type: String, trim: true, required: true },
-      supplierCountry: { type: String, trim: true, required: true },
+      supplierName: { type: String, trim: true, required: [requiredIfNotDraft, "Supplier Name is required for non-Draft LCs"] },
+      supplierCountry: { type: String, trim: true, required: [requiredIfNotDraft, "Supplier Country is required for non-Draft LCs"] },
       accountId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Account",
-        required: true,
+        required: [requiredIfNotDraft, "Bank Account is required for non-Draft LCs"],
       },
     },
     financialInfo: {
-      lcAmountUsd: { type: Number, required: true },
-      exchangeRate: { type: Number, required: true },
-      lcAmountBdt: { type: Number, required: true },
+      lcAmountUsd: { type: Number, required: [requiredIfNotDraft, "LC Amount (USD) is required for non-Draft LCs"] },
+      exchangeRate: { type: Number, required: [requiredIfNotDraft, "Exchange Rate is required for non-Draft LCs"] },
+      lcAmountBdt: { type: Number, required: [requiredIfNotDraft, "LC Amount (BDT) is required for non-Draft LCs"] },
       costs: [costSchema],
     },
     productInfo: [
       {
-        itemName: { type: String, trim: true, required: true },
+        itemName: { type: String, trim: true },
         thickness: { type: String, trim: true },
         width: { type: String, trim: true },
         length: { type: String, trim: true },
         grade: { type: String, trim: true },
-        unitPriceUsd: { type: Number, required: true },
-        quantity: { type: Number, required: true },
+        unitPriceUsd: { type: Number },
+        quantity: { type: Number },
         quantityUnit: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Unit",
-          required: true,
         },
-        totalValueUsd: { type: Number, required: true },
+        totalValueUsd: { type: Number },
       },
     ],
     shippingCustomsInfo: {

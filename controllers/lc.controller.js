@@ -59,8 +59,47 @@ async function createLC(req, res, next) {
       lcData = req.body;
     }
 
-    // --- Validation ---
+    // --- Status-Aware Validation ---
+    const status = lcData.basicInfo?.status;
+    const isDraft = status === "Draft";
+
+    // Strip out empty product rows (frontend may send default empty rows)
+    if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
+      lcData.productInfo = lcData.productInfo.filter(
+        (p) => p.itemName && p.itemName.trim() !== "",
+      );
+    }
+    if (lcData.documentProductInfo?.products && Array.isArray(lcData.documentProductInfo.products)) {
+      lcData.documentProductInfo.products = lcData.documentProductInfo.products.filter(
+        (p) => p.itemName && p.itemName.trim() !== "",
+      );
+    }
+
+    // For non-Draft LCs, enforce that key fields are present
+    if (!isDraft) {
+      if (!lcData.basicInfo?.supplierName?.trim()) {
+        throw new ApiError(400, "Supplier Name is required for non-Draft LCs.");
+      }
+      if (!lcData.basicInfo?.supplierCountry?.trim()) {
+        throw new ApiError(400, "Supplier Country is required for non-Draft LCs.");
+      }
+      if (!lcData.basicInfo?.accountId) {
+        throw new ApiError(400, "Bank Account is required for non-Draft LCs.");
+      }
+      if (!lcData.financialInfo?.lcAmountUsd || lcData.financialInfo.lcAmountUsd <= 0) {
+        throw new ApiError(400, "LC Amount (USD) is required for non-Draft LCs.");
+      }
+      if (!lcData.financialInfo?.exchangeRate || lcData.financialInfo.exchangeRate <= 0) {
+        throw new ApiError(400, "Exchange Rate is required for non-Draft LCs.");
+      }
+      if (!lcData.productInfo || lcData.productInfo.length === 0) {
+        throw new ApiError(400, "At least one product is required for non-Draft LCs.");
+      }
+    }
+
+    // --- Cost Validation ---
     const sectionsWithCosts = [
+
       "financialInfo",
       "shippingCustomsInfo",
       "agentTransportInfo",
@@ -352,7 +391,45 @@ async function updateLC(req, res, next) {
       updateData = req.body;
     }
 
-    // --- Validation ---
+    // --- Status-Aware Validation ---
+    const updateStatus = updateData.basicInfo?.status;
+    const isUpdateDraft = updateStatus === "Draft";
+
+    // Strip out empty product rows (frontend may send default empty rows)
+    if (updateData.productInfo && Array.isArray(updateData.productInfo)) {
+      updateData.productInfo = updateData.productInfo.filter(
+        (p) => p.itemName && p.itemName.trim() !== "",
+      );
+    }
+    if (updateData.documentProductInfo?.products && Array.isArray(updateData.documentProductInfo.products)) {
+      updateData.documentProductInfo.products = updateData.documentProductInfo.products.filter(
+        (p) => p.itemName && p.itemName.trim() !== "",
+      );
+    }
+
+    // For non-Draft LCs, enforce that key fields are present
+    if (!isUpdateDraft) {
+      if (!updateData.basicInfo?.supplierName?.trim()) {
+        throw new ApiError(400, "Supplier Name is required for non-Draft LCs.");
+      }
+      if (!updateData.basicInfo?.supplierCountry?.trim()) {
+        throw new ApiError(400, "Supplier Country is required for non-Draft LCs.");
+      }
+      if (!updateData.basicInfo?.accountId) {
+        throw new ApiError(400, "Bank Account is required for non-Draft LCs.");
+      }
+      if (!updateData.financialInfo?.lcAmountUsd || updateData.financialInfo.lcAmountUsd <= 0) {
+        throw new ApiError(400, "LC Amount (USD) is required for non-Draft LCs.");
+      }
+      if (!updateData.financialInfo?.exchangeRate || updateData.financialInfo.exchangeRate <= 0) {
+        throw new ApiError(400, "Exchange Rate is required for non-Draft LCs.");
+      }
+      if (!updateData.productInfo || updateData.productInfo.length === 0) {
+        throw new ApiError(400, "At least one product is required for non-Draft LCs.");
+      }
+    }
+
+    // --- Cost Validation ---
     const sectionsWithCosts = [
       "financialInfo",
       "shippingCustomsInfo",
