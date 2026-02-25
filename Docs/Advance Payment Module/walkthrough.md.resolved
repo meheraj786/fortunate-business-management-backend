@@ -1,0 +1,76 @@
+# Advance Payment Module — Walkthrough
+
+## Summary
+
+Implemented a complete Advance Payment (Token) module — **17 files** created/modified across backend and frontend. Then **refined the frontend pages** to match the application's native patterns exactly.
+
+---
+
+## Native Redesign (Latest)
+
+Rewrote [AdvancePaymentsPage.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/AdvancePaymentsPage.jsx) and [AdvancePaymentDetailsPage.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/AdvancePaymentDetailsPage.jsx) to match established patterns from `CustomersPage` and `LCDetailsPage`.
+
+### List Page — Changes Made
+
+| Before (Generic) | After (Native) |
+|---|---|
+| Raw `<input>` for search | `InputField` component with `icon={Search}` prop |
+| Custom status tab buttons | `SelectField` in filter panel + `Filter` toggle button |
+| Inline Previous/Next buttons | [Pagination](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/ui/Pagination.jsx#6-93) component |
+| Manual `setTimeout` debounce | `useDebounce` hook |
+| Custom colored status pills | [StatusBadge](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/ui/StatusBadge.jsx#14-97) component |
+| `shadow-sm` on cards | `border border-gray-200` |
+| `bg-blue-600` colors | `var(--color-primary)` CSS variables |
+| No loading skeleton | [SkeletonRow](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/AdvancePaymentsPage.jsx#42-67) cards matching `CustomerCard` pattern |
+| Header in white card | Bare header like `CustomersPage` |
+
+### Details Page — Changes Made
+
+| Before (Generic) | After (Native) |
+|---|---|
+| Custom `InfoItem` component | [DataField](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/ui/DataField.jsx#6-74) component with `format` and `icon` props |
+| Plain `<div>` sections | `CollapsibleCard` with icon and `ariaLabel` |
+| Custom status colored spans | [StatusBadge](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/ui/StatusBadge.jsx#14-97) component |
+| No loading skeleton | `ValueSkeleton` component |
+| Plain text "Created by" | `AuditInfoSection` component |
+| Simple `<div>` header | `motion.div` header with icon box (`p-2 bg-[var(--color-primary)]`) |
+| Direct delete with `ConfirmationModal` | `ConfirmationModal` with `confirmModal` state pattern (same as `LCDetailsPage`) |
+| `text-blue-600` hardcoded | `text-[var(--color-primary)]` variables |
+
+---
+
+## All Files Created/Modified
+
+### Backend (9 files)
+
+| File | Type |
+|------|------|
+| [advancePayment.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/advancePayment.model.js) | NEW |
+| [advancePayment.controller.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/advancePayment.controller.js) | NEW |
+| [advancePayment.api.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/routes/api/advancePayment.api.js) | NEW |
+| [transaction.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/transaction.model.js) | MODIFIED |
+| [user.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/user.model.js) | MODIFIED |
+| [auditLog.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/auditLog.model.js) | MODIFIED |
+| [permissions.constants.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/utils/permissions.constants.js) | MODIFIED |
+| [trash.controller.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/trash.controller.js) | MODIFIED |
+| [routes/api/index.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/routes/api/index.js) | MODIFIED |
+
+### Frontend (10 files)
+
+| File | Type |
+|------|------|
+| [advancePayment.api.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/api/advancePayment.api.js) | NEW |
+| [hooks/advancePayment.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/api/hooks/advancePayment.js) | NEW |
+| [AdvancePaymentsPage.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/AdvancePaymentsPage.jsx) | NEW |
+| [AdvancePaymentDetailsPage.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/AdvancePaymentDetailsPage.jsx) | NEW |
+| [CreateAdvancePaymentModal.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/CreateAdvancePaymentModal.jsx) | NEW |
+| [SettleAdvanceModal.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/SettleAdvanceModal.jsx) | NEW |
+| [RefundAdvanceModal.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/RefundAdvanceModal.jsx) | NEW |
+| [App.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/App.jsx) | MODIFIED |
+| [Sidebar.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/layout/Sidebar.jsx) | MODIFIED |
+
+## Verification
+
+- ✅ Frontend build passes (exit code 0)
+- ✅ All components use native UI patterns ([DataField](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/ui/DataField.jsx#6-74), `CollapsibleCard`, [StatusBadge](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/ui/StatusBadge.jsx#14-97), [Pagination](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/ui/Pagination.jsx#6-93), etc.)
+- ✅ CSS variables and design tokens used throughout

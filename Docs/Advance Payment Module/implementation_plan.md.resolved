@@ -1,0 +1,222 @@
+# Advance Payment (Token) Module — Final Implementation Plan
+
+## Overview
+
+Track **advance payments (tokens)** to local suppliers. Money-tracking only — integrated with **Accounts**, **Transactions**, and **Daily Cash**. No inventory/product integration.
+
+---
+
+## Lifecycle Flow
+
+```mermaid
+graph TD
+    A["Create Advance Payment"] --> B["💰 Money deducted from Account"]
+    B --> C["📝 Auto expense transaction created"]
+    C --> D["⏳ Status: Pending"]
+    D --> E{"Outcome?"}
+    E -->|"Goods Received"| F["✅ Settled — no money moves"]
+    E -->|"Deal Cancelled"| G["🔄 Refund — full or partial"]
+    E -->|"Partial delivery"| H["📊 Partial refund, then settle"]
+    G --> I["💰 Money returned to any account"]
+    I --> J["📝 Auto income transaction created"]
+    H --> I
+```
+
+---
+
+## Data Model
+
+#### [NEW] [advancePayment.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/advancePayment.model.js)
+
+```javascript
+{
+  advanceId: String,              // Auto-generated: "ADV-0001"
+  supplierName: String,           // Free text
+  supplierPhone: String,          // Optional
+  purpose: String,                // What the advance is for
+
+  amount: Number,                 // Original advance amount
+  accountId: ObjectId → Account,  // Payment source account
+  paymentMethod: "Cash | Bank | Mobile Banking",
+  date: Date,                     // When advance was given
+
+  status: "Pending | Settled | Refunded | Partially Settled",
+  settledDate: Date,              // When settled/closed
+
+  // Refund history — supports multiple partial refunds to any account
+  refunds: [{
+    amount: Number,
+    date: Date,
+    accountId: ObjectId → Account,      // Can differ from original
+    paymentMethod: String,
+    transactionId: ObjectId → Transaction,
+    note: String
+  }],
+
+  transactionId: ObjectId → Transaction,  // The original expense transaction
+
+  notes: String,
+  isDeleted, createdBy, modifiedBy, deletedBy, timestamps
+}
+```
+
+> [!IMPORTANT]
+> `refundedAmount` is **computed** as `sum(refunds[].amount)`, not stored. `remainingAmount = amount - refundedAmount`.
+
+---
+
+## Deletion & Restoration Logic
+
+> [!IMPORTANT]
+> User-specified behavior — differs from other modules.
+
+### Deletion (same-day only)
+
+Advance payments can **only be deleted on the same day** they were created (while that day's daily cash session is still open).
+
+| Step | What Happens |
+|------|-------------|
+| 1 | Validate: advance's date matches today AND today's daily cash is "Open" |
+| 2 | **Hard-delete** the original auto expense transaction (not soft-delete, not trash — gone) |
+| 3 | **Hard-delete** all refund income transactions (if any partial refunds exist) |
+| 4 | **Reverse all balance changes**: return `amount` to original account, deduct each `refund.amount` from its respective account |
+| 5 | **Soft-delete** the advance payment record (`isDeleted = true`) → goes to **Trash** |
+| 6 | Audit log the deletion |
+
+> No counter/reversal transactions are created. The transactions are simply removed as if they never existed.
+
+### Restoration from Trash
+
+| Step | What Happens |
+|------|-------------|
+| 1 | Validate: today's daily cash is "Open", original account has sufficient balance |
+| 2 | Restore advance payment (`isDeleted = false`) |
+| 3 | **Re-create** the original expense transaction (deduct from account) |
+| 4 | **Re-create** all refund income transactions (credit to respective accounts) |
+| 5 | Audit log the restoration |
+
+> Transactions are auto-recreated fresh — they are never put in the trash bin themselves.
+
+### Non-same-day advances
+
+If the advance was created on a previous day and that day's cash is closed, the advance **cannot be deleted**. The user must use the Settle or Refund workflows instead.
+
+---
+
+## Backend Changes
+
+### New Files
+
+#### [NEW] [advancePayment.controller.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/advancePayment.controller.js)
+
+| Function | Description |
+|----------|-------------|
+| `createAdvancePayment` | Deducts from account, creates expense transaction, creates advance record |
+| `getAllAdvancePayments` | Paginated list with filters (status, date range, supplier search) |
+| `getAdvancePaymentById` | Single advance with populated account + refund details |
+| `settleAdvancePayment` | Marks "Settled" or "Partially Settled" — no money movement |
+| `refundAdvancePayment` | Creates refund entry, credits chosen account, creates income transaction. Validates `refundAmount ≤ remainingAmount` |
+| `deleteAdvancePayment` | Same-day only. Hard-deletes transactions, reverses balances, soft-deletes advance |
+| `getAdvancePaymentStats` | Summary: total pending amount, count by status |
+
+#### [NEW] [advancePayment.routes.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/routes/api/advancePayment.routes.js)
+
+```
+POST   /api/advance-payments              → createAdvancePayment
+GET    /api/advance-payments              → getAllAdvancePayments
+GET    /api/advance-payments/stats        → getAdvancePaymentStats
+GET    /api/advance-payments/:id          → getAdvancePaymentById
+PUT    /api/advance-payments/:id/settle   → settleAdvancePayment
+PUT    /api/advance-payments/:id/refund   → refundAdvancePayment
+DELETE /api/advance-payments/:id          → deleteAdvancePayment
+```
+
+---
+
+### Modifications to Existing Files
+
+#### [MODIFY] [transaction.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/transaction.model.js)
+
+```diff
+ referenceModel: {
+   type: String,
+-  enum: ["Sale", "LC", "Customer"],
++  enum: ["Sale", "LC", "Customer", "AdvancePayment"],
+ },
+```
+
+#### [MODIFY] [user.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/user.model.js)
+
+```diff
+ enum: [
+   "USER", "WAREHOUSE", "PRODUCT", "LC", "SALE",
+   "CASH", "ACCOUNT", "TRANSACTION", "CUSTOMER",
+-  "CATEGORY", "UNIT", "SETTINGS", "TRASH", "AUDIT",
++  "CATEGORY", "UNIT", "SETTINGS", "TRASH", "AUDIT",
++  "ADVANCE_PAYMENT",
+ ],
+```
+
+#### [MODIFY] [auditLog.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/auditLog.model.js)
+
+- Add `"AdvancePayment"` to module enum
+
+#### [MODIFY] [trash.controller.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/trash.controller.js)
+
+- Add restore handler for `"AdvancePayment"` model — re-creates transactions on restore
+
+#### [MODIFY] Route registration ([index.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/routes/index.js) or main route file)
+
+- Register new advance payment routes
+
+---
+
+## Frontend Changes
+
+### New Files — `src/features/advance-payments/`
+
+| File | Purpose |
+|------|---------|
+| `AdvancePaymentsPage.jsx` | Main list page with status tabs (All / Pending / Settled / Refunded), search, date filters, stats cards |
+| `AdvancePaymentDetailsPage.jsx` | Detail view — info section, refund history timeline, action buttons (Settle / Refund / Delete) |
+| `CreateAdvancePaymentModal.jsx` | Form: supplier name/phone, amount, account, payment method, date, purpose, notes |
+| `SettleAdvanceModal.jsx` | Confirm settlement |
+| `RefundAdvanceModal.jsx` | Refund form: amount (pre-filled with remaining), account selection, date, note |
+
+#### [NEW] [advancePayment.api.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/api/advancePayment.api.js)
+
+#### [NEW] [useAdvancePayment.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/api/hooks/useAdvancePayment.js)
+
+### Modifications to Existing Frontend Files
+
+#### [MODIFY] [App.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/App.jsx)
+
+- Add lazy imports + routes: `/advance-payments` and `/advance-payments/:id`
+
+#### [MODIFY] [Sidebar.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/layout/Sidebar.jsx)
+
+- Add menu item with `HandCoins` icon from lucide-react, permission: `"ADVANCE_PAYMENT_VIEW"`
+- Add prefetch case for `/advance-payments`
+
+---
+
+## Verification Plan
+
+### Manual Test Scenarios
+
+| # | Scenario | What to Verify |
+|---|----------|---------------|
+| 1 | Create advance | Account balance decreases, expense transaction appears in Transaction list and Daily Cash |
+| 2 | View list | Filters by status, search by supplier, date range, pagination |
+| 3 | Full refund | Money returns to chosen account, income transaction created, status → "Refunded" |
+| 4 | Partial refund × 2 | Two refunds on same advance, remaining amount correct, status → "Partially Settled" |
+| 5 | Settle after partial refund | Status → "Settled", no money moves |
+| 6 | Refund to different account | Paid from Bank, refunded to Cash — both balances update correctly |
+| 7 | Refund > remaining | Error: "Refund amount cannot exceed remaining amount" |
+| 8 | Same-day delete | Transactions hard-deleted, balance restored, advance in trash |
+| 9 | Non-same-day delete | Error: "Can only delete same-day advances" |
+| 10 | Restore from trash | Advance restored, transactions re-created, balances updated |
+| 11 | Daily cash closed | Create/refund blocked with proper error |
+| 12 | Insufficient balance | Create blocked with proper error |
+| 13 | Permissions | Non-authorized user can't see sidebar item or access API |
+| 14 | Auto-transaction protection | User can't directly delete advance transactions from Transaction module |

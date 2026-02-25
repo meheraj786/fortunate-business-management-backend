@@ -38,6 +38,7 @@ const auditLogSchema = new mongoose.Schema(
                 "Category",
                 "Unit",
                 "DailyCash",
+                "AdvancePayment",
                 "System",
             ],
             index: true,

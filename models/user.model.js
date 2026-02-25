@@ -72,6 +72,7 @@ const userSchema = new mongoose.Schema(
             "SETTINGS",
             "TRASH",
             "AUDIT",
+            "ADVANCE_PAYMENT",
           ],
         },
         permissions: [String],

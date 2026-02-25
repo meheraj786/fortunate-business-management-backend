@@ -1,0 +1,27 @@
+# Advance Payment Module — Implementation
+
+## Backend
+- [x] Create [advancePayment.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/advancePayment.model.js)
+- [x] Create [advancePayment.controller.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/advancePayment.controller.js) (7 functions)
+- [x] Create [advancePayment.api.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/api/advancePayment.api.js) (routes)
+- [x] Modify [transaction.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/transaction.model.js) — added [AdvancePayment](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/api/hooks/advancePayment.js#13-20) to referenceModel enum
+- [x] Modify [user.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/user.model.js) — added `ADVANCE_PAYMENT` to access module enum
+- [x] Modify [auditLog.model.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/models/auditLog.model.js) — added [AdvancePayment](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/api/hooks/advancePayment.js#13-20) to module enum
+- [x] Modify [permissions.constants.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/utils/permissions.constants.js) — added 6 permissions + MODULES entry
+- [x] Modify [trash.controller.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/trash.controller.js) — added AdvancePayment restore handler
+- [x] Register routes in [routes/api/index.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/routes/api/index.js)
+
+## Frontend
+- [x] Create [advancePayment.api.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/api/advancePayment.api.js) (API service)
+- [x] Create [hooks/advancePayment.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/api/hooks/advancePayment.js) (React Query hooks)
+- [x] Create [AdvancePaymentsPage.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/AdvancePaymentsPage.jsx) (list page)
+- [x] Create [AdvancePaymentDetailsPage.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/AdvancePaymentDetailsPage.jsx) (details page)
+- [x] Create [CreateAdvancePaymentModal.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/CreateAdvancePaymentModal.jsx)
+- [x] Create [SettleAdvanceModal.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/SettleAdvanceModal.jsx)
+- [x] Create [RefundAdvanceModal.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/features/advance-payments/RefundAdvanceModal.jsx)
+- [x] Modify [App.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/App.jsx) — added lazy imports + routes
+- [x] Modify [Sidebar.jsx](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management/src/components/layout/Sidebar.jsx) — added menu item with permission
+
+## Verification
+- [/] Build verification
+- [ ] Walkthrough document

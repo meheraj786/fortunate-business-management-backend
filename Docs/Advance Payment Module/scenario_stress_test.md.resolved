@@ -1,0 +1,415 @@
+# Advance Payment Plan — Scenario Stress Test
+
+> Testing the plan against every realistic scenario to catch design gaps before writing a single line of code.
+
+---
+
+## Category 1: Happy Path Scenarios ✅
+
+### Scenario 1.1 — Basic Advance → Settle
+
+> **Story:** Client pays ৳5,00,000 advance to "Rahman Steel" from their Islami Bank account for 10mm steel sheets. Two weeks later, supplier delivers the goods.
+
+| Step | Action | Expected Behavior |
+|------|--------|-------------------|
+| 1 | Create advance: supplier="Rahman Steel", amount=500000, account=Islami Bank, purpose="10mm steel sheets" | Islami Bank balance decreases by ৳5,00,000. Auto expense transaction created with category="Advance Payment", source="Auto", reference=AdvancePayment doc. Status = "Pending" |
+| 2 | Two weeks later, user clicks "Settle" | Status → "Settled". settledDate = today. **No money moves.** No new transaction. |
+| 3 | User manually adds the received steel to Stock Management | Product added independently via existing stock flow |
+
+**Verdict: ✅ PASS** — Plan handles this correctly.
+
+---
+
+### Scenario 1.2 — Basic Advance → Full Refund
+
+> **Story:** Client pays ৳3,00,000 advance to "Dhaka Iron Works". Supplier can't source the product, returns all money.
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Create advance: amount=300000 | Account balance -300000, expense transaction created |
+| 2 | User clicks "Refund", enters full amount ৳3,00,000 | Account balance +300000, income transaction created with category="Advance Payment Refund". Status → "Refunded" |
+
+**Verdict: ✅ PASS**
+
+---
+
+### Scenario 1.3 — Advance → Partial Delivery → Partial Refund
+
+> **Story:** Client pays ৳8,00,000 advance. Supplier delivers ৳5,00,000 worth of goods, can't do the rest, refunds ৳3,00,000.
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Create advance: amount=800000 | Balance -800000 |
+| 2 | Goods arrive (partial). User clicks "Settle with Partial Refund" | Refund amount = ৳3,00,000. Account balance +300000. Income transaction for 300000. Status → "Partially Settled". `refundedAmount` = 300000 |
+
+**Verdict: ✅ PASS** — The `refundedAmount` field and "Partially Settled" status handle this.
+
+---
+
+## Category 2: Edge Cases ⚠️
+
+### Scenario 2.1 — Advance with Zero Balance Account
+
+> **Story:** User tries to create ৳5,00,000 advance but selected account only has ৳2,00,000.
+
+| Expected | Account balance check fails → Error: "Insufficient balance in account 'XYZ' for this advance payment." |
+|----------|---|
+
+**Verdict: ✅ PASS** — Plan follows the same pattern as [_handleLCCostTransaction](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/lc.controller.js#267-343) which checks `account.balance < cost.amount`.
+
+---
+
+### Scenario 2.2 — Refund More Than Advance Amount
+
+> **Story:** Advance was ৳5,00,000. User mistakenly tries to refund ৳6,00,000.
+
+| Expected | Server-side validation: `refundAmount > (amount - refundedAmount)` → Error: "Refund amount cannot exceed the remaining advance amount." |
+|----------|---|
+
+**Verdict: ✅ PASS** — Must add this validation in controller. **Adding to plan.**
+
+---
+
+### Scenario 2.3 — Multiple Partial Refunds
+
+> **Story:** Advance = ৳10,00,000. First refund = ৳3,00,000. Second refund = ৳2,00,000. Then settle the remaining ৳5,00,000.
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Create advance: 10,00,000 | Balance -10,00,000 |
+| 2 | Refund ৳3,00,000 | `refundedAmount` = 3,00,000. Balance +3,00,000. Status → "Partially Settled" |
+| 3 | Refund ৳2,00,000 | `refundedAmount` = 5,00,000. Balance +2,00,000. Status stays "Partially Settled" |
+| 4 | Settle remaining | Status → "Settled". No money moves. |
+
+> [!WARNING]
+> **GAP FOUND!** The original plan only has one "refund" action. But real-world needs **multiple partial refunds** over time. The model needs to support a **refund history array**, not just a single `refundedAmount`.
+
+**Verdict: 🔧 NEEDS PLAN UPDATE**
+
+**Fix:** Add a `refunds` array to the model:
+```javascript
+refunds: [{
+  amount: Number,
+  date: Date,
+  accountId: ObjectId,     // could refund to different account
+  transactionId: ObjectId, // link to the income transaction created
+  note: String
+}]
+```
+And compute `refundedAmount` as the sum of `refunds[].amount`. This also lets us show a refund history timeline in the details page.
+
+---
+
+### Scenario 2.4 — Settle After Partial Refund
+
+> **Story:** Advance = ৳5,00,000. Refund ৳2,00,000 (for goods not delivered). Now supplier delivers the rest. User settles.
+
+| Expected | Status → "Settled". `effectiveAmount` = amount - refundedAmount = ৳3,00,000 (this is what the goods actually cost them). No money moves. |
+|----------|---|
+
+**Verdict: ✅ PASS** — The settled state with non-zero `refundedAmount` naturally shows the effective cost.
+
+---
+
+### Scenario 2.5 — Duplicate Supplier Names
+
+> **Story:** User creates advances for "Rahman Steel" and separately "rahman steel" and "RAHMAN STEEL".
+
+| Expected | These appear as 3 different entries. No conflict — supplier is free text. |
+|----------|---|
+
+**Verdict: ✅ ACCEPTABLE** — This is a known limitation of the simpler approach. Could add autocomplete suggestions from past supplier names to reduce duplicates. Not a blocker.
+
+---
+
+### Scenario 2.6 — Creating Advance Payment with Extremely Small Amount
+
+> **Story:** User creates advance for ৳0.50 or ৳0.
+
+| Expected | Amount ≤ 0 → Error: "Amount must be greater than zero." ৳0.50 → Allowed (edge case but valid). |
+|----------|---|
+
+**Verdict: ✅ PASS** — Standard validation `min: 0` in model + controller check for `amount <= 0`.
+
+---
+
+## Category 3: Financial Integrity 🔒
+
+### Scenario 3.1 — Account Balance Consistency After Create + Full Refund
+
+> **Story:** Account starts at ৳10,00,000. Create advance ৳5,00,000. Then full refund.
+
+| Step | Account Balance |
+|------|----------------|
+| Start | 10,00,000 |
+| After create | 5,00,000 |
+| After full refund | 10,00,000 ← **must exactly match** |
+
+**Verdict: ✅ PASS** — Using `mathUtil.add/sub` (Decimal.js) prevents floating point drift, same as LC and Sales.
+
+---
+
+### Scenario 3.2 — Transaction Audit Trail Completeness
+
+> **Story:** Create advance ৳5,00,000, partial refund ৳2,00,000, then settle.
+
+| Expected Transactions |
+|---|
+| 1. Expense ৳5,00,000 — "Advance Payment to Rahman Steel" (Auto, category: "Advance Payment") |
+| 2. Income ৳2,00,000 — "Advance Payment Refund from Rahman Steel" (Auto, category: "Advance Payment") |
+| No transaction for settle (no money moved) |
+
+**Verdict: ✅ PASS** — Each money movement has a corresponding transaction.
+
+---
+
+### Scenario 3.3 — Refund to a Different Account
+
+> **Story:** Advance paid from Islami Bank. Supplier returns money in cash. User wants to refund to Cash account.
+
+> [!WARNING]
+> **GAP FOUND!** Original plan assumes refund goes back to the same account. But in reality, money might come back through a different channel.
+
+**Verdict: 🔧 NEEDS PLAN UPDATE**
+
+**Fix:** The refund flow should let the user choose which account to credit. The `refunds` array (from Scenario 2.3 fix) already has `accountId` per refund, which solves this.
+
+---
+
+### Scenario 3.4 — Original Payment Account Deleted/Archived
+
+> **Story:** Advance was paid from "Old Business Account". Later that account is archived. Now user wants to refund.
+
+| Expected | Refund should still work — user picks any active account to receive the refund. The original advance record still shows the historical account reference. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Since refund lets you pick an account (from fix above), archived original account is not a problem.
+
+---
+
+## Category 4: Timing & Daily Cash 🕐
+
+### Scenario 4.1 — Create Advance When Daily Cash Is Closed
+
+> **Story:** It's 11 PM, daily cash is already closed. User tries to create advance.
+
+| Expected | Error: "Daily cash is closed for [date]. Cannot create advance payment." |
+|----------|---|
+
+**Verdict: ✅ PASS** — Plan explicitly follows [_handleLCCostTransaction](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/lc.controller.js#267-343) pattern which has this gatekeeper.
+
+---
+
+### Scenario 4.2 — Refund When Daily Cash Is Closed
+
+> **Story:** Supplier returns money on a day when daily cash is closed.
+
+| Expected | Error: "Daily cash is closed for [date]. Cannot process refund." The user must open daily cash first or record the refund the next business day. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Refund creates a transaction, so the daily cash check applies.
+
+---
+
+### Scenario 4.3 — Advance Created on Date X, Settled on Date Y
+
+> **Story:** Advance created Jan 15. Settled Feb 20. How does this look in transaction history?
+
+| Expected | Jan 15: Expense transaction appears. Feb 20: No transaction (settle = no money move). The advance record shows both dates. Daily cash for Feb 20 is NOT affected. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Settling doesn't touch accounts/transactions, only updates the advance record.
+
+---
+
+### Scenario 4.4 — Advance Created Today, Refund Dated in Past
+
+> **Story:** Advance created on Feb 25. User tries to refund with date = Feb 20 (past date where daily cash was already closed).
+
+| Expected | Controller checks daily cash for the refund date (Feb 20). If closed → Error. User must use today's date or an open date. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Following same date validation pattern as transactions.
+
+---
+
+## Category 5: Integration with Existing Modules 🔗
+
+### Scenario 5.1 — Advance Transaction Visibility in Transaction List
+
+> **Story:** User creates an advance. Then goes to Accounts → selects the account → views transaction list.
+
+| Expected | The auto-generated expense transaction appears with: name="Advance Payment to [supplier]", category="Advance Payment", source="Auto", reference → AdvancePayment document. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Transactions are created with proper `referenceModel: "AdvancePayment"`.
+
+---
+
+### Scenario 5.2 — Auto Transaction Cannot Be Directly Deleted
+
+> **Story:** User sees the advance payment transaction in the transaction list and tries to delete it directly.
+
+| Expected | Error: "Cannot delete an automatically generated transaction. Please delete the source (e.g., Advance Payment) instead." — This is the existing behavior for all `source: "Auto"` transactions. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Existing [deleteTransaction](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/transaction.controller.js#879-976) already blocks `source: "Auto"` deletions.
+
+---
+
+### Scenario 5.3 — Advance Payment Shows in Daily Cash Report
+
+> **Story:** User creates an advance on Feb 25, then views the Daily Cash flow page for Feb 25.
+
+| Expected | The expense transaction should appear in the daily transaction list for Feb 25, contributing to that day's expenses total. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Since we create a standard Transaction document, it naturally flows into the daily cash calculations.
+
+---
+
+### Scenario 5.4 — Advance Payment in Account Details
+
+> **Story:** User goes to Accounts → clicks on "Islami Bank" → views details.
+
+| Expected | Account balance already reflects the advance deduction. Transaction history shows the advance payment transaction. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Standard account/transaction flow.
+
+---
+
+## Category 6: Deletion & Trash 🗑️
+
+### Scenario 6.1 — Delete a Pending Advance
+
+> **Story:** User created advance by mistake. Wants to delete it.
+
+| Expected | Advance marked `isDeleted: true`. Money returned to account (+amount). The auto expense transaction is also soft-deleted. Both go to trash. |
+|----------|---|
+
+> [!IMPORTANT]
+> **Design Decision Needed:** When deleting an advance, should it also delete the associated auto-transaction? Looking at how LC deletion works — yes, LC deletion reverses all associated transactions. This should do the same.
+
+**Verdict: ✅ PASS** — But controller must handle transaction cleanup in the same session.
+
+---
+
+### Scenario 6.2 — Delete a Partially Settled Advance
+
+> **Story:** Advance = ৳5,00,000. Already refunded ৳2,00,000. Now user deletes the advance.
+
+| Expected | This is complex. The refund of ৳2,00,000 already happened (income transaction exists). Deleting the advance should: reverse the original expense (return ৳5,00,000 to account), and also reverse the refund income (deduct ৳2,00,000 from account). Net effect: +৳3,00,000 to account (the amount still "outstanding"). |
+|----------|---|
+
+> [!WARNING]
+> **GAP FOUND!** The original plan just says "delete → reverse original transaction". But if there were refund transactions too, ALL related transactions must be reversed. This is why the `refunds` array with `transactionId` references is critical.
+
+**Verdict: 🔧 NEEDS PLAN UPDATE**
+
+**Fix:** On deletion, the controller must:
+1. Reverse original expense transaction (+amount to account)
+2. Reverse ALL refund income transactions (-refundedAmount from account)
+3. Soft-delete all related transactions
+4. Net effect = returning the actual outstanding amount
+
+---
+
+### Scenario 6.3 — Restore a Deleted Advance from Trash
+
+> **Story:** User deleted advance by mistake. Goes to trash and restores it.
+
+| Expected | Advance record restored (`isDeleted: false`). Money deducted from account again. Auto transactions restored. Balance returns to pre-delete state. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Trash restoration must mirror the deletion logic in reverse. The [trash.controller.js](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/trash.controller.js) needs a handler for `"AdvancePayment"` model.
+
+---
+
+### Scenario 6.4 — Delete a Fully Settled Advance
+
+> **Story:** Advance was settled (goods received). User later decides to delete the record.
+
+| Expected | Reverse original expense transaction (money returns to account). Status was "Settled" so no refund transactions exist. The goods remain in stock (they were added independently). |
+|----------|---|
+
+**Verdict: ✅ PASS** — Straightforward reversal.
+
+---
+
+## Category 7: Permission & Security 🔐
+
+### Scenario 7.1 — User Without Advance Payment Permission
+
+> **Story:** A team member with "USER" role has no `ADVANCE_PAYMENT` module in their access array.
+
+| Expected | Sidebar doesn't show "Advance Payments" link. Direct URL access to `/advance-payments` is blocked. API calls return 403 Forbidden. |
+|----------|---|
+
+**Verdict: ✅ PASS** — Standard permission pattern.
+
+---
+
+### Scenario 7.2 — Super Admin Access
+
+> **Story:** SUPER_ADMIN user accesses the module.
+
+| Expected | Full access to all operations (create, settle, refund, delete). |
+|----------|---|
+
+**Verdict: ✅ PASS** — SUPER_ADMIN bypasses permission checks (existing pattern).
+
+---
+
+## Summary of Gaps Found
+
+| # | Gap | Impact | Fix |
+|---|-----|--------|-----|
+| 1 | **Single refund vs multiple partial refunds** | Can't handle multiple refund installments | Add `refunds[]` array instead of single `refundedAmount` field |
+| 2 | **Refund locked to original account** | Can't handle supplier returning money via different channel | Allow account selection per refund in the `refunds[]` array |
+| 3 | **Deletion doesn't reverse refund transactions** | Financial inconsistency on delete of partially-refunded advance | Delete handler must reverse ALL related transactions (original + refunds) |
+
+> [!NOTE]
+> All 3 gaps are addressed by the same structural fix: adding a `refunds[]` array with per-refund `amount`, `accountId`, `transactionId`, and [date](file:///d:/Client%20Projects/Fortunate%20Business%20Management/fortunate-business-management-backend/controllers/lc.controller.js#394-643). This single change resolves all identified issues.
+
+---
+
+## Updated Model (Post Stress-Test)
+
+```javascript
+{
+  advanceId: String,              // "ADV-0001"
+  supplierName: String,
+  supplierPhone: String,
+  purpose: String,
+  
+  amount: Number,                 // Original advance amount
+  accountId: ObjectId → Account,  // Original payment account
+  paymentMethod: String,
+  date: Date,
+  
+  status: "Pending | Settled | Refunded | Partially Settled",
+  settledDate: Date,
+  
+  // NEW: Refund history (replaces single refundedAmount)
+  refunds: [{
+    amount: Number,
+    date: Date,
+    accountId: ObjectId → Account,   // Can differ from original
+    transactionId: ObjectId → Transaction,
+    note: String
+  }],
+  
+  transactionId: ObjectId → Transaction,  // The original expense transaction
+  
+  notes: String,
+  isDeleted, createdBy, modifiedBy, deletedBy, timestamps
+}
+```
+
+**Key improvements from stress testing:**
+- `refunds[]` array enables multiple partial refunds over time
+- Per-refund `accountId` allows refunding to any account
+- `transactionId` references on both the advance and each refund enable proper cleanup on deletion
+- Computed `refundedAmount = sum(refunds[].amount)` replaces the static field
+- Computed `remainingAmount = amount - refundedAmount` for UI display

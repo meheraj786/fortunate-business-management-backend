@@ -390,6 +390,114 @@ const restoreFromTrash = async (req, res, next) => {
       }
     }
 
+    /* =====================================================
+        ADVANCE PAYMENT RESTORE
+    ===================================================== */
+    if (modelName === "AdvancePayment") {
+      const Account = mongoose.model("Account");
+      const Transaction = mongoose.model("Transaction");
+      const DailyCash = mongoose.model("DailyCash");
+
+      const today = startOfDay(now(), req.businessTimezone);
+      const dailyCash = await DailyCash.findOne({
+        date: today,
+        status: "Open",
+      }).session(session);
+
+      if (!dailyCash) {
+        throw new ApiError(
+          400,
+          `Daily cash is closed for ${today.toDateString()}. Advance payment restoration is not allowed.`,
+        );
+      }
+
+      // Override the generic "Active" status — restore original status
+      // When deleted, status was from before deletion (Pending, Partially Settled, etc.)
+      // We default to "Pending" since only same-day advances can be deleted
+      restoredDoc.status = "Pending";
+
+      // Re-create original expense transaction (deduct from account)
+      const originalAccount = await Account.findById(restoredDoc.accountId).session(session);
+      if (!originalAccount) {
+        throw new ApiError(404, "The original payment account was not found.");
+      }
+      if (originalAccount.balance < restoredDoc.amount) {
+        throw new ApiError(
+          400,
+          `Insufficient balance in '${originalAccount.accountName}' to restore this advance payment.`,
+        );
+      }
+
+      originalAccount.balance = mathUtil.sub(originalAccount.balance, restoredDoc.amount);
+      await originalAccount.save({ session });
+
+      const [newTransaction] = await Transaction.create(
+        [
+          {
+            accountId: restoredDoc.accountId,
+            date: now(),
+            description: `Advance Payment Restored: ${restoredDoc.supplierName} (${restoredDoc.advanceId}) via ${restoredDoc.paymentMethod} Account: ${formatAccountLabel(originalAccount)}.`,
+            transactionType: "Expense",
+            amount: restoredDoc.amount,
+            name: `Advance Payment: ${restoredDoc.supplierName}`,
+            source: "Auto",
+            category: "Advance Payment",
+            paymentMethod: restoredDoc.paymentMethod,
+            reference: restoredDoc._id,
+            referenceModel: "AdvancePayment",
+          },
+        ],
+        { session },
+      );
+      restoredDoc.transactionId = newTransaction._id;
+
+      // Re-create refund transactions (credit to respective accounts)
+      for (let i = 0; i < (restoredDoc.refunds || []).length; i++) {
+        const refund = restoredDoc.refunds[i];
+
+        const refundAccount = await Account.findById(refund.accountId).session(session);
+        if (!refundAccount) {
+          throw new ApiError(404, `Refund account not found for refund #${i + 1}.`);
+        }
+
+        refundAccount.balance = mathUtil.add(refundAccount.balance, refund.amount);
+        await refundAccount.save({ session });
+
+        const [refundTx] = await Transaction.create(
+          [
+            {
+              accountId: refund.accountId,
+              date: now(),
+              description: `Advance Payment Refund Restored: ${restoredDoc.supplierName} (${restoredDoc.advanceId}) via ${refund.paymentMethod} Account: ${formatAccountLabel(refundAccount)}.`,
+              transactionType: "Income",
+              amount: refund.amount,
+              name: `Advance Refund: ${restoredDoc.supplierName}`,
+              source: "Auto",
+              category: "Advance Payment",
+              paymentMethod: refund.paymentMethod,
+              reference: restoredDoc._id,
+              referenceModel: "AdvancePayment",
+            },
+          ],
+          { session },
+        );
+
+        restoredDoc.refunds[i].transactionId = refundTx._id;
+
+        // Update status based on refunds
+        const refundedSoFar = restoredDoc.refunds
+          .slice(0, i + 1)
+          .reduce((sum, r) => mathUtil.add(sum, r.amount || 0), 0);
+        if (mathUtil.sub(restoredDoc.amount, refundedSoFar) <= 0.001) {
+          restoredDoc.status = "Refunded";
+        } else {
+          restoredDoc.status = "Partially Settled";
+        }
+      }
+
+      await restoredDoc.save({ session });
+    }
+
     // 3️⃣ Remove trash entry
     await Trash.findByIdAndDelete(id).session(session);
 
