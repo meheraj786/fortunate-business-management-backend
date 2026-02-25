@@ -61,7 +61,7 @@ async function createLC(req, res, next) {
 
     // --- Status-Aware Validation ---
     const status = lcData.basicInfo?.status;
-    const isDraft = status === "Draft";
+    const isDraft = status === "Draft" || status === "Cancelled";
 
     // Strip out empty product rows (frontend may send default empty rows)
     if (lcData.productInfo && Array.isArray(lcData.productInfo)) {
@@ -393,7 +393,7 @@ async function updateLC(req, res, next) {
 
     // --- Status-Aware Validation ---
     const updateStatus = updateData.basicInfo?.status;
-    const isUpdateDraft = updateStatus === "Draft";
+    const isUpdateDraft = updateStatus === "Draft" || updateStatus === "Cancelled";
 
     // Strip out empty product rows (frontend may send default empty rows)
     if (updateData.productInfo && Array.isArray(updateData.productInfo)) {

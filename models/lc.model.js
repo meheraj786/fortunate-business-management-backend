@@ -19,9 +19,10 @@ const costSchema = new mongoose.Schema({
   },
 });
 
-// Helper: returns true (making the field required) only when status is NOT "Draft"
+// Helper: returns true (making the field required) only when status is NOT "Draft" or "Cancelled"
 const requiredIfNotDraft = function () {
-  return this.basicInfo?.status !== "Draft";
+  const status = this.basicInfo?.status;
+  return status !== "Draft" && status !== "Cancelled";
 };
 
 const lcSchema = new mongoose.Schema(
