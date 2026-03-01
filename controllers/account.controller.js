@@ -266,7 +266,7 @@ async function createAccount(req, res, next) {
 
 async function getAllAccounts(req, res, next) {
   try {
-    const accounts = await Account.find({ status: "Active" });
+    const accounts = await Account.find({ status: "Active" }).lean();
     return res
       .status(200)
       .json(
@@ -294,7 +294,7 @@ async function getAllAccounts(req, res, next) {
 async function getAccountById(req, res, next) {
   try {
     const { id } = req.params;
-    const account = await Account.findById(id);
+    const account = await Account.findById(id).lean();
 
     if (!account) {
       return next(new ApiError(404, "Account not found"));
@@ -337,17 +337,23 @@ async function getAccountById(req, res, next) {
 async function updateAccount(req, res, next) {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+
+    // Allowlist: only these fields can be updated by the client
+    const ALLOWED_UPDATE_FIELDS = [
+      "accountName", "accountHolderName", "bankName", "branchName",
+      "accountNumber", "swiftCode", "routingNumber", "serviceName",
+      "mobileNumber", "status",
+    ];
+
+    const updateData = {};
+    for (const key of ALLOWED_UPDATE_FIELDS) {
+      if (req.body[key] !== undefined) updateData[key] = req.body[key];
+    }
 
     const existingAccount = await Account.findById(id);
 
     if (!existingAccount) {
       return next(new ApiError(404, "Account not found"));
-    }
-
-    // Prevent direct update of the balance
-    if (updateData.balance) {
-      delete updateData.balance;
     }
 
     // If the account is archived, prevent updates unless it's a reactivation
@@ -588,140 +594,100 @@ async function getAccountDetails(req, res, next) {
           deletedBy: { $arrayElemAt: ["$deleter", 0] },
         },
       },
+      // Optimized: compute transaction stats inside the $lookup sub-pipeline
+      // This avoids $unwind-ing all transactions into the parent document
       {
         $lookup: {
           from: "transactions",
-          localField: "_id",
-          foreignField: "accountId",
-          as: "transactions",
+          let: { accountId: "$_id" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$accountId", "$$accountId"] } } },
+            {
+              $group: {
+                _id: null,
+                totalIncome: {
+                  $sum: { $cond: [{ $eq: ["$transactionType", "Income"] }, "$amount", 0] },
+                },
+                totalExpense: {
+                  $sum: { $cond: [{ $eq: ["$transactionType", "Expense"] }, "$amount", 0] },
+                },
+                largestIncome: {
+                  $max: { $cond: [{ $eq: ["$transactionType", "Income"] }, "$amount", 0] },
+                },
+                largestExpense: {
+                  $max: { $cond: [{ $eq: ["$transactionType", "Expense"] }, "$amount", 0] },
+                },
+                totalTransactionsCount: { $sum: 1 },
+                totalIncomingTransactionsCount: {
+                  $sum: { $cond: [{ $eq: ["$transactionType", "Income"] }, 1, 0] },
+                },
+                totalOutgoingTransactionsCount: {
+                  $sum: { $cond: [{ $eq: ["$transactionType", "Expense"] }, 1, 0] },
+                },
+                totalTransactionAmount: { $sum: "$amount" },
+              },
+            },
+          ],
+          as: "txStats",
         },
       },
       {
-        $unwind: {
-          path: "$transactions",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      {
-        $group: {
-          _id: "$_id",
-          // Bring account fields back
-          doc: { $first: "$$ROOT" },
-          // Calculate stats
-          totalIncome: {
-            $sum: {
-              $cond: [
-                { $eq: ["$transactions.transactionType", "Income"] },
-                "$transactions.amount",
-                0,
-              ],
-            },
-          },
-          totalExpense: {
-            $sum: {
-              $cond: [
-                { $eq: ["$transactions.transactionType", "Expense"] },
-                "$transactions.amount",
-                0,
-              ],
-            },
-          },
-          largestIncome: {
-            $max: {
-              $cond: [
-                { $eq: ["$transactions.transactionType", "Income"] },
-                "$transactions.amount",
-                0,
-              ],
-            },
-          },
-          largestExpense: {
-            $max: {
-              $cond: [
-                { $eq: ["$transactions.transactionType", "Expense"] },
-                "$transactions.amount",
-                0,
-              ],
-            },
-          },
-          totalTransactionsCount: {
-            $sum: { $cond: [{ $ifNull: ["$transactions._id", false] }, 1, 0] },
-          },
-          totalIncomingTransactionsCount: {
-            $sum: {
-              $cond: [
-                { $eq: ["$transactions.transactionType", "Income"] },
-                1,
-                0,
-              ],
-            },
-          },
-          totalOutgoingTransactionsCount: {
-            $sum: {
-              $cond: [
-                { $eq: ["$transactions.transactionType", "Expense"] },
-                1,
-                0,
-              ],
-            },
-          },
-          totalTransactionAmount: {
-            $sum: { $ifNull: ["$transactions.amount", 0] },
-          },
+        $addFields: {
+          txStats: { $arrayElemAt: ["$txStats", 0] },
         },
       },
       {
         $project: {
           account: {
-            _id: "$doc._id",
-            accountType: "$doc.accountType",
-            accountName: "$doc.accountName",
-            balance: "$doc.balance",
-            accountHolderName: "$doc.accountHolderName",
-            bankName: "$doc.bankName",
-            branchName: "$doc.branchName",
-            accountNumber: "$doc.accountNumber",
-            swiftCode: "$doc.swiftCode",
-            serviceName: "$doc.serviceName",
-            mobileNumber: "$doc.mobileNumber",
-            routingNumber: "$doc.routingNumber",
-            status: "$doc.status",
-            createdAt: "$doc.createdAt",
-            updatedAt: "$doc.updatedAt",
+            _id: "$_id",
+            accountType: "$accountType",
+            accountName: "$accountName",
+            balance: "$balance",
+            accountHolderName: "$accountHolderName",
+            bankName: "$bankName",
+            branchName: "$branchName",
+            accountNumber: "$accountNumber",
+            swiftCode: "$swiftCode",
+            serviceName: "$serviceName",
+            mobileNumber: "$mobileNumber",
+            routingNumber: "$routingNumber",
+            status: "$status",
+            createdAt: "$createdAt",
+            updatedAt: "$updatedAt",
             createdBy: {
-              name: "$doc.createdBy.name",
-              email: "$doc.createdBy.email",
+              name: "$createdBy.name",
+              email: "$createdBy.email",
             },
             modifiedBy: {
-              name: "$doc.modifiedBy.name",
-              email: "$doc.modifiedBy.email",
+              name: "$modifiedBy.name",
+              email: "$modifiedBy.email",
             },
             deletedBy: {
-              name: "$doc.deletedBy.name",
-              email: "$doc.deletedBy.email",
+              name: "$deletedBy.name",
+              email: "$deletedBy.email",
             },
           },
           stats: {
-            currentBalance: "$doc.balance",
-            totalIncome: "$totalIncome",
-            totalExpense: "$totalExpense",
-            largestIncome: "$largestIncome",
-            largestExpense: "$largestExpense",
+            currentBalance: "$balance",
+            totalIncome: { $ifNull: ["$txStats.totalIncome", 0] },
+            totalExpense: { $ifNull: ["$txStats.totalExpense", 0] },
+            largestIncome: { $ifNull: ["$txStats.largestIncome", 0] },
+            largestExpense: { $ifNull: ["$txStats.largestExpense", 0] },
             averageTransactionAmount: {
               $cond: [
-                { $eq: ["$totalTransactionsCount", 0] },
+                { $eq: [{ $ifNull: ["$txStats.totalTransactionsCount", 0] }, 0] },
                 0,
                 {
                   $divide: [
-                    "$totalTransactionAmount",
-                    "$totalTransactionsCount",
+                    "$txStats.totalTransactionAmount",
+                    "$txStats.totalTransactionsCount",
                   ],
                 },
               ],
             },
-            totalTransactionsCount: "$totalTransactionsCount",
-            totalIncomingTransactionsCount: "$totalIncomingTransactionsCount",
-            totalOutgoingTransactionsCount: "$totalOutgoingTransactionsCount",
+            totalTransactionsCount: { $ifNull: ["$txStats.totalTransactionsCount", 0] },
+            totalIncomingTransactionsCount: { $ifNull: ["$txStats.totalIncomingTransactionsCount", 0] },
+            totalOutgoingTransactionsCount: { $ifNull: ["$txStats.totalOutgoingTransactionsCount", 0] },
           },
           _id: 0,
         },

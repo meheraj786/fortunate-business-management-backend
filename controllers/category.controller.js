@@ -67,7 +67,7 @@ exports.getCategories = async (_, res, next) => {
   try {
     const categories = await Category.find({
       isDeleted: { $ne: true },
-    }).sort({ name: 1 });
+    }).sort({ name: 1 }).lean();
 
     res
       .status(200)
@@ -95,7 +95,7 @@ exports.getCategoryById = async (req, res, next) => {
     const category = await Category.findOne({
       _id: id,
       isDeleted: { $ne: true },
-    });
+    }).lean();
 
     if (!category) return next(new ApiError(404, "Category not found"));
 

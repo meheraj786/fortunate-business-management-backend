@@ -12,6 +12,7 @@ const {
 const { authenticate } = require("../../middleware/auth.middleware");
 const { authorize } = require("../../middleware/authorize.middleware");
 const { PERMISSIONS } = require("../../utils/permissions.constants");
+const { idempotencyGuard } = require("../../middleware/idempotency.middleware");
 
 const advancePaymentRoutes = express.Router();
 
@@ -20,6 +21,7 @@ advancePaymentRoutes.use(authenticate);
 advancePaymentRoutes.post(
     "/",
     authorize(PERMISSIONS.ADVANCE_PAYMENT_CREATE),
+    idempotencyGuard,
     createAdvancePayment,
 );
 
@@ -50,6 +52,7 @@ advancePaymentRoutes.put(
 advancePaymentRoutes.put(
     "/:id/add",
     authorize(PERMISSIONS.ADVANCE_PAYMENT_CREATE),
+    idempotencyGuard,
     addToAdvancePayment,
 );
 

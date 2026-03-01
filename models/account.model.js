@@ -65,7 +65,7 @@ const accountSchema = new mongoose.Schema(
       default: null,
     },
   },
-  { timestamps: true },
+  { timestamps: true, optimisticConcurrency: true },
 );
 
 // --- QUERY MIDDLEWARE (Soft Delete Filter) ---

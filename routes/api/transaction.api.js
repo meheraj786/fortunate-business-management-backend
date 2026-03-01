@@ -12,6 +12,7 @@ const {
 const { authenticate } = require("../../middleware/auth.middleware");
 const { authorize } = require("../../middleware/authorize.middleware");
 const { PERMISSIONS } = require("../../utils/permissions.constants");
+const { idempotencyGuard } = require("../../middleware/idempotency.middleware");
 
 const transactionRoutes = express.Router();
 
@@ -20,6 +21,7 @@ transactionRoutes.use(authenticate);
 transactionRoutes.post(
   "/create-transaction",
   authorize(PERMISSIONS.TRANSACTION_CREATE),
+  idempotencyGuard,
   createTransaction
 );
 transactionRoutes.get(
@@ -56,6 +58,7 @@ transactionRoutes.delete(
 transactionRoutes.post(
   "/transfer",
   authorize(PERMISSIONS.TRANSACTION_CREATE),
+  idempotencyGuard,
   transferMoney
 );
 

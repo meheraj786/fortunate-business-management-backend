@@ -1,29 +1,49 @@
 const fs = require("fs");
+const fsp = fs.promises;
 const path = require("path");
-const { exec } = require("child_process");
 const archiver = require("archiver");
 const { format } = require("date-fns");
+const { promisify } = require("util");
 const logger = require("../utils/logger");
 const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const crypto = require("crypto");
 const auditService = require("../services/audit.service");
 
+// Async version of pbkdf2
+const pbkdf2Async = promisify(crypto.pbkdf2);
+
 // Configuration
 const BACKUP_DIR = path.join(__dirname, "..", "backups");
 const UPLOADS_DIR = path.join(__dirname, "..", "uploads");
 const DB_URI = process.env.MONGODB_URI;
 
-// Ensure backup directory exists
-if (!fs.existsSync(BACKUP_DIR)) {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
-}
+// Ensure backup directory exists (async, runs on module load)
+(async () => {
+    try {
+        await fsp.mkdir(BACKUP_DIR, { recursive: true });
+    } catch (err) {
+        logger.error("Failed to create backup directory:", err);
+    }
+})();
 
 const SystemSettings = require("../models/systemSettings.model");
 
 // In-memory lock to prevent overlapping backups
 let isBackupRunning = false;
 const BACKUP_FILENAME_REGEX = /^backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip(\.enc)?$/;
+
+/**
+ * Helper to check if a path exists (async replacement for fs.existsSync)
+ */
+async function pathExists(filePath) {
+    try {
+        await fsp.access(filePath);
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 /**
  * Creates a backup of the database and uploads folder.
@@ -62,9 +82,7 @@ async function createBackup(req, res, next) {
         const finalFilePath = path.join(BACKUP_DIR, `${backupFolderName}${extension}`);
 
         // 1. Create temporary backup folder
-        if (!fs.existsSync(backupFolderPath)) {
-            fs.mkdirSync(backupFolderPath);
-        }
+        await fsp.mkdir(backupFolderPath, { recursive: true });
 
         // 2. Dump Database using SPAWN for security (Command Injection Prevention)
         const dumpArgs = [
@@ -111,14 +129,12 @@ async function createBackup(req, res, next) {
 
         const output = fs.createWriteStream(finalFilePath);
 
-        // Let's restructure the piping and promise:
-
-        await new Promise((resolve, reject) => {
+        await new Promise(async (resolve, reject) => {
             if (isEncryptionEnabled) {
                 const algorithm = "aes-256-gcm";
                 const salt = crypto.randomBytes(16);
                 const iv = crypto.randomBytes(12);
-                const key = crypto.pbkdf2Sync(password, salt, 100000, 32, "sha256");
+                const key = await pbkdf2Async(password, salt, 100000, 32, "sha256");
                 const cipher = crypto.createCipheriv(algorithm, key, iv);
 
                 // Write header immediately
@@ -162,7 +178,7 @@ async function createBackup(req, res, next) {
             // Append contents
             archive.directory(path.join(backupFolderPath, "db_dump"), "db_dump");
 
-            if (fs.existsSync(UPLOADS_DIR) && settings.backup?.includeFiles) {
+            if ((await pathExists(UPLOADS_DIR)) && settings.backup?.includeFiles) {
                 archive.directory(UPLOADS_DIR, "uploads");
             } else if (!settings.backup?.includeFiles) {
                 logger.info("Skipping uploads backup based on settings.");
@@ -174,33 +190,39 @@ async function createBackup(req, res, next) {
         });
 
         // Verify Integrity
-        const stats = fs.statSync(finalFilePath);
+        const stats = await fsp.stat(finalFilePath);
         if (stats.size === 0) {
             throw new Error("Backup created but file is empty. Integrity check failed.");
         }
         logger.info(`Backup integrity check passed. Encrypted: ${isEncryptionEnabled}`);
 
         // 4. Cleanup
-        fs.rmSync(backupFolderPath, { recursive: true, force: true });
+        await fsp.rm(backupFolderPath, { recursive: true, force: true });
         logger.info("Temporary backup folder cleaned up.");
 
         // 5. Enforce Retention Policy
         const retentionCount = settings.backup?.retentionCount || 7;
 
-        const files = fs.readdirSync(BACKUP_DIR)
-            .filter(file => file.endsWith(".zip") || file.endsWith(".zip.enc"))
-            .map(file => ({
-                name: file,
-                time: fs.statSync(path.join(BACKUP_DIR, file)).birthtime.getTime()
-            }))
-            .sort((a, b) => b.time - a.time); // Newest first
+        const allFiles = await fsp.readdir(BACKUP_DIR);
+        const backupFiles = allFiles.filter(file => file.endsWith(".zip") || file.endsWith(".zip.enc"));
 
-        if (files.length > retentionCount) {
-            const filesToDelete = files.slice(retentionCount);
-            filesToDelete.forEach(file => {
-                fs.unlinkSync(path.join(BACKUP_DIR, file.name));
-                logger.info(`Deleted old backup: ${file.name} (Retention Policy)`);
-            });
+        const filesWithStats = await Promise.all(
+            backupFiles.map(async (file) => {
+                const fileStat = await fsp.stat(path.join(BACKUP_DIR, file));
+                return { name: file, time: fileStat.birthtime.getTime() };
+            })
+        );
+
+        filesWithStats.sort((a, b) => b.time - a.time); // Newest first
+
+        if (filesWithStats.length > retentionCount) {
+            const filesToDelete = filesWithStats.slice(retentionCount);
+            await Promise.all(
+                filesToDelete.map(async (file) => {
+                    await fsp.unlink(path.join(BACKUP_DIR, file.name));
+                    logger.info(`Deleted old backup: ${file.name} (Retention Policy)`);
+                })
+            );
         }
 
         const successMessage = isEncryptionEnabled
@@ -222,19 +244,24 @@ async function createBackup(req, res, next) {
     } catch (error) {
         logger.error("Backup failed:", error);
 
-        // Cleanup on error
-        if (fs.existsSync(backupFolderPath)) {
-            fs.rmSync(backupFolderPath, { recursive: true, force: true });
+        // Cleanup on error (best-effort, async)
+        try {
+            if (await pathExists(backupFolderPath)) {
+                await fsp.rm(backupFolderPath, { recursive: true, force: true });
+            }
+        } catch (cleanupErr) {
+            logger.error("Error cleaning up backup folder:", cleanupErr);
         }
-        // Ideally verify variable existence before unlink, but backupFolderName is defined early
-        // Safe to try cleanup based on logic
-        // We need to know the final file path, which might be .zip or .zip.enc
-        // Best effort cleanup:
+
         if (typeof backupFolderName !== 'undefined') {
             const zip = path.join(BACKUP_DIR, `${backupFolderName}.zip`);
             const enc = path.join(BACKUP_DIR, `${backupFolderName}.zip.enc`);
-            if (fs.existsSync(zip)) fs.unlinkSync(zip);
-            if (fs.existsSync(enc)) fs.unlinkSync(enc);
+            try {
+                if (await pathExists(zip)) await fsp.unlink(zip);
+                if (await pathExists(enc)) await fsp.unlink(enc);
+            } catch (cleanupErr) {
+                logger.error("Error cleaning up partial backup files:", cleanupErr);
+            }
         }
 
         if (next) {
@@ -251,14 +278,16 @@ async function createBackup(req, res, next) {
  */
 async function getBackups(req, res, next) {
     try {
-        if (!fs.existsSync(BACKUP_DIR)) {
+        if (!(await pathExists(BACKUP_DIR))) {
             return res.status(200).json(new ApiResponse(200, [], "No backups found"));
         }
 
-        const files = fs.readdirSync(BACKUP_DIR)
-            .filter(file => file.endsWith(".zip") || file.endsWith(".zip.enc"))
-            .map(file => {
-                const stats = fs.statSync(path.join(BACKUP_DIR, file));
+        const allFiles = await fsp.readdir(BACKUP_DIR);
+        const backupFileNames = allFiles.filter(file => file.endsWith(".zip") || file.endsWith(".zip.enc"));
+
+        const files = await Promise.all(
+            backupFileNames.map(async (file) => {
+                const stats = await fsp.stat(path.join(BACKUP_DIR, file));
                 return {
                     filename: file,
                     size: (stats.size / 1024 / 1024).toFixed(2) + " MB",
@@ -266,7 +295,9 @@ async function getBackups(req, res, next) {
                     encrypted: file.endsWith(".zip.enc") // Flag for frontend
                 };
             })
-            .sort((a, b) => b.createdAt - a.createdAt); // Newest first
+        );
+
+        files.sort((a, b) => b.createdAt - a.createdAt); // Newest first
 
         return res.status(200).json(new ApiResponse(200, files, "Backups retrieved successfully"));
     } catch (error) {
@@ -288,7 +319,7 @@ async function downloadBackup(req, res, next) {
 
         const filePath = path.join(BACKUP_DIR, filename);
 
-        if (!fs.existsSync(filePath)) {
+        if (!(await pathExists(filePath))) {
             throw new ApiError(404, "Backup file not found");
         }
 
@@ -317,11 +348,11 @@ async function deleteBackup(req, res, next) {
 
         const filePath = path.join(BACKUP_DIR, filename);
 
-        if (!fs.existsSync(filePath)) {
+        if (!(await pathExists(filePath))) {
             throw new ApiError(404, "Backup file not found");
         }
 
-        fs.unlinkSync(filePath);
+        await fsp.unlink(filePath);
         logger.info(`Backup deleted: ${filename}`);
 
         // Audit: Backup deleted

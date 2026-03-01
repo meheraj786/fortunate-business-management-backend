@@ -402,11 +402,14 @@ async function createSale(req, res, next) {
     if (invoiceStatus === "Invoiced") {
       // Apply Stock Deductions for ALL items
       for (const deduction of stockDeductions) {
-        await Product.findOneAndUpdate(
-          { _id: deduction.productId, isDeleted: { $ne: true } },
+        const updated = await Product.findOneAndUpdate(
+          { _id: deduction.productId, isDeleted: { $ne: true }, quantity: { $gte: deduction.quantityToDeductFromProduct } },
           { $inc: { quantity: -deduction.quantityToDeductFromProduct } },
           { new: true, session },
         );
+        if (!updated) {
+          throw new ApiError(400, `Insufficient stock for product. Another sale may have depleted it. Please refresh and try again.`);
+        }
       }
     }
 
@@ -475,14 +478,33 @@ async function createSale(req, res, next) {
   }
 }
 
-async function getAllSales(_, res, next) {
+async function getAllSales(req, res, next) {
   try {
-    const sales = await Sales.aggregate([
-      {
-        $match: {
-          isDeleted: { $ne: true },
-        },
-      },
+    const {
+      page = 1,
+      limit = 50,
+      status,
+      paymentStatus,
+      invoiceStatus,
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10)));
+    const skip = (pageNum - 1) * limitNum;
+
+    // Build match filter
+    const matchFilter = { isDeleted: { $ne: true } };
+    if (status) matchFilter.status = status;
+    if (paymentStatus) matchFilter.paymentStatus = paymentStatus;
+    if (invoiceStatus) matchFilter.invoiceStatus = invoiceStatus;
+
+    // Data pipeline: populate all relationships
+    const dataPipeline = [
+      // Sort by date desc
+      { $sort: { saleDate: -1 } },
+      { $skip: skip },
+      { $limit: limitNum },
+
       // Populate customer.customerId
       {
         $lookup: {
@@ -564,7 +586,6 @@ async function getAllSales(_, res, next) {
       // --- End Nested Lookups for Items ---
 
       // Populate payments.accountId
-      // Use similar unwind/group pattern for payments if multiple exist
       { $unwind: { path: "$payments", preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
@@ -602,13 +623,32 @@ async function getAllSales(_, res, next) {
         },
       },
 
-      // Sort by date desc
-      { $sort: { saleDate: -1 } }
+      // Final sort (re-apply after group)
+      { $sort: { saleDate: -1 } },
+    ];
+
+    const result = await Sales.aggregate([
+      { $match: matchFilter },
+      {
+        $facet: {
+          data: dataPipeline,
+          metadata: [{ $count: "total" }],
+        },
+      },
     ]);
+
+    const sales = result[0].data;
+    const totalDocs = result[0].metadata[0] ? result[0].metadata[0].total : 0;
 
     return res
       .status(200)
-      .json(new ApiResponse(200, sales, "Sales fetched successfully"));
+      .json(new ApiResponse(200, {
+        docs: sales,
+        totalDocs,
+        limit: limitNum,
+        totalPages: Math.ceil(totalDocs / limitNum),
+        page: pageNum,
+      }, "Sales fetched successfully"));
   } catch (error) {
     if (error instanceof ApiError) {
       return next(error);
@@ -925,44 +965,47 @@ async function deleteSale(req, res, next) {
       throw new ApiError(400, "Sale is already in the trash");
     }
 
-    // Restore stock for MULTI-ITEM sales
-    if (saleToDelete.items && saleToDelete.items.length > 0) {
-      for (const item of saleToDelete.items) {
-        if (item.product && item.unit) {
-          const product = item.product;
-          const saleUnit = item.unit;
+    // Only restore stock if the sale was actually invoiced (stock was deducted)
+    if (saleToDelete.invoiceStatus === "Invoiced") {
+      // Restore stock for MULTI-ITEM sales
+      if (saleToDelete.items && saleToDelete.items.length > 0) {
+        for (const item of saleToDelete.items) {
+          if (item.product && item.unit) {
+            const product = item.product;
+            const saleUnit = item.unit;
 
-          // Check for unit compatibility (should be guaranteed by creation, but good to be safe)
-          if (product.unit && product.unit.type === saleUnit.type) {
-            const qty = item.quantity;
-            const quantityInBase = qty * (saleUnit.conversionFactor || 1);
-            const quantityToRestore = quantityInBase / (product.unit.conversionFactor || 1);
+            // Check for unit compatibility (should be guaranteed by creation, but good to be safe)
+            if (product.unit && product.unit.type === saleUnit.type) {
+              const qty = item.quantity;
+              const quantityInBase = qty * (saleUnit.conversionFactor || 1);
+              const quantityToRestore = quantityInBase / (product.unit.conversionFactor || 1);
 
-            await Product.findByIdAndUpdate(
-              product._id,
-              { $inc: { quantity: quantityToRestore } },
-              { session }
-            );
+              await Product.findByIdAndUpdate(
+                product._id,
+                { $inc: { quantity: quantityToRestore } },
+                { session }
+              );
+            }
           }
         }
       }
-    }
-    // Fallback: Restore stock for LEGACY single-item sales
-    else if (saleToDelete.product && saleToDelete.unit) {
-      const product = saleToDelete.product;
-      const saleUnit = saleToDelete.unit;
+      // Fallback: Restore stock for LEGACY single-item sales
+      else if (saleToDelete.product && saleToDelete.unit) {
+        const product = saleToDelete.product;
+        const saleUnit = saleToDelete.unit;
 
-      if (product.unit && product.unit.type === saleUnit.type) {
-        const deletedSaleQuantityInBaseUnit =
-          saleToDelete.quantity * saleUnit.conversionFactor;
-        const quantityToRestoreToProduct =
-          deletedSaleQuantityInBaseUnit / product.unit.conversionFactor;
+        if (product.unit && product.unit.type === saleUnit.type) {
+          const deletedSaleQuantityInBaseUnit =
+            saleToDelete.quantity * saleUnit.conversionFactor;
+          const quantityToRestoreToProduct =
+            deletedSaleQuantityInBaseUnit / product.unit.conversionFactor;
 
-        await Product.findByIdAndUpdate(
-          product._id,
-          { $inc: { quantity: quantityToRestoreToProduct } },
-          { session },
-        );
+          await Product.findByIdAndUpdate(
+            product._id,
+            { $inc: { quantity: quantityToRestoreToProduct } },
+            { session },
+          );
+        }
       }
     }
 

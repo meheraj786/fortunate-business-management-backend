@@ -11,6 +11,7 @@ const { moveToTrash } = require("../controllers/trash.controller");
 const { formatAccountLabel } = require("../utils/format.util");
 const mathUtil = require("../utils/math.util");
 const auditService = require("../services/audit.service");
+const { escapeRegex } = require("../utils/regex.util");
 
 async function createTransaction(req, res, next) {
   const session = await mongoose.startSession();
@@ -66,7 +67,7 @@ async function createTransaction(req, res, next) {
       // account.balance += amount;
       account.balance = mathUtil.add(account.balance, amount);
     } else if (transactionType === "Expense") {
-      if (account.balance < amount) {
+      if (mathUtil.sub(account.balance, amount) < 0) {
         throw new ApiError(400, "Insufficient balance for this expense.");
       }
       // account.balance -= amount;
@@ -209,7 +210,7 @@ async function updateTransaction(req, res, next) {
 
     // Reverse the old transaction's effect on the old account
     if (oldTransactionType === "Income") {
-      if (currentAccount.balance < oldAmount) {
+      if (mathUtil.sub(currentAccount.balance, oldAmount) < 0) {
         throw new ApiError(
           400,
           `Insufficient balance in ${currentAccount.accountName} to reverse old income.`,
@@ -233,7 +234,7 @@ async function updateTransaction(req, res, next) {
       // newAccount.balance += amount;
       newAccount.balance = mathUtil.add(newAccount.balance, amount);
     } else if (transactionType === "Expense") {
-      if (newAccount.balance < amount) {
+      if (mathUtil.sub(newAccount.balance, amount) < 0) {
         throw new ApiError(400, "Insufficient balance for this new expense.");
       }
       // newAccount.balance -= amount;
@@ -452,7 +453,7 @@ async function getAllTransactions(req, res, next) {
     if (transactionType) matchQuery.transactionType = transactionType;
     if (category) matchQuery.category = category;
     if (paymentMethod) matchQuery.paymentMethod = paymentMethod;
-    if (search) matchQuery.description = { $regex: search, $options: "i" };
+    if (search) matchQuery.description = { $regex: escapeRegex(search), $options: "i" };
 
     if (Object.keys(matchQuery).length > 0) {
       pipeline.push({ $match: matchQuery });
@@ -770,7 +771,7 @@ async function getTransactionsByAccount(req, res, next) {
     if (category) matchQuery.category = category;
     if (transactionType) matchQuery.transactionType = transactionType;
     if (paymentMethod) matchQuery.paymentMethod = paymentMethod;
-    if (search) matchQuery.description = { $regex: search, $options: "i" };
+    if (search) matchQuery.description = { $regex: escapeRegex(search), $options: "i" };
 
     pipeline.push({ $match: matchQuery });
 

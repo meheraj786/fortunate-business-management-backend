@@ -18,6 +18,7 @@ const { startOfDay } = require("../utils/timezone.util");
 const { formatAccountLabel } = require("../utils/format.util");
 const Counter = require("../models/counter.model");
 const auditService = require("../services/audit.service");
+const { escapeRegex } = require("../utils/regex.util");
 
 // --- Multer Configuration ---
 const storage = multer.diskStorage({
@@ -31,7 +32,23 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage: storage });
+const ALLOWED_MIME_TYPES = [
+  "image/jpeg", "image/png", "image/webp", "image/gif",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+];
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.includes(file.mimetype)) return cb(null, true);
+    cb(new ApiError(400, `File type '${file.mimetype}' is not allowed. Accepted: images, PDF, Word, Excel.`));
+  },
+});
 
 async function createCustomer(req, res, next) {
   const session = await mongoose.startSession();
@@ -117,17 +134,21 @@ async function createCustomer(req, res, next) {
       await Sales.create([openingBalanceSale], { session });
     }
 
-    // If DB operations are successful, commit files to permanent storage
-    for (const preparedDoc of preparedDocs) {
-      await storageUtil.commitCustomerDocument(
-        preparedDoc.tempPath,
-        preparedDoc.docData,
-        customer.customerId,
-      );
-    }
-
     await session.commitTransaction();
     session.endSession();
+
+    // Commit files AFTER DB transaction succeeds — prevents orphaned files on rollback
+    for (const preparedDoc of preparedDocs) {
+      try {
+        await storageUtil.commitCustomerDocument(
+          preparedDoc.tempPath,
+          preparedDoc.docData,
+          customer.customerId,
+        );
+      } catch (fileErr) {
+        logger.error(`Failed to commit file post-transaction: ${preparedDoc.docData.originalName}`, fileErr);
+      }
+    }
 
     // Audit: Customer created
     auditService.log({ action: "CREATE", module: "Customer", documentId: customer._id, displayId: customer.customerId, userId: req.user?._id, description: `Created customer ${customer.name} (${customer.customerId})`, req });
@@ -260,6 +281,8 @@ async function getCustomerById(req, res, next) {
           "deletedBy.password": 0,
         },
       },
+      // Optimized: compute customer stats inside the $lookup sub-pipeline
+      // instead of loading all sales documents into the parent pipeline
       {
         $lookup: {
           from: "sales",
@@ -275,42 +298,39 @@ async function getCustomerById(req, res, next) {
                 },
               },
             },
+            {
+              $group: {
+                _id: null,
+                totalPurchases: { $sum: 1 },
+                totalSpent: { $sum: "$totalAmountToBePaid" },
+                notInvoiced: {
+                  $sum: { $cond: [{ $eq: ["$invoiceStatus", "Not-invoiced"] }, 1, 0] },
+                },
+                outstandingDues: {
+                  $sum: {
+                    $cond: [
+                      { $eq: ["$paymentStatus", "Due payment"] },
+                      { $subtract: ["$totalAmountToBePaid", { $ifNull: ["$totalPaid", 0] }] },
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
           ],
-          as: "sales",
+          as: "salesStats",
         },
       },
       {
         $addFields: {
           stats: {
-            totalPurchases: { $size: "$sales" },
-            totalSpent: { $sum: "$sales.totalAmountToBePaid" },
-            notInvoiced: {
-              $size: {
-                $filter: {
-                  input: "$sales",
-                  as: "s",
-                  cond: { $eq: ["$$s.invoiceStatus", "Not-invoiced"] },
-                },
-              },
-            },
-            outstandingDues: {
-              $sum: {
-                $map: {
-                  input: {
-                    $filter: {
-                      input: "$sales",
-                      as: "s",
-                      cond: { $eq: ["$$s.paymentStatus", "Due payment"] },
-                    },
-                  },
-                  as: "dueSale",
-                  in: {
-                    $subtract: [
-                      "$$dueSale.totalAmountToBePaid",
-                      { $sum: "$$dueSale.payments.amount" },
-                    ],
-                  },
-                },
+            $let: {
+              vars: { s: { $arrayElemAt: ["$salesStats", 0] } },
+              in: {
+                totalPurchases: { $ifNull: ["$$s.totalPurchases", 0] },
+                totalSpent: { $ifNull: ["$$s.totalSpent", 0] },
+                notInvoiced: { $ifNull: ["$$s.notInvoiced", 0] },
+                outstandingDues: { $ifNull: ["$$s.outstandingDues", 0] },
               },
             },
           },
@@ -318,7 +338,7 @@ async function getCustomerById(req, res, next) {
       },
       {
         $project: {
-          sales: 0,
+          salesStats: 0,
         },
       },
     ];
@@ -531,7 +551,7 @@ async function deleteCustomer(req, res, next) {
     const sales = await Sales.find({
       "customer.customerId": new mongoose.Types.ObjectId(id),
       isDeleted: false,
-    });
+    }).lean();
 
     let outstandingDues = 0;
     sales.forEach((sale) => {
@@ -722,7 +742,7 @@ async function getCustomersSummary(req, res, next) {
       matchConditions.customerType = customerType;
     }
     if (search) {
-      const searchRegex = { $regex: search, $options: "i" };
+      const searchRegex = { $regex: escapeRegex(search), $options: "i" };
       matchConditions.$or = [
         { name: searchRegex },
         { phone: searchRegex },

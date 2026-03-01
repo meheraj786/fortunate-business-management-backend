@@ -3,6 +3,7 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const { ApiError } = require("../utils/ApiError");
 const logger = require("../utils/logger");
 const mongoose = require("mongoose");
+const { escapeRegex } = require("../utils/regex.util");
 
 /**
  * Get paginated audit logs with filtering support.
@@ -49,7 +50,7 @@ async function getAuditLogs(req, res, next) {
             filter.documentId = new mongoose.Types.ObjectId(documentId);
         }
         if (search) {
-            filter.description = { $regex: search, $options: "i" };
+            filter.description = { $regex: escapeRegex(search), $options: "i" };
         }
         if (startDate || endDate) {
             filter.timestamp = {};

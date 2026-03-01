@@ -46,7 +46,7 @@ const productSchema = new mongoose.Schema(
       default: null,
     },
   },
-  { timestamps: true },
+  { timestamps: true, optimisticConcurrency: true },
 );
 
 productSchema.index({ name: "text" });

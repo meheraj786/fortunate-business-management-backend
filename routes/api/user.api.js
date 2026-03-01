@@ -9,6 +9,7 @@ const {
   getUser,
   updateUser,
   deleteUser,
+  refreshTokenHandler,
 } = require("../../controllers/user.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const {
@@ -33,6 +34,7 @@ userRoutes.post(
   registerUser
 );
 userRoutes.post("/login", loginLimiter, loginUser);
+userRoutes.post("/refresh-token", refreshTokenHandler); // No auth — self-validates via refresh token
 userRoutes.post("/logout", authenticate, logoutUser);
 userRoutes.get("/get-profile", authenticate, getProfile);
 userRoutes.patch(

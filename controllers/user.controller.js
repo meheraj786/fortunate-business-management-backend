@@ -3,6 +3,7 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
 const {
@@ -11,6 +12,23 @@ const {
 } = require("../utils/permissions.constants");
 const Trash = require("../models/trash.model");
 const auditService = require("../services/audit.service");
+const RefreshToken = require("../models/refreshToken.model");
+
+// Shared cookie option builder
+const getAccessCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  maxAge: 15 * 60 * 1000, // 15 minutes — matches JWT expiry
+});
+
+const getRefreshCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  path: "/api/v1/user/refresh-token", // Only sent to the refresh endpoint
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+});
 
 const registerUser = async (req, res, next) => {
   try {
@@ -126,7 +144,7 @@ const loginUser = async (req, res, next) => {
       );
     }
 
-    const user = await User.findOne({ email }).select("+password");
+    const user = await User.findOne({ email, isDeleted: { $ne: true } }).select("+password");
     if (!user) {
       return next(new ApiError(401, "Invalid email or password"));
     }
@@ -136,20 +154,22 @@ const loginUser = async (req, res, next) => {
       return next(new ApiError(401, "Invalid email or password"));
     }
 
-    const token = user.generateToken();
+    const accessToken = user.generateToken();
+
+    // Generate refresh token (random + secure)
+    const refreshTokenStr = crypto.randomBytes(40).toString("hex");
+    await RefreshToken.create({
+      token: refreshTokenStr,
+      userId: user._id,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    });
 
     // Convert to plain object and strip password hash before sending response
     const userObj = user.toObject();
     delete userObj.password;
 
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days — matches JWT expiry
-    };
-
-    res.cookie("accessToken", token, cookieOptions);
+    res.cookie("accessToken", accessToken, getAccessCookieOptions());
+    res.cookie("refreshToken", refreshTokenStr, getRefreshCookieOptions());
 
     // Audit: Login
     auditService.log({ action: "LOGIN", module: "User", documentId: user._id, userId: user._id, description: `User ${user.name} (${user.email}) logged in`, req });
@@ -196,17 +216,27 @@ const loginUser = async (req, res, next) => {
 };
 const logoutUser = async (req, res, next) => {
   try {
-    const cookieOptions = {
+    // Clear access token cookie
+    res.clearCookie("accessToken", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-    };
+    });
 
-    res.clearCookie("accessToken", cookieOptions);
+    // Clear refresh token cookie
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/api/v1/user/refresh-token",
+    });
 
-    // SEC-1: Invalidate all tokens issued before this moment
+    // Delete refresh token from DB + invalidate all access tokens issued before now
     if (req.user?._id) {
-      await User.findByIdAndUpdate(req.user._id, { lastLogoutAt: new Date() });
+      await Promise.all([
+        RefreshToken.deleteMany({ userId: req.user._id }),
+        User.findByIdAndUpdate(req.user._id, { lastLogoutAt: new Date() }),
+      ]);
     }
 
     // Audit: Logout
@@ -220,6 +250,69 @@ const logoutUser = async (req, res, next) => {
       return next(error);
     }
     logger.error(error);
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
+  }
+};
+
+const refreshTokenHandler = async (req, res, next) => {
+  try {
+    const incomingRefreshToken = req.cookies?.refreshToken;
+
+    if (!incomingRefreshToken) {
+      return next(new ApiError(401, "No refresh token provided"));
+    }
+
+    // Find and delete the incoming refresh token (single-use / rotation)
+    const storedToken = await RefreshToken.findOneAndDelete({ token: incomingRefreshToken });
+
+    if (!storedToken) {
+      // Token not found — it may have been used already (replay attack) or expired
+      // As a security measure, invalidate ALL refresh tokens for this user
+      // We can't know the userId here since the token is invalid, so just reject
+      return next(new ApiError(401, "Invalid or expired refresh token. Please log in again."));
+    }
+
+    // Check if the token has expired (belt + suspenders with TTL)
+    if (storedToken.expiresAt < new Date()) {
+      return next(new ApiError(401, "Refresh token expired. Please log in again."));
+    }
+
+    // Find the user
+    const user = await User.findById(storedToken.userId);
+    if (!user || user.isDeleted) {
+      return next(new ApiError(401, "User not found or access denied"));
+    }
+
+    // Generate new access token
+    const newAccessToken = user.generateToken();
+
+    // Generate new refresh token (token rotation)
+    const newRefreshTokenStr = crypto.randomBytes(40).toString("hex");
+    await RefreshToken.create({
+      token: newRefreshTokenStr,
+      userId: user._id,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    });
+
+    // Set new cookies
+    res.cookie("accessToken", newAccessToken, getAccessCookieOptions());
+    res.cookie("refreshToken", newRefreshTokenStr, getRefreshCookieOptions());
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, {}, "Token refreshed successfully"));
+  } catch (error) {
+    logger.error("RefreshToken Error:", error);
+    if (error instanceof ApiError) {
+      return next(error);
+    }
     next(
       new ApiError(
         500,
@@ -541,4 +634,5 @@ module.exports = {
   getUser,
   updateUser,
   deleteUser,
+  refreshTokenHandler,
 };

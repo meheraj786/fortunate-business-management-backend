@@ -66,7 +66,7 @@ exports.getUnits = async (_, res, next) => {
   try {
     const units = await Unit.find({ isDeleted: { $ne: true } }).sort({
       name: 1,
-    });
+    }).lean();
 
     res
       .status(200)
@@ -89,7 +89,7 @@ exports.getUnitById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const unit = await Unit.findOne({ _id: id, isDeleted: { $ne: true } });
+    const unit = await Unit.findOne({ _id: id, isDeleted: { $ne: true } }).lean();
 
     if (!unit) return next(new ApiError(404, "Unit not found"));
 

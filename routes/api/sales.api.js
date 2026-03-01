@@ -19,6 +19,7 @@ const {
 } = require("../../controllers/generatedInvoice.controller");
 const { authorize } = require("../../middleware/authorize.middleware");
 const { PERMISSIONS } = require("../../utils/permissions.constants");
+const { idempotencyGuard } = require("../../middleware/idempotency.middleware");
 const salesRoutes = express.Router();
 
 salesRoutes.use(authenticate);
@@ -26,6 +27,7 @@ salesRoutes.use(authenticate);
 salesRoutes.post(
   "/create-sales",
   authorize(PERMISSIONS.SALE_CREATE),
+  idempotencyGuard,
   createSale
 );
 salesRoutes.get(
@@ -72,6 +74,7 @@ salesRoutes.get(
 salesRoutes.post(
   "/:id/payments",
   authorize(PERMISSIONS.SALE_ADD_PAYMENT),
+  idempotencyGuard,
   addPartialPayment
 );
 

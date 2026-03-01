@@ -104,8 +104,14 @@ const salesSchema = new mongoose.Schema(
       ref: "Category",
     },
     totalAmount: { type: Number, required: true },
-    costs: [costSchema],
-    charges: [chargeSchema],
+    costs: {
+      type: [costSchema],
+      validate: [arr => arr.length <= 90, "Cannot have more than 50 cost entries"],
+    },
+    charges: {
+      type: [chargeSchema],
+      validate: [arr => arr.length <= 90, "Cannot have more than 50 charge entries"],
+    },
     discount: { type: Number, default: 0 },
     totalAmountToBePaid: { type: Number, required: true },
     invoiceStatus: {
@@ -120,13 +126,16 @@ const salesSchema = new mongoose.Schema(
       // PROPOSAL: Use cleaner enums. "Paid", "Partial", "Due", "Overpaid".
       enum: ["Paid", "Partial", "Due", "Paid payment", "Due payment", "N/A"],
       default: "Due",
-      index: true,
+      index: true, // Compound index at {paymentStatus, isDeleted} covers queries
     },
     // --- Persisted Financial Fields ---
     totalPaid: { type: Number, default: 0, index: true },
     balanceDue: { type: Number, default: 0, index: true },
     // ----------------------------------
-    payments: [paymentSchema],
+    payments: {
+      type: [paymentSchema],
+      validate: [arr => arr.length <= 100, "Cannot have more than 100 payment entries"],
+    },
     notes: { type: String, trim: true },
     saleDate: { type: Date, default: Date.now },
     isDeleted: {
@@ -150,7 +159,7 @@ const salesSchema = new mongoose.Schema(
       default: null,
     },
   },
-  { timestamps: true },
+  { timestamps: true, optimisticConcurrency: true },
 );
 
 salesSchema.plugin(mongoosePaginate);
@@ -231,7 +240,7 @@ salesSchema.index({ invoiceStatus: 1, isDeleted: 1 });
 salesSchema.index({ "items.product": 1 });
 salesSchema.index({ "customer.customerId": 1 });
 salesSchema.index({ "customer.name": 1 });
-salesSchema.index({ saleDate: -1 });
+// Note: standalone { saleDate: -1 } removed — covered by { isDeleted: 1, saleDate: -1 }
 salesSchema.index({ totalAmountToBePaid: 1 });
 
 // Additional indexes for common query patterns

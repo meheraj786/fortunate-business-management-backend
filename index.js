@@ -15,7 +15,6 @@ const cron = require("node-cron"); // Cron jobs
 
 // Import local modules
 const { dbConnect } = require("./database/db.config"); // Database connection
-const { getBrowser } = require("./utils/browserManager"); // Browser manager
 const routers = require("./routes"); // All routes
 const { ApiError } = require("./utils/ApiError"); // Custom API error
 const logger = require("./utils/logger"); // Logger
@@ -58,8 +57,7 @@ app.use(
       }
 
       // Block other origins
-      // return callback(new Error('Not allowed by CORS'));
-      return callback(null, true);
+      return callback(new Error('Not allowed by CORS'));
     },
     credentials: true, // Allow cookies
   }),
@@ -103,7 +101,6 @@ app.use((err, req, res, next) => {
     success: false,
     message: err.message || "Something went wrong",
     errors: err.errors || [],
-    debug: err.debug, // Exposed for developer debugging
   };
 
   if (!(err instanceof ApiError)) {
@@ -111,6 +108,7 @@ app.use((err, req, res, next) => {
   }
 
   if (process.env.NODE_ENV === "development") {
+    responsePayload.debug = err.debug; // Only expose debug info in dev
     responsePayload.stack = err.stack; // Show stack in dev
   }
 
@@ -128,7 +126,7 @@ app.listen(PORT, () => {
 (async () => {
   try {
     await dbConnect(); // Connect database
-    await getBrowser(); // Start browser
+    // Puppeteer is lazily initialized on first PDF request via getBrowser() singleton
     await closeMissedDailyCashEntries(); // Fix missed cash entries
     logger.info("Background startup tasks completed"); // Log success
   } catch (error) {

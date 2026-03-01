@@ -135,7 +135,7 @@ const lcSchema = new mongoose.Schema(
       default: null,
     },
   },
-  { timestamps: true },
+  { timestamps: true, optimisticConcurrency: true },
 );
 
 lcSchema.index({ "basicInfo.lcNumber": 1 }, { unique: true }); // Ensure lcNumber is unique

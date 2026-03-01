@@ -164,8 +164,8 @@ const authorizeTrashAccess = (action) => (req, res, next) => {
     }
 
     // Construct the permission string dynamically, e.g., TRASH_VIEW_LC
-
-    const requiredPermission = `TRASH_${action}_${model.toUpperCase()}`;
+    const modelPrefix = model === "AdvancePayment" ? "ADVANCE_PAYMENT" : model.toUpperCase();
+    const requiredPermission = `TRASH_${action}_${modelPrefix}`;
 
     const userPermissions = new Set();
 

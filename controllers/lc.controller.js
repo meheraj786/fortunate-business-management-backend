@@ -42,7 +42,23 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage: storage });
+const ALLOWED_MIME_TYPES = [
+  "image/jpeg", "image/png", "image/webp", "image/gif",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+];
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.includes(file.mimetype)) return cb(null, true);
+    cb(new ApiError(400, `File type '${file.mimetype}' is not allowed. Accepted: images, PDF, Word, Excel.`));
+  },
+});
 
 async function createLC(req, res, next) {
   const session = await mongoose.startSession();

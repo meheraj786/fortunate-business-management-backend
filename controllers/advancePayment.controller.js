@@ -12,6 +12,7 @@ const { startOfDay, now } = require("../utils/timezone.util");
 const { formatAccountLabel } = require("../utils/format.util");
 const mathUtil = require("../utils/math.util");
 const auditService = require("../services/audit.service");
+const { escapeRegex } = require("../utils/regex.util");
 
 // ============================================================
 // CREATE ADVANCE PAYMENT
@@ -214,7 +215,7 @@ async function getAllAdvancePayments(req, res, next) {
             filter.status = status;
         }
         if (search) {
-            const searchRegex = { $regex: search, $options: "i" };
+            const searchRegex = { $regex: escapeRegex(search), $options: "i" };
             filter.$or = [
                 { supplierName: searchRegex },
                 { advanceId: searchRegex },

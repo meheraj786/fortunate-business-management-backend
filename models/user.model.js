@@ -127,7 +127,7 @@ userSchema.methods.generateToken = function () {
       role: this.roleName,
     },
     process.env.SECRET_KEY,
-    { expiresIn: "7d" },
+    { expiresIn: "15m" },
   );
 };
 
