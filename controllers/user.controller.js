@@ -18,15 +18,15 @@ const RefreshToken = require("../models/refreshToken.model");
 const getAccessCookieOptions = () => ({
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
-  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  sameSite: "lax",
   maxAge: 15 * 60 * 1000, // 15 minutes — matches JWT expiry
 });
 
 const getRefreshCookieOptions = () => ({
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
-  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-  path: "/api/v1/user/refresh-token", // Only sent to the refresh endpoint
+  sameSite: "lax",
+  path: "/",
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 });
 
@@ -220,15 +220,15 @@ const logoutUser = async (req, res, next) => {
     res.clearCookie("accessToken", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      sameSite: "lax",
     });
 
     // Clear refresh token cookie
     res.clearCookie("refreshToken", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      path: "/api/v1/user/refresh-token",
+      sameSite: "lax",
+      path: "/",
     });
 
     // Delete refresh token from DB + invalidate all access tokens issued before now
