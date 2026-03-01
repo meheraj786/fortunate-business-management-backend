@@ -29,10 +29,35 @@ const { checkDbStatus } = require("./middleware/dbStatus.middleware"); // DB sta
 // Create express app
 const app = express(); // Initialize express app
 
-// Configure CORS — allow all origins
+// Configure CORS
+const allowedOrigins = [];
+if (process.env.CORS_ORIGIN) {
+  allowedOrigins.push(process.env.CORS_ORIGIN);
+}
+
 app.use(
   cors({
-    origin: true,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (server-to-server, health checks, curl)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // In development, allow any localhost
+      if (
+        process.env.NODE_ENV !== "production" &&
+        origin.startsWith("http://localhost")
+      ) {
+        return callback(null, true);
+      }
+
+      // Check against allowed origins
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   }),
 );
