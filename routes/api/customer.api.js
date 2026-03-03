@@ -5,6 +5,7 @@ const {
   updateCustomer,
   deleteCustomer,
   getCustomersSummary,
+  getDueCustomers,
   getAllActiveCustomers,
   downloadCustomerDocument,
   deleteCustomerDocument,
@@ -53,6 +54,12 @@ customerRoutes.get(
   authenticate,
   authorize(PERMISSIONS.CUSTOMER_VIEW_TABLE),
   getCustomersSummary,
+);
+customerRoutes.get(
+  "/due-customers",
+  authenticate,
+  authorize(PERMISSIONS.CUSTOMER_VIEW_TABLE),
+  getDueCustomers,
 );
 
 // Document Routes

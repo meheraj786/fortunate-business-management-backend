@@ -907,12 +907,210 @@ async function getCustomersSummary(req, res, next) {
   }
 }
 
+async function getDueCustomers(req, res, next) {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      sortBy,
+      sortOrder = "desc",
+      dateFrom,
+      dateTo,
+    } = req.query;
+
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
+    const sortOrderNum = sortOrder === "asc" ? 1 : -1;
+
+    const pipeline = [];
+
+    // Stage 1: Only active customers
+    const matchConditions = { isDeleted: { $ne: true } };
+    if (search) {
+      const searchRegex = { $regex: escapeRegex(search), $options: "i" };
+      matchConditions.$or = [
+        { name: searchRegex },
+        { phone: searchRegex },
+        { customerId: searchRegex },
+      ];
+    }
+    pipeline.push({ $match: matchConditions });
+
+    // Build sales sub-pipeline match conditions
+    const salesMatchConditions = [
+      { $eq: ["$customer.customerId", "$$customerId"] },
+      { $ne: ["$isDeleted", true] },
+    ];
+
+    // Add date range filter on saleDate
+    if (dateFrom) {
+      salesMatchConditions.push({
+        $gte: ["$saleDate", new Date(dateFrom)],
+      });
+    }
+    if (dateTo) {
+      // dateTo is end of day
+      const endDate = new Date(dateTo);
+      endDate.setHours(23, 59, 59, 999);
+      salesMatchConditions.push({
+        $lte: ["$saleDate", endDate],
+      });
+    }
+
+    // Stage 2: Lookup sales with optional date filtering
+    pipeline.push({
+      $lookup: {
+        from: "sales",
+        let: { customerId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: salesMatchConditions,
+              },
+            },
+          },
+        ],
+        as: "sales",
+      },
+    });
+
+    // Stage 3: Calculate summary fields
+    pipeline.push({
+      $addFields: {
+        totalPurchases: { $size: "$sales" },
+        totalSpent: { $sum: "$sales.totalAmountToBePaid" },
+        lastPurchaseDate: { $max: "$sales.saleDate" },
+        dueSalesCount: {
+          $size: {
+            $filter: {
+              input: "$sales",
+              as: "sale",
+              cond: { $eq: ["$$sale.paymentStatus", "Due payment"] },
+            },
+          },
+        },
+        totalDue: {
+          $sum: {
+            $map: {
+              input: {
+                $filter: {
+                  input: "$sales",
+                  as: "sale",
+                  cond: { $eq: ["$$sale.paymentStatus", "Due payment"] },
+                },
+              },
+              as: "dueSale",
+              in: {
+                $subtract: [
+                  "$$dueSale.totalAmountToBePaid",
+                  { $sum: "$$dueSale.payments.amount" },
+                ],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Stage 3b: Calculate totalPaid (derived from totalSpent - totalDue)
+    pipeline.push({
+      $addFields: {
+        totalPaid: { $subtract: ["$totalSpent", "$totalDue"] },
+      },
+    });
+
+    // Stage 4: Filter only customers with dues > 0
+    pipeline.push({
+      $match: { totalDue: { $gt: 0 } },
+    });
+
+    // Stage 5: Sorting
+    const sortStage = {};
+    const validSortBy = [
+      "totalDue",
+      "name",
+      "totalSpent",
+      "totalPurchases",
+      "dueSalesCount",
+      "totalPaid",
+      "lastPurchaseDate",
+      "joinDate",
+    ];
+    if (validSortBy.includes(sortBy)) {
+      sortStage[sortBy] = sortOrderNum;
+    } else {
+      sortStage.totalDue = -1; // Default: highest due first
+    }
+
+    // Stage 6: Facet for pagination, total count, and grand total
+    pipeline.push({
+      $facet: {
+        customers: [
+          { $sort: sortStage },
+          { $skip: skip },
+          { $limit: limitNum },
+          {
+            $project: {
+              sales: 0,
+            },
+          },
+        ],
+        metadata: [
+          {
+            $group: {
+              _id: null,
+              totalItems: { $sum: 1 },
+              totalDueAmount: { $sum: "$totalDue" },
+            },
+          },
+        ],
+      },
+    });
+
+    const result = await Customer.aggregate(pipeline);
+
+    const customers = result[0].customers;
+    const meta = result[0].metadata.length > 0 ? result[0].metadata[0] : { totalItems: 0, totalDueAmount: 0 };
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          customers,
+          totalPages: Math.ceil(meta.totalItems / limitNum),
+          currentPage: pageNum,
+          totalItems: meta.totalItems,
+          totalDueAmount: meta.totalDueAmount,
+        },
+        "Due customers fetched successfully",
+      ),
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    logger.error(error);
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
+  }
+}
+
 module.exports = {
   createCustomer,
   getCustomerById,
   updateCustomer,
   deleteCustomer,
   getCustomersSummary,
+  getDueCustomers,
   getAllActiveCustomers,
   downloadCustomerDocument,
   deleteCustomerDocument,
