@@ -858,7 +858,8 @@ async function updateSale(req, res, next) {
       // We need to pass the *prospective* financials
       const costsTotal = mathUtil.sum(sale.costs.map(c => c.amount));
       const chargesTotal = mathUtil.sum(sale.charges.map(c => c.amount));
-      const currentTotalPaid = mathUtil.sum(sale.payments.map(p => p.amount)); // Assuming payments largely static here
+      const prospectivePayments = updateData.payments || sale.payments;
+      const currentTotalPaid = mathUtil.sum(prospectivePayments.map(p => p.amount));
 
       await SalesService.checkCustomerCreditLimit(
         sale.customer.customerId,
@@ -885,6 +886,11 @@ async function updateSale(req, res, next) {
     }
 
     // 5. Strict Financial Check
+    // In update flow, if payments are being passed in updateData, we need to consider them.
+    // However, payments are usually handled separately or appended. If they are in updateData:
+    if (updateData.payments) {
+      sale.payments = updateData.payments;
+    }
     const totalPaid = mathUtil.round(mathUtil.sum(sale.payments.map(p => p.amount)));
 
     // If the update reduces the total amount below what has already been paid, we prevent it.
