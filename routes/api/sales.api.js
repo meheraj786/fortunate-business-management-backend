@@ -62,7 +62,20 @@ salesRoutes.get(
 );
 salesRoutes.get(
   "/customer/:customerId",
-  authorize(PERMISSIONS.SALE_VIEW_TABLE),
+  (req, res, next) => {
+    // Allow access if user has SALE_VIEW_TABLE OR CUSTOMER_VIEW_DETAILS
+    const user = req.user;
+    if (!user) return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (user.roleName === "ADMIN" || user.roleName === "SUPER_ADMIN") return next();
+
+    const userPermissions = new Set();
+    (user.access || []).forEach((m) => m.permissions.forEach((p) => userPermissions.add(p)));
+
+    if (userPermissions.has(PERMISSIONS.SALE_VIEW_TABLE) || userPermissions.has(PERMISSIONS.CUSTOMER_VIEW_DETAILS)) {
+      return next();
+    }
+    return res.status(403).json({ success: false, message: "Forbidden - You don't have permission to view this customer's sales." });
+  },
   getSalesByCustomerId
 );
 
