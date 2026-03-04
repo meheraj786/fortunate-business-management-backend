@@ -208,7 +208,7 @@ async function generatePdf(invoiceId) {
   const page = await browser.newPage();
 
   try {
-    await page.setContent(html, { waitUntil: "load" });
+    await page.setContent(html, { waitUntil: ["load", "networkidle0"] });
 
     await page.emulateMediaType("print");
 
@@ -242,7 +242,7 @@ async function generatePng(invoiceId) {
   try {
     await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 2 });
 
-    await page.setContent(html, { waitUntil: "load" });
+    await page.setContent(html, { waitUntil: ["load", "networkidle0"] });
 
     const element = await page.$("#invoice-paper");
     if (!element) {
