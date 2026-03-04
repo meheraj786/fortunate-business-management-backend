@@ -129,6 +129,7 @@ async function createCustomer(req, res, next) {
         saleDate: customer.joinDate || now(),
         totalAmount: openingDue,
         totalAmountToBePaid: openingDue,
+        balanceDue: openingDue,
       };
 
       await Sales.create([openingBalanceSale], { session });
@@ -421,6 +422,7 @@ async function updateCustomer(req, res, next) {
         if (existingOpeningSale.totalAmountToBePaid !== newOpeningDue) {
           existingOpeningSale.totalAmount = newOpeningDue;
           existingOpeningSale.totalAmountToBePaid = newOpeningDue;
+          existingOpeningSale.balanceDue = newOpeningDue;
           await existingOpeningSale.save({ session });
         }
       } else if (newOpeningDue > 0) {
@@ -443,6 +445,7 @@ async function updateCustomer(req, res, next) {
           saleDate: customer.joinDate || now(),
           totalAmount: newOpeningDue,
           totalAmountToBePaid: newOpeningDue,
+          balanceDue: newOpeningDue,
         };
         await Sales.create([openingBalanceSale], { session });
       }
