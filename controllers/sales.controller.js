@@ -42,14 +42,6 @@ async function createSale(req, res, next) {
     // Validate Sale Date
     SalesService.validateSaleDate(saleDate, req.businessTimezone);
 
-    // Manual Customer Validation
-    if (!customerInfo.customerId && invoiceStatus !== "Invoiced") {
-      throw new ApiError(
-        400,
-        "Guest/Manual sales must be fully invoiced immediately.",
-      );
-    }
-
     const validationErrors = [];
     if (!items || items.length === 0) {
       validationErrors.push({
@@ -424,6 +416,15 @@ async function createSale(req, res, next) {
         400,
         `Payment amount (${totalPaid}) cannot exceed the total amount to be paid (${sale.totalAmountToBePaid}).`,
       );
+    }
+
+    if (!finalCustomerInfo.customerId && invoiceStatus === "Invoiced") {
+      if (totalPaid < sale.totalAmountToBePaid) {
+        throw new ApiError(
+          400,
+          "Guest/Manual sales must be fully paid when invoiced.",
+        );
+      }
     }
 
     await SalesService.reconcileSaleFinancials(sale._id, session);
@@ -893,6 +894,15 @@ async function updateSale(req, res, next) {
         400,
         `Cannot update sale because the new total (${sale.totalAmountToBePaid}) is less than the amount already paid (${totalPaid}). Please remove or refund payments first.`
       );
+    }
+
+    if (!sale.customer?.customerId && sale.invoiceStatus === "Invoiced") {
+      if (totalPaid < sale.totalAmountToBePaid) {
+        throw new ApiError(
+          400,
+          "Guest/Manual sales must be fully paid when invoiced.",
+        );
+      }
     }
 
     await sale.save({ session });
