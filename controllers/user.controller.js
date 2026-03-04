@@ -9,10 +9,61 @@ const { now } = require("../utils/timezone.util");
 const {
   BUNDLED_PERMISSIONS,
   PERMISSIONS,
+  MODULES,
 } = require("../utils/permissions.constants");
 const Trash = require("../models/trash.model");
 const auditService = require("../services/audit.service");
 const RefreshToken = require("../models/refreshToken.model");
+
+/**
+ * Determine which module a permission string belongs to.
+ * e.g. "TRANSACTION_VIEW_ALL" → "TRANSACTION", "ADVANCE_PAYMENT_VIEW" → "ADVANCE_PAYMENT"
+ */
+const getModuleForPermission = (permission) => {
+  // Sort modules longest-first so ADVANCE_PAYMENT matches before ADVANCE
+  const sorted = [...MODULES].sort((a, b) => b.length - a.length);
+  for (const mod of sorted) {
+    if (permission.startsWith(mod + "_")) return mod;
+  }
+  return null;
+};
+
+/**
+ * Apply bundled permissions across modules.
+ * Handles cross-module bundles (e.g. ACCOUNT_VIEW_ALL → TRANSACTION_VIEW_ALL)
+ * by injecting the bundled permission into the correct module entry.
+ */
+const applyBundledPermissions = (accessArray) => {
+  // Build a map: module → Set of permissions
+  const moduleMap = new Map();
+  accessArray.forEach((entry) => {
+    moduleMap.set(entry.module, new Set(entry.permissions || []));
+  });
+
+  // Collect all bundled permissions (including cross-module ones)
+  accessArray.forEach((entry) => {
+    (entry.permissions || []).forEach((p) => {
+      const bundled = BUNDLED_PERMISSIONS[p];
+      if (bundled) {
+        bundled.forEach((bp) => {
+          const targetModule = getModuleForPermission(bp);
+          if (targetModule) {
+            if (!moduleMap.has(targetModule)) {
+              moduleMap.set(targetModule, new Set());
+            }
+            moduleMap.get(targetModule).add(bp);
+          }
+        });
+      }
+    });
+  });
+
+  // Convert back to array format
+  return Array.from(moduleMap.entries()).map(([module, perms]) => ({
+    module,
+    permissions: Array.from(perms),
+  }));
+};
 
 // Shared cookie option builder
 const getAccessCookieOptions = () => ({
@@ -74,17 +125,8 @@ const registerUser = async (req, res, next) => {
       });
     }
 
-    // Apply bundled permissions (auto-include prerequisites)
-    user.access = user.access.map((module) => {
-      let permissions = new Set(module.permissions || []);
-      (module.permissions || []).forEach((p) => {
-        const bundled = BUNDLED_PERMISSIONS[p];
-        if (bundled) {
-          bundled.forEach((bp) => permissions.add(bp));
-        }
-      });
-      return { module: module.module, permissions: Array.from(permissions) };
-    });
+    // Apply bundled permissions (auto-include prerequisites, including cross-module)
+    user.access = applyBundledPermissions(user.access);
 
     await user.save();
 
@@ -503,25 +545,8 @@ const updateUser = async (req, res, next) => {
 
     // Handle the new, more granular access structure
     if (updates.access && Array.isArray(updates.access)) {
-      updates.access = updates.access.map((module) => {
-        // Start with the permissions explicitly given for the module
-        let permissions = new Set(module.permissions || []);
-
-        // Automatically add bundled permissions
-        (module.permissions || []).forEach((p) => {
-          const bundled = BUNDLED_PERMISSIONS[p];
-          if (bundled) {
-            bundled.forEach((bundledPermission) =>
-              permissions.add(bundledPermission),
-            );
-          }
-        });
-
-        return {
-          module: module.module,
-          permissions: Array.from(permissions), // Convert Set back to Array
-        };
-      });
+      // Apply bundled permissions (including cross-module)
+      updates.access = applyBundledPermissions(updates.access);
     }
 
     // Only allow updating specific fields (allowlist)
