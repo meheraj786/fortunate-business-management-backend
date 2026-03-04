@@ -73,6 +73,19 @@ const registerUser = async (req, res, next) => {
         permissions: [unitViewPermission],
       });
     }
+
+    // Apply bundled permissions (auto-include prerequisites)
+    user.access = user.access.map((module) => {
+      let permissions = new Set(module.permissions || []);
+      (module.permissions || []).forEach((p) => {
+        const bundled = BUNDLED_PERMISSIONS[p];
+        if (bundled) {
+          bundled.forEach((bp) => permissions.add(bp));
+        }
+      });
+      return { module: module.module, permissions: Array.from(permissions) };
+    });
+
     await user.save();
 
     auditService.log({
