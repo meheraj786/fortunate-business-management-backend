@@ -40,12 +40,17 @@ const userSchema = new mongoose.Schema(
 
     roleName: {
       type: String,
-      enum: ["SUPER_ADMIN", "ADMIN", "USER", "No Role"],
       default: "No Role",
+      trim: true,
     },
     description: {
       type: String,
       default: "No description provided.",
+    },
+    address: {
+      type: String,
+      default: "",
+      trim: true,
     },
     location: {
       type: String,

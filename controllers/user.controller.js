@@ -32,8 +32,6 @@ const getRefreshCookieOptions = () => ({
 
 const registerUser = async (req, res, next) => {
   try {
-    // Strip roleName from body to prevent self-role-assignment
-    delete req.body.roleName;
     const user = new User(req.body);
 
     // Ensure access array exists
@@ -110,7 +108,7 @@ const registerUser = async (req, res, next) => {
       let userFriendlyMessage = "Validation failed.";
 
       if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+        userFriendlyMessage = error.errors[firstErrorField].message || `The field ${firstErrorField} is invalid.`;
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
@@ -199,7 +197,7 @@ const loginUser = async (req, res, next) => {
       let userFriendlyMessage = "Validation failed.";
 
       if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+        userFriendlyMessage = error.errors[firstErrorField].message || `The field ${firstErrorField} is invalid.`;
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
@@ -360,7 +358,7 @@ const getUser = async (req, res, next) => {
       let userFriendlyMessage = "Validation failed.";
 
       if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+        userFriendlyMessage = error.errors[firstErrorField].message || `The field ${firstErrorField} is invalid.`;
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
@@ -408,7 +406,7 @@ const getProfile = async (req, res, next) => {
       let userFriendlyMessage = "Validation failed.";
 
       if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+        userFriendlyMessage = error.errors[firstErrorField].message || `The field ${firstErrorField} is invalid.`;
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
@@ -456,7 +454,7 @@ const getAllUser = async (req, res, next) => {
       let userFriendlyMessage = "Validation failed.";
 
       if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+        userFriendlyMessage = error.errors[firstErrorField].message || `The field ${firstErrorField} is invalid.`;
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
@@ -514,7 +512,7 @@ const updateUser = async (req, res, next) => {
     }
 
     // Only allow updating specific fields (allowlist)
-    const allowedFields = ['name', 'email', 'phone', 'roleName', 'description', 'location', 'access', 'warehouse', 'password', 'avatar'];
+    const allowedFields = ['name', 'email', 'phone', 'roleName', 'description', 'location', 'address', 'access', 'warehouse', 'password', 'avatar'];
     Object.keys(updates).forEach((key) => {
       if (allowedFields.includes(key)) {
         user[key] = updates[key];
@@ -528,7 +526,7 @@ const updateUser = async (req, res, next) => {
     const updatedUser = await User.findById(id).populate("warehouse");
 
     // Audit: User updated
-    auditService.log({ action: "UPDATE", module: "User", documentId: id, userId: req.user?._id, description: `Updated user ${updatedUser.name} (${updatedUser.email})`, changes: auditService.diffChanges(user, updatedUser, ["name", "email", "phone", "roleName", "description", "location"]), req });
+    auditService.log({ action: "UPDATE", module: "User", documentId: id, userId: req.user?._id, description: `Updated user ${updatedUser.name} (${updatedUser.email})`, changes: auditService.diffChanges(user, updatedUser, ["name", "email", "phone", "roleName", "description", "location", "address"]), req });
 
     return res
       .status(200)
@@ -554,7 +552,7 @@ const updateUser = async (req, res, next) => {
       let userFriendlyMessage = "Validation failed.";
 
       if (firstErrorField) {
-        userFriendlyMessage = `The field ${firstErrorField} is required.`;
+        userFriendlyMessage = error.errors[firstErrorField].message || `The field ${firstErrorField} is invalid.`;
       }
       return next(new ApiError(400, userFriendlyMessage, error.errors));
     }
