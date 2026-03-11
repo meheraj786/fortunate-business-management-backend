@@ -16,6 +16,7 @@ const { formatAccountLabel } = require("../utils/format.util");
 const CreditHistory = require("../models/creditHistory.model");
 const mathUtil = require("../utils/math.util");
 const auditService = require("../services/audit.service");
+const { PERMISSIONS } = require("../utils/permissions.constants");
 
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
@@ -786,6 +787,60 @@ async function updateSale(req, res, next) {
     }
     const warehouseId = sale.warehouse;
 
+    // 1.5 Invoice / Cancelled Status Guard — Block item modifications on finalized sales
+    const isInvoiced = sale.invoiceStatus === "Invoiced";
+    const isCancelled = sale.invoiceStatus === "Cancelled";
+
+    if ((isInvoiced || isCancelled) && updateData.items) {
+      // Check if items array actually differs from current
+      const oldItemSignatures = (sale.items || []).map(i => {
+        const pid = (typeof i.product === 'object' ? i.product._id : i.product).toString();
+        return `${pid}:${i.quantity}:${i.pricePerUnit}`;
+      }).sort().join('|');
+      const newItemSignatures = (updateData.items || []).map(i => {
+        const pid = (i.productId || i.product?._id || i.product).toString();
+        return `${pid}:${parseFloat(i.quantity)}:${parseFloat(i.pricePerUnit)}`;
+      }).sort().join('|');
+
+      if (oldItemSignatures !== newItemSignatures) {
+        throw new ApiError(400,
+          isInvoiced
+            ? "Cannot modify items on an invoiced sale. The sale must be cancelled first."
+            : "Cannot modify items on a cancelled sale."
+        );
+      }
+    }
+
+    // 1.6 Granular Permission Check — SALE_ITEM_ADD / SALE_ITEM_DELETE
+    if (updateData.items && !isInvoiced && !isCancelled) {
+      const isAdmin = req.user.roleName === 'ADMIN' || req.user.roleName === 'SUPER_ADMIN';
+      let userPermissions;
+      if (!isAdmin) {
+        userPermissions = new Set();
+        (req.user.access || []).forEach(m => m.permissions.forEach(p => userPermissions.add(p)));
+      }
+
+      // Detect additions and deletions by comparing product ID sets
+      const oldProductIds = new Set((sale.items || []).map(i =>
+        (typeof i.product === 'object' ? i.product._id : i.product).toString()
+      ));
+      const newProductIds = new Set((updateData.items || []).map(i =>
+        (i.productId || i.product?._id || i.product).toString()
+      ));
+
+      const hasNewItems = updateData.items.length > (sale.items || []).length ||
+        [...newProductIds].some(id => !oldProductIds.has(id));
+      const hasRemovedItems = (sale.items || []).length > updateData.items.length ||
+        [...oldProductIds].some(id => !newProductIds.has(id));
+
+      if (hasNewItems && !isAdmin && !userPermissions.has(PERMISSIONS.SALE_ITEM_ADD)) {
+        throw new ApiError(403, "You don't have permission to add items to a sale.");
+      }
+      if (hasRemovedItems && !isAdmin && !userPermissions.has(PERMISSIONS.SALE_ITEM_DELETE)) {
+        throw new ApiError(403, "You don't have permission to remove items from a sale.");
+      }
+    }
+
     // 2. Prepare Items for Diffing
     // Current items in DB
     const oldItems = sale.items && sale.items.length > 0
@@ -919,8 +974,23 @@ async function updateSale(req, res, next) {
     await session.commitTransaction();
     session.endSession();
 
-    // Audit: Sale updated
-    auditService.log({ action: "UPDATE", module: "Sale", documentId: sale._id, displayId: sale.saleId, userId: req.user?._id, description: `Updated sale ${sale.saleId}`, req });
+    // Audit: Sale updated (with item-level diff)
+    let itemDiffDesc = '';
+    if (updateData.items) {
+      const addedCount = Math.max(0, (updateData.items.length || 0) - (oldItems.length || 0));
+      const removedCount = Math.max(0, (oldItems.length || 0) - (updateData.items.length || 0));
+      if (addedCount > 0) itemDiffDesc += ` | +${addedCount} item(s) added`;
+      if (removedCount > 0) itemDiffDesc += ` | -${removedCount} item(s) removed`;
+      if (!addedCount && !removedCount && updateData.items.length === oldItems.length) {
+        const modified = updateData.items.filter((ni, idx) => {
+          const oi = oldItems[idx];
+          if (!oi) return false;
+          return parseFloat(ni.quantity) !== oi.quantity || parseFloat(ni.pricePerUnit) !== oi.pricePerUnit;
+        }).length;
+        if (modified > 0) itemDiffDesc += ` | ${modified} item(s) modified`;
+      }
+    }
+    auditService.log({ action: "UPDATE", module: "Sale", documentId: sale._id, displayId: sale.saleId, userId: req.user?._id, description: `Updated sale ${sale.saleId}${itemDiffDesc}`, req });
 
     return res
       .status(200)
