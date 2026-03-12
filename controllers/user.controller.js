@@ -199,11 +199,15 @@ const loginUser = async (req, res, next) => {
 
     const user = await User.findOne({ email, isDeleted: { $ne: true } }).select("+password");
     if (!user) {
+      // Audit: Failed login — user not found
+      auditService.log({ action: "LOGIN_FAILED", module: "User", description: `Failed login attempt for email: ${email} (user not found)`, metadata: { email, reason: "User not found" }, req });
       return next(new ApiError(401, "Invalid email or password"));
     }
 
     const isValid = await user.isPasswordCorrect(password);
     if (!isValid) {
+      // Audit: Failed login — wrong password
+      auditService.log({ action: "LOGIN_FAILED", module: "User", documentId: user._id, userId: user._id, description: `Failed login attempt for ${user.name} (${email}) — wrong password`, metadata: { email, reason: "Wrong password" }, req });
       return next(new ApiError(401, "Invalid email or password"));
     }
 
@@ -539,6 +543,11 @@ const updateUser = async (req, res, next) => {
       return next(new ApiError(404, "User not found"));
     }
 
+    // Capture snapshots for audit diff (before any mutation)
+    const userSnapshot = user.toObject();
+    const oldAccessJSON = JSON.stringify(user.access || []);
+    const isPasswordChange = !!updates.password;
+
     if (updates.password) {
       updates.password = await bcrypt.hash(updates.password, 10);
     }
@@ -564,7 +573,14 @@ const updateUser = async (req, res, next) => {
     const updatedUser = await User.findById(id).populate("warehouse");
 
     // Audit: User updated
-    auditService.log({ action: "UPDATE", module: "User", documentId: id, userId: req.user?._id, description: `Updated user ${updatedUser.name} (${updatedUser.email})`, changes: auditService.diffChanges(user, updatedUser, ["name", "email", "phone", "roleName", "description", "location", "address"]), req });
+    const passwordFlag = isPasswordChange ? " | Password changed" : "";
+    auditService.log({ action: "UPDATE", module: "User", documentId: id, userId: req.user?._id, description: `Updated user ${updatedUser.name} (${updatedUser.email})${passwordFlag}`, changes: auditService.diffChanges(userSnapshot, updatedUser, ["name", "email", "phone", "roleName", "description", "location", "address"]), req });
+
+    // G4: Separate PERMISSION_CHANGE audit log when access changes
+    const newAccessJSON = JSON.stringify(updatedUser.access || []);
+    if (oldAccessJSON !== newAccessJSON) {
+      auditService.log({ action: "PERMISSION_CHANGE", module: "User", documentId: id, userId: req.user?._id, description: `Changed permissions for ${updatedUser.name} (${updatedUser.email})`, changes: { before: JSON.parse(oldAccessJSON), after: updatedUser.access }, req });
+    }
 
     return res
       .status(200)

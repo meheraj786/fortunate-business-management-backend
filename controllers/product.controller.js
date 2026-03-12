@@ -119,6 +119,11 @@ async function updateProductInWarehouse(req, res, next) {
   try {
     const { warehouseId, productId } = req.params;
     const userId = req.user?._id || null;
+
+    // Capture snapshot for audit diff
+    const Product = require("../models/product.model");
+    const oldProduct = await Product.findById(productId).lean();
+
     const updated = await productService.updateProduct(
       productId,
       warehouseId,
@@ -127,7 +132,7 @@ async function updateProductInWarehouse(req, res, next) {
     );
 
     // Audit: Product updated
-    auditService.log({ action: "UPDATE", module: "Product", documentId: updated._id, userId: req.user?._id, description: `Updated product ${updated.name}`, req });
+    auditService.log({ action: "UPDATE", module: "Product", documentId: updated._id, userId: req.user?._id, description: `Updated product ${updated.name}`, changes: auditService.diffChanges(oldProduct, updated, ["name", "unitPrice", "quantity", "code"]), req });
 
     return res
       .status(200)

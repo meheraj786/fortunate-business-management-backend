@@ -863,6 +863,9 @@ async function updateSale(req, res, next) {
     const oldStatus = sale.invoiceStatus;
     const newStatus = updateData.invoiceStatus || oldStatus;
 
+    // Capture snapshot for audit diff (sale-level fields, before mutation)
+    const saleSnapshot = { invoiceStatus: sale.invoiceStatus, discount: sale.discount, notes: sale.notes, saleDate: sale.saleDate };
+
     if (oldStatus !== newStatus) {
       // PROHIBIT STATUS TRANSITIONS that are complex until fully tested
       // For now we trust the logic, but let's be careful.
@@ -990,7 +993,7 @@ async function updateSale(req, res, next) {
         if (modified > 0) itemDiffDesc += ` | ${modified} item(s) modified`;
       }
     }
-    auditService.log({ action: "UPDATE", module: "Sale", documentId: sale._id, displayId: sale.saleId, userId: req.user?._id, description: `Updated sale ${sale.saleId}${itemDiffDesc}`, req });
+    auditService.log({ action: "UPDATE", module: "Sale", documentId: sale._id, displayId: sale.saleId, userId: req.user?._id, description: `Updated sale ${sale.saleId}${itemDiffDesc}`, changes: auditService.diffChanges(saleSnapshot, sale, ["invoiceStatus", "discount", "notes"]), req });
 
     return res
       .status(200)

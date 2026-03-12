@@ -488,6 +488,9 @@ async function updateCustomer(req, res, next) {
 
     customerUpdateData.documents = finalDocs;
 
+    // Capture snapshot for audit diff (before mutation)
+    const customerSnapshot = customer.toObject();
+
     // Update customer document with new data
     customerUpdateData.modifiedBy = req.user?._id || null;
     Object.assign(customer, customerUpdateData);
@@ -507,7 +510,7 @@ async function updateCustomer(req, res, next) {
     session.endSession();
 
     // Audit: Customer updated
-    auditService.log({ action: "UPDATE", module: "Customer", documentId: updatedCustomer._id, displayId: updatedCustomer.customerId, userId: req.user?._id, description: `Updated customer ${updatedCustomer.name} (${updatedCustomer.customerId})`, req });
+    auditService.log({ action: "UPDATE", module: "Customer", documentId: updatedCustomer._id, displayId: updatedCustomer.customerId, userId: req.user?._id, description: `Updated customer ${updatedCustomer.name} (${updatedCustomer.customerId})`, changes: auditService.diffChanges(customerSnapshot, updatedCustomer, ["name", "phone", "email", "billingAddress", "creditLimit", "customerStatus", "customerType", "location"]), req });
 
     return res
       .status(200)

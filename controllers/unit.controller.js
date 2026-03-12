@@ -126,6 +126,9 @@ exports.updateUnit = async (req, res, next) => {
       );
     }
 
+    // Capture snapshot for audit diff
+    const oldUnit = await Unit.findById(id).lean();
+
     const unit = await Unit.findOneAndUpdate(
       { _id: id, isDeleted: { $ne: true } },
       {
@@ -145,6 +148,7 @@ exports.updateUnit = async (req, res, next) => {
       documentId: unit._id,
       userId: req.user?._id,
       description: `Updated unit "${unit.name}"`,
+      changes: auditService.diffChanges(oldUnit, unit, ["name", "type", "conversionFactor"]),
       req,
     });
 

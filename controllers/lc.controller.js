@@ -552,6 +552,9 @@ async function updateLC(req, res, next) {
       throw new ApiError(400, "Cannot update a deleted LC.");
     }
 
+    // Capture snapshot for audit diff (before mutation)
+    const lcSnapshot = lc.toObject();
+
     // Preserve the original lcNumber to prevent it from being updated
     const originalLcNumber = lc.basicInfo.lcNumber;
     if (updateData.basicInfo) {
@@ -618,7 +621,7 @@ async function updateLC(req, res, next) {
     session.endSession();
 
     // Audit: LC updated
-    auditService.log({ action: "UPDATE", module: "LC", documentId: updatedLC._id, displayId: updatedLC.basicInfo.lcNumber, userId: req.user?._id, description: `Updated LC ${updatedLC.basicInfo.lcNumber}`, req });
+    auditService.log({ action: "UPDATE", module: "LC", documentId: updatedLC._id, displayId: updatedLC.basicInfo.lcNumber, userId: req.user?._id, description: `Updated LC ${updatedLC.basicInfo.lcNumber}`, changes: auditService.diffChanges(lcSnapshot, updatedLC, ["basicInfo.status", "basicInfo.supplierName", "basicInfo.supplierCountry", "financialInfo.lcAmountUsd", "financialInfo.exchangeRate"]), req });
 
     return res
       .status(200)

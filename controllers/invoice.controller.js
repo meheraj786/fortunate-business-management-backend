@@ -5,6 +5,7 @@ const { ApiError } = require("../utils/ApiError");
 const { ApiResponse } = require("../utils/ApiResponse");
 const logger = require("../utils/logger");
 const mongoose = require("mongoose");
+const auditService = require("../services/audit.service");
 
 // --- Shared error handler for invoice operations ---
 function handleInvoiceError(error, next) {
@@ -214,6 +215,16 @@ async function generateInvoice(req, res, next) {
 
       notes: sale.notes,
       createdBy: req.user?._id || null,
+    });
+
+    // Audit: Invoice generated
+    auditService.log({
+      action: "CREATE", module: "Invoice",
+      documentId: invoice._id, displayId: invoice.invoiceId,
+      userId: req.user?._id,
+      description: `Generated invoice ${invoice.invoiceId} for sale ${sale.saleId}`,
+      metadata: { salesId: sale.saleId, totalAmount: sale.totalAmountToBePaid },
+      req,
     });
 
     return res

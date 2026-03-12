@@ -121,6 +121,9 @@ exports.updateCategory = async (req, res, next) => {
     const { id } = req.params;
     const { name, description } = req.body;
 
+    // Capture snapshot for audit diff
+    const oldCategory = await Category.findById(id).lean();
+
     const category = await Category.findOneAndUpdate(
       { _id: id, isDeleted: { $ne: true } },
       { name: name.trim(), description, modifiedBy: req.user?._id || null },
@@ -135,6 +138,7 @@ exports.updateCategory = async (req, res, next) => {
       documentId: category._id,
       userId: req.user?._id,
       description: `Updated category "${category.name}"`,
+      changes: auditService.diffChanges(oldCategory, category, ["name", "description"]),
       req,
     });
 

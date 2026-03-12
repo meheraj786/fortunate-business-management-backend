@@ -1,6 +1,7 @@
 const { generatePdf, generatePng } = require("../utils/invoiceGenerator");
 const Invoice = require("../models/invoice.model");
 const { ApiError } = require("../utils/ApiError");
+const auditService = require("../services/audit.service");
 
 /**
  * Handles the request to generate and send an invoice as a PDF.
@@ -35,6 +36,9 @@ async function getInvoiceAsPdf(req, res, next) {
             `attachment; filename=${safeFilename}.pdf`,
         );
         res.send(pdfBuffer);
+
+        // Audit: Invoice downloaded as PDF (fire-and-forget)
+        auditService.log({ action: "DOWNLOAD", module: "Invoice", documentId: invoiceId, displayId: invoice.invoiceId, userId: req.user?._id, description: `Downloaded invoice ${invoice.invoiceId} as PDF`, req });
     } catch (error) {
         if (error instanceof ApiError) {
             return next(error);
@@ -55,7 +59,7 @@ async function getInvoiceAsPng(req, res, next) {
         }
 
         // Fetch the invoice to get updatedAt for caching
-        const invoice = await Invoice.findById(invoiceId).select("updatedAt").lean();
+        const invoice = await Invoice.findById(invoiceId).select("invoiceId updatedAt").lean();
         if (!invoice) {
             throw new ApiError(404, "Invoice not found.");
         }
@@ -70,6 +74,9 @@ async function getInvoiceAsPng(req, res, next) {
 
         res.setHeader("Content-Type", "image/png");
         res.send(pngBuffer);
+
+        // Audit: Invoice downloaded as PNG (fire-and-forget)
+        auditService.log({ action: "DOWNLOAD", module: "Invoice", documentId: invoiceId, displayId: invoice.invoiceId, userId: req.user?._id, description: `Downloaded invoice ${invoice.invoiceId} as PNG`, req });
     } catch (error) {
         if (error instanceof ApiError) {
             return next(error);

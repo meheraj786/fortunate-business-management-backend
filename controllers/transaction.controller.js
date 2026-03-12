@@ -247,6 +247,9 @@ async function updateTransaction(req, res, next) {
     }
     await newAccount.save({ session });
 
+    // Capture snapshot for audit diff
+    const transactionSnapshot = transaction.toObject();
+
     // Update the transaction details
     transaction.accountId = accountId;
     transaction.date = date;
@@ -264,7 +267,7 @@ async function updateTransaction(req, res, next) {
     session.endSession();
 
     // Audit: Transaction updated
-    auditService.log({ action: "UPDATE", module: "Transaction", documentId: transaction._id, userId: req.user?._id, description: `Updated transaction ${name} (${transactionType}: ${amount})`, req });
+    auditService.log({ action: "UPDATE", module: "Transaction", documentId: transaction._id, userId: req.user?._id, description: `Updated transaction ${name} (${transactionType}: ${amount})`, changes: auditService.diffChanges(transactionSnapshot, transaction, ["name", "amount", "transactionType", "category", "description"]), req });
 
     return res
       .status(200)

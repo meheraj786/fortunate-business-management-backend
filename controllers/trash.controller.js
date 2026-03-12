@@ -629,6 +629,15 @@ const deleteTrashPermanently = async (req, res, next) => {
     await session.commitTransaction();
     session.endSession();
 
+    // Audit: Permanent deletion
+    auditService.log({
+      action: "PERMANENT_DELETE", module: modelName,
+      documentId: docId,
+      userId: req.user?._id,
+      description: `Permanently deleted ${modelName} record (ID: ${docId})`,
+      req,
+    });
+
     return res
       .status(200)
       .json(

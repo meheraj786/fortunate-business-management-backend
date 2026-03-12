@@ -477,6 +477,9 @@ const updateWarehouse = async (req, res, next) => {
     const { id } = req.params;
     const updates = req.body;
 
+    // Capture snapshot for audit diff
+    const oldWarehouse = await Warehouse.findById(id).lean();
+
     const warehouse = await Warehouse.findByIdAndUpdate(
       id,
       { ...updates, modifiedBy: req.user?._id || null },
@@ -498,6 +501,7 @@ const updateWarehouse = async (req, res, next) => {
       documentId: warehouse._id,
       userId: req.user?._id,
       description: `Updated warehouse "${warehouse.name}"`,
+      changes: auditService.diffChanges(oldWarehouse, warehouse, ["name", "location"]),
       req,
     });
 
