@@ -78,6 +78,7 @@ const advancePaymentSchema = new mongoose.Schema(
         },
 
         notes: { type: String, trim: true },
+        settlementNote: { type: String, trim: true, default: null },
         isDeleted: { type: Boolean, default: false, index: true },
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,

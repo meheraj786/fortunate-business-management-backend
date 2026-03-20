@@ -443,7 +443,7 @@ async function addToAdvancePayment(req, res, next) {
 async function settleAdvancePayment(req, res, next) {
     try {
         const { id } = req.params;
-        const { settledDate } = req.body;
+        const { settledDate, settlementNote } = req.body;
 
         const advancePayment = await AdvancePayment.findById(id);
         if (!advancePayment) {
@@ -455,6 +455,29 @@ async function settleAdvancePayment(req, res, next) {
                 400,
                 `This advance payment is already ${advancePayment.status.toLowerCase()}.`,
             );
+        }
+
+        // Compute remaining amount
+        const addedSoFar = (advancePayment.additions || []).reduce(
+            (sum, a) => mathUtil.add(sum, a.amount || 0),
+            0,
+        );
+        const totalEffective = mathUtil.add(advancePayment.amount, addedSoFar);
+        const refundedSoFar = (advancePayment.refunds || []).reduce(
+            (sum, r) => mathUtil.add(sum, r.amount || 0),
+            0,
+        );
+        const remaining = mathUtil.sub(totalEffective, refundedSoFar);
+
+        // Require settlement note when there is remaining amount
+        if (remaining > 0.001) {
+            if (!settlementNote || !settlementNote.trim()) {
+                throw new ApiError(
+                    400,
+                    "A settlement note is required when there is a remaining amount. Please describe what the remaining amount was used for.",
+                );
+            }
+            advancePayment.settlementNote = settlementNote.trim();
         }
 
         advancePayment.status = "Settled";
@@ -469,7 +492,7 @@ async function settleAdvancePayment(req, res, next) {
             documentId: advancePayment._id,
             displayId: advancePayment.advanceId,
             userId: req.user?._id,
-            description: `Settled advance payment ${advancePayment.advanceId} to ${advancePayment.supplierName}`,
+            description: `Settled advance payment ${advancePayment.advanceId} to ${advancePayment.supplierName}${remaining > 0.001 ? ` (remaining: ${remaining})` : ""}`,
             req,
         });
 
@@ -809,12 +832,34 @@ async function getAdvancePaymentStats(req, res, next) {
             },
         ]);
 
-        const totalPendingAmount = await AdvancePayment.aggregate([
-            { $match: { isDeleted: { $ne: true }, status: "Pending" } },
+        // Compute true total remaining across all active (Pending + Partially Settled) advances
+        const totalRemainingAgg = await AdvancePayment.aggregate([
+            {
+                $match: {
+                    isDeleted: { $ne: true },
+                    status: { $in: ["Pending", "Partially Settled"] },
+                },
+            },
+            {
+                $addFields: {
+                    addedAmount: { $sum: "$additions.amount" },
+                    refundedAmount: { $sum: "$refunds.amount" },
+                },
+            },
+            {
+                $addFields: {
+                    remainingAmount: {
+                        $subtract: [
+                            { $add: ["$amount", "$addedAmount"] },
+                            "$refundedAmount",
+                        ],
+                    },
+                },
+            },
             {
                 $group: {
                     _id: null,
-                    total: { $sum: "$amount" },
+                    total: { $sum: "$remainingAmount" },
                 },
             },
         ]);
@@ -827,7 +872,7 @@ async function getAdvancePaymentStats(req, res, next) {
                 },
                 {},
             ),
-            totalPendingAmount: totalPendingAmount[0]?.total || 0,
+            totalRemainingAmount: totalRemainingAgg[0]?.total || 0,
             totalCount: stats.reduce((sum, s) => sum + s.count, 0),
         };
 
