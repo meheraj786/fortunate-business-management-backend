@@ -18,7 +18,6 @@ const validateProductInput = (data) => {
   if (!data.name) errors.push({ field: "name", message: "Name is required" });
   if (!data.category)
     errors.push({ field: "category", message: "Category is required" });
-  if (!data.LC) errors.push({ field: "LC", message: "LC is required" });
   if (data.quantity === undefined || data.quantity === null)
     errors.push({ field: "quantity", message: "Quantity is required" });
   if (!data.unit) errors.push({ field: "unit", message: "Unit is required" });
@@ -39,17 +38,21 @@ const createProduct = async (data, warehouseId) => {
     throw new ApiError(400, validationErrors[0].message, validationErrors);
   }
 
-  const [existingUnit, existingCategory, existingLC, productWarehouse] =
+  const [existingUnit, existingCategory, productWarehouse] =
     await Promise.all([
       Unit.findById(data.unit),
       Category.findById(data.category),
-      LcModel.findById(data.LC),
       Warehouse.findById(warehouseId),
     ]);
 
+  let existingLC = null;
+  if (data.LC) {
+    existingLC = await LcModel.findById(data.LC);
+    if (!existingLC) throw new ApiError(404, "LC not found");
+  }
+
   if (!existingUnit) throw new ApiError(404, "Unit not found");
   if (!existingCategory) throw new ApiError(404, "Category not found");
-  if (!existingLC) throw new ApiError(404, "LC not found");
   if (!productWarehouse) throw new ApiError(404, "Warehouse not found");
 
   const product = await Product.create({
@@ -311,6 +314,7 @@ const getProductsWithStats = async (warehouseId, query) => {
             createdAt: 1,
             updatedAt: 1,
             stockStatus: 1,
+            supplierName: { $ifNull: ["$LC.basicInfo.supplierName", "$supplierName"] },
             category: { _id: "$category._id", name: "$category.name" },
             createdBy: { name: "$createdBy.name", email: "$createdBy.email" },
             modifiedBy: {
@@ -318,8 +322,14 @@ const getProductsWithStats = async (warehouseId, query) => {
               email: "$modifiedBy.email",
             },
             LC: {
-              _id: "$LC._id",
-              basicInfo: { lcNumber: "$LC.basicInfo.lcNumber" },
+              $cond: {
+                if: "$LC._id",
+                then: {
+                  _id: "$LC._id",
+                  basicInfo: { lcNumber: "$LC.basicInfo.lcNumber" },
+                },
+                else: null
+              }
             },
             unit: {
               _id: "$unit._id",
@@ -566,7 +576,7 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         grade: 1,
         quantity: 1,
         unitPrice: 1,
-        supplierName: "$LC.basicInfo.supplierName",
+        supplierName: { $ifNull: ["$LC.basicInfo.supplierName", "$supplierName"] },
         totalUnitsSold: 1,
         totalRevenue: 1,
         totalDueInvoices: 1,
@@ -574,13 +584,19 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         stockStatus: 1,
         category: { id: "$category._id", name: "$category.name" },
         LC: {
-          id: "$LC._id",
-          basicInfo: {
-            lcNumber: "$LC.basicInfo.lcNumber",
-            status: "$LC.status",
-            supplierName: "$LC.basicInfo.supplierName",
-            country: "$LC.basicInfo.country",
-          },
+          $cond: {
+            if: "$LC._id",
+            then: {
+              id: "$LC._id",
+              basicInfo: {
+                lcNumber: "$LC.basicInfo.lcNumber",
+                status: "$LC.status",
+                supplierName: "$LC.basicInfo.supplierName",
+                country: "$LC.basicInfo.country",
+              },
+            },
+            else: null
+          }
         },
         unit: {
           id: "$unit._id",

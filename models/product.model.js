@@ -10,7 +10,7 @@ const productSchema = new mongoose.Schema(
       ref: "Category",
       required: true,
     },
-    LC: { type: mongoose.Schema.Types.ObjectId, ref: "LC", required: true },
+    LC: { type: mongoose.Schema.Types.ObjectId, ref: "LC" },
     supplierName: { type: String, trim: true },
     thickness: { type: String, trim: true },
     width: { type: String, trim: true },
