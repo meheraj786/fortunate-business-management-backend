@@ -1686,7 +1686,15 @@ async function addPartialPayment(req, res, next) {
 async function getSalesByCustomerId(req, res, next) {
   try {
     const { customerId } = req.params;
-    const { invoiceStatus, paymentStatus, page = 1, limit = 10 } = req.query;
+    const { 
+      invoiceStatus, 
+      paymentStatus, 
+      page = 1, 
+      limit = 10,
+      search,
+      startDate,
+      endDate
+    } = req.query;
 
     if (!mongoose.Types.ObjectId.isValid(customerId)) {
       return next(new ApiError(400, "Invalid customer ID"));
@@ -1703,8 +1711,23 @@ async function getSalesByCustomerId(req, res, next) {
       "customer.customerId": new mongoose.Types.ObjectId(customerId),
       isDeleted: { $ne: true },
     };
-    if (invoiceStatus) matchQuery.invoiceStatus = invoiceStatus;
-    if (paymentStatus) matchQuery.paymentStatus = paymentStatus;
+    if (invoiceStatus && invoiceStatus !== "All") matchQuery.invoiceStatus = invoiceStatus;
+    if (paymentStatus && paymentStatus !== "All") matchQuery.paymentStatus = paymentStatus;
+
+    if (search && search.trim() !== "") {
+      matchQuery.saleId = { $regex: search.trim(), $options: "i" };
+    }
+
+    if (startDate || endDate) {
+      matchQuery.saleDate = {};
+      if (startDate) matchQuery.saleDate.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        matchQuery.saleDate.$lte = end;
+      }
+    }
+
     pipeline.push({ $match: matchQuery });
 
     // Stage 2: Facet for data and count
