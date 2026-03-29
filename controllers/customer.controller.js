@@ -1235,9 +1235,30 @@ async function addStoreCredit(req, res, next) {
 async function getCreditHistory(req, res, next) {
   try {
     const { id } = req.params;
-    const { page = 1, limit = 10 } = req.query;
+    const { page = 1, limit = 10, type, startDate, endDate, search } = req.query;
 
-    const history = await CreditHistory.find({ customer: id })
+    const query = { customer: id };
+
+    if (type && type !== "All") {
+      query.type = type;
+    }
+
+    if (startDate || endDate) {
+      query.date = {};
+      if (startDate) query.date.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.date.$lte = end;
+      }
+    }
+
+    if (search && search.trim() !== "") {
+      const regex = new RegExp(search.trim(), "i");
+      query.$or = [{ reason: regex }, { description: regex }];
+    }
+
+    const history = await CreditHistory.find(query)
       .sort({ date: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
@@ -1245,14 +1266,14 @@ async function getCreditHistory(req, res, next) {
       .populate("reference") // Populate Sale or Transaction if needed
       .lean();
 
-    const total = await CreditHistory.countDocuments({ customer: id });
+    const total = await CreditHistory.countDocuments(query);
 
     return res
       .status(200)
       .json(
         new ApiResponse(
           200,
-          { history, total, page, limit },
+          { history, total, page: parseInt(page), limit: parseInt(limit) },
           "Credit history fetched",
         ),
       );
