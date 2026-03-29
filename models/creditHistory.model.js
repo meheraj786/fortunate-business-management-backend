@@ -18,7 +18,7 @@ const creditHistorySchema = new mongoose.Schema(
         },
         reason: {
             type: String,
-            enum: ["Overpayment", "Manual Deposit", "Purchase", "Refund", "Sale Cancelled", "Sale Deleted", "Purchase Restoration"],
+            enum: ["Overpayment", "Manual Deposit", "Purchase", "Refund", "Sale Cancelled", "Sale Deleted", "Purchase Restoration", "Withdrawal"],
             required: true,
         },
         reference: {

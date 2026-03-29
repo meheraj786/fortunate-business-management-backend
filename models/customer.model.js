@@ -20,7 +20,7 @@ const customerSchema = new Schema(
     },
     email: { type: String, trim: true, lowercase: true },
     billingAddress: { type: String, trim: true },
-    creditLimit: { type: Number, default: 0 },
+    creditLimit: { type: Number, default: null },
     creditBalance: { type: Number, default: 0, min: 0 },
     openingDue: { type: Number, default: 0 },
     customerNote: { type: String, trim: true },

@@ -214,6 +214,15 @@ exports.checkCustomerCreditLimit = async (
 
   // Only check if there is a due amount
   if (newSaleDueAmount > 0) {
+    // Credit limit logic:
+    // - null/undefined = credit limit feature DISABLED → no limit, skip check
+    // - 0 = customer can NOT take any due at all
+    // - number > 0 = that's the ceiling
+    if (existingCustomer.creditLimit === null || existingCustomer.creditLimit === undefined) {
+      // Credit limit disabled — allow unlimited due
+      return existingCustomer;
+    }
+
     const salesPipeline = [
       {
         $match: {
@@ -238,6 +247,13 @@ exports.checkCustomerCreditLimit = async (
     const currentDues = result.length > 0 ? result[0].totalDue : 0;
 
     const totalOutstanding = mathUtil.add(currentDues, newSaleDueAmount);
+
+    if (existingCustomer.creditLimit === 0) {
+      throw new ApiError(
+        409,
+        `Cannot create sale with due amount. This customer's credit limit is set to 0 (no due allowed). The transaction requires a due of ${newSaleDueAmount}. Please collect full payment.`,
+      );
+    }
 
     if (totalOutstanding > existingCustomer.creditLimit) {
       throw new ApiError(

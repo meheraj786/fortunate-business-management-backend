@@ -898,7 +898,22 @@ async function updateSale(req, res, next) {
     if (updateData.items) sale.items = newItems;
     if (updateData.costs) sale.costs = updateData.costs;
     if (updateData.charges) sale.charges = updateData.charges;
-    if (updateData.discount !== undefined) sale.discount = updateData.discount;
+    if (updateData.discount !== undefined) {
+      // Guard: Payment-time discounts are immutable — they cannot be erased via sale edit.
+      // The minimum discount must be the sum of all payment-time discounts already given.
+      const paymentTimeDiscounts = mathUtil.sum(
+        (sale.payments || []).map(p => p.discount || 0)
+      );
+      const requestedDiscount = Number(updateData.discount) || 0;
+
+      if (requestedDiscount < paymentTimeDiscounts) {
+        throw new ApiError(
+          400,
+          `Discount cannot be reduced below ${paymentTimeDiscounts} because payment-time discounts totaling ${paymentTimeDiscounts} have already been applied. You can only increase the discount from here.`
+        );
+      }
+      sale.discount = requestedDiscount;
+    }
     if (updateData.invoiceStatus) sale.invoiceStatus = updateData.invoiceStatus;
     // ... notes/modifiedBy ...
     if (updateData.notes) sale.notes = updateData.notes;
@@ -1461,21 +1476,29 @@ async function addPartialPayment(req, res, next) {
   session.startTransaction();
   try {
     const { id } = req.params;
-    const { amount, date, paymentMethod, accountId } = req.body;
+    const { amount, date, paymentMethod, accountId, discount: paymentDiscount } = req.body;
+
+    const parsedAmount = Number(amount) || 0;
+    const parsedDiscount = Number(paymentDiscount) || 0;
 
     const validationErrors = [];
-    if (!amount)
-      validationErrors.push({ field: "amount", message: "Amount is required" });
+    if (!parsedAmount && !parsedDiscount)
+      validationErrors.push({ field: "amount", message: "Amount or discount is required" });
+    if (parsedAmount < 0)
+      validationErrors.push({ field: "amount", message: "Payment amount cannot be negative" });
     if (!date)
       validationErrors.push({ field: "date", message: "Date is required" });
-    if (!paymentMethod)
+
+    // Payment method is only required when there's an actual payment amount
+    if (parsedAmount > 0 && !paymentMethod)
       validationErrors.push({
         field: "paymentMethod",
         message: "Payment method is required",
       });
 
-    // Account is required for standard payment methods
+    // Account is required for standard payment methods (only if there's an actual payment amount)
     if (
+      parsedAmount > 0 &&
       ["Bank", "Mobile Banking", "Cash"].includes(paymentMethod) &&
       !accountId
     ) {
@@ -1483,6 +1506,10 @@ async function addPartialPayment(req, res, next) {
         field: "accountId",
         message: "Account is required for the payment",
       });
+    }
+
+    if (parsedDiscount < 0) {
+      validationErrors.push({ field: "discount", message: "Discount cannot be negative" });
     }
 
     if (validationErrors.length > 0) {
@@ -1499,132 +1526,151 @@ async function addPartialPayment(req, res, next) {
         "Cannot add payment to a sale that is in the trash.",
       );
     }
+    if (sale.invoiceStatus === "Cancelled") {
+      throw new ApiError(
+        400,
+        "Cannot add payment to a cancelled sale.",
+      );
+    }
+
+    // Calculate current balance due before this payment
+    const currentTotalPaid = mathUtil.sum(sale.payments.map(p => p.amount));
+    const currentBalanceDue = mathUtil.sub(sale.totalAmountToBePaid, currentTotalPaid);
+
+    // Validate that payment + discount doesn't exceed balance due
+    const totalSettlement = mathUtil.add(parsedAmount, parsedDiscount);
+    if (totalSettlement > mathUtil.add(currentBalanceDue, 0.01)) { // tiny tolerance for floating point
+      throw new ApiError(
+        400,
+        `Payment (${parsedAmount}) + Discount (${parsedDiscount}) = ${totalSettlement} cannot exceed the balance due (${currentBalanceDue}).`
+      );
+    }
+
+    // Apply the discount to the sale's discount field BEFORE saving
+    // This will trigger the pre-validate hook to recalculate totalAmountToBePaid
+    if (parsedDiscount > 0) {
+      sale.discount = mathUtil.add(sale.discount || 0, parsedDiscount);
+    }
 
     const payment = {
-      amount,
+      amount: parsedAmount,
+      discount: parsedDiscount,
       date,
-      method: paymentMethod,
-      accountId: accountId,
+      method: parsedAmount > 0 ? paymentMethod : "Discount",
+      ...(parsedAmount > 0 && accountId ? { accountId } : {}),
     };
 
-    if (paymentMethod === "Customer Credit") {
-      if (!sale.customer || !sale.customer.customerId) {
-        throw new ApiError(
-          400,
-          "Guest/Manual customers cannot pay with Customer Credit.",
+    if (parsedAmount > 0) {
+      if (paymentMethod === "Customer Credit") {
+        if (!sale.customer || !sale.customer.customerId) {
+          throw new ApiError(
+            400,
+            "Guest/Manual customers cannot pay with Customer Credit.",
+          );
+        }
+
+        const customer = await Customer.findById(
+          sale.customer.customerId,
+        ).session(session);
+
+        // Atomic deduction with balance guard — prevents race conditions
+        const updatedCustomer = await Customer.findOneAndUpdate(
+          { _id: sale.customer.customerId, creditBalance: { $gte: parsedAmount } },
+          { $inc: { creditBalance: -parsedAmount } },
+          { session, new: true },
         );
-      }
 
-      const customer = await Customer.findById(
-        sale.customer.customerId,
-      ).session(session);
+        if (!updatedCustomer) {
+          throw new ApiError(
+            400,
+            `Insufficient credit balance. Available: ${customer?.creditBalance || 0}, Required: ${parsedAmount}`,
+          );
+        }
 
-      // Atomic deduction with balance guard — prevents race conditions
-      const updatedCustomer = await Customer.findOneAndUpdate(
-        { _id: sale.customer.customerId, creditBalance: { $gte: amount } },
-        { $inc: { creditBalance: -amount } },
-        { session, new: true },
-      );
-
-      if (!updatedCustomer) {
-        throw new ApiError(
-          400,
-          `Insufficient credit balance. Available: ${customer?.creditBalance || 0}, Required: ${amount}`,
-        );
-      }
-
-      // Record Credit History
-      await CreditHistory.create(
-        [
-          {
-            customer: sale.customer.customerId,
-            amount: amount,
-            type: "Debit",
-            reason: "Purchase",
-            reference: sale._id,
-            referenceModel: "Sale",
-            description: `Partial payment for Sale ID: ${sale.saleId}`,
-            createdBy: req.user?._id,
-          },
-        ],
-        { session },
-      );
-    } else if (["Bank", "Mobile Banking", "Cash"].includes(paymentMethod)) {
-      // 1. DailyCash Gatekeeper Check
-      const paymentDateNormalized = startOfDay(
-        new Date(date),
-        req.businessTimezone,
-      );
-      const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized })
-        .sort({ createdAt: -1 })
-        .select("_id status date")
-        .session(session)
-        .lean();
-
-      if (!dailyCash || dailyCash.status === "Closed") {
-        throw new ApiError(
-          400,
-          `Daily cash is closed for ${paymentDateNormalized.toDateString()}. Cannot record payment.`,
-        );
-      }
-
-      const account = await Account.findById(accountId).session(session);
-      if (!account) {
-        throw new ApiError(404, "Account not found");
-      }
-
-      // Validate that the account type matches the payment method
-      const expectedAccountType =
-        paymentMethod === "Mobile Banking" ? "Mobile Banking" : paymentMethod;
-      if (account.accountType !== expectedAccountType) {
-        throw new ApiError(
-          400,
-          `Payment method '${paymentMethod}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`,
-        );
-      }
-
-      account.balance = mathUtil.add(account.balance, amount);
-      await account.save({ session });
-
-      await Transaction.create(
-        [
-          {
-            accountId: accountId,
-            date,
-            description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${paymentMethod} Account: ${formatAccountLabel(account)}.`,
-            transactionType: "Income",
-            amount,
-            name: "Sales Partial Payment",
-            source: "Auto",
-            category: "Sales",
-            paymentMethod: paymentMethod,
-            reference: sale._id,
-            referenceModel: "Sale",
-            miscReference: {
-              saleId: sale.saleId,
-              customerName: sale.customer.name,
-              paymentAmount: amount,
-              paymentMethod: paymentMethod,
+        // Record Credit History
+        await CreditHistory.create(
+          [
+            {
+              customer: sale.customer.customerId,
+              amount: parsedAmount,
+              type: "Debit",
+              reason: "Purchase",
+              reference: sale._id,
+              referenceModel: "Sale",
+              description: `Partial payment for Sale ID: ${sale.saleId}${parsedDiscount > 0 ? ` (with discount of ${parsedDiscount})` : ""}`,
+              createdBy: req.user?._id,
             },
-          },
-        ],
-        { session },
-      );
-    } // Correctly close the if block here
+          ],
+          { session },
+        );
+      } else if (["Bank", "Mobile Banking", "Cash"].includes(paymentMethod)) {
+        // 1. DailyCash Gatekeeper Check
+        const paymentDateNormalized = startOfDay(
+          new Date(date),
+          req.businessTimezone,
+        );
+        const dailyCash = await DailyCash.findOne({ date: paymentDateNormalized })
+          .sort({ createdAt: -1 })
+          .select("_id status date")
+          .session(session)
+          .lean();
+
+        if (!dailyCash || dailyCash.status === "Closed") {
+          throw new ApiError(
+            400,
+            `Daily cash is closed for ${paymentDateNormalized.toDateString()}. Cannot record payment.`,
+          );
+        }
+
+        const account = await Account.findById(accountId).session(session);
+        if (!account) {
+          throw new ApiError(404, "Account not found");
+        }
+
+        // Validate that the account type matches the payment method
+        const expectedAccountType =
+          paymentMethod === "Mobile Banking" ? "Mobile Banking" : paymentMethod;
+        if (account.accountType !== expectedAccountType) {
+          throw new ApiError(
+            400,
+            `Payment method '${paymentMethod}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`,
+          );
+        }
+
+        account.balance = mathUtil.add(account.balance, parsedAmount);
+        await account.save({ session });
+
+        await Transaction.create(
+          [
+            {
+              accountId: accountId,
+              date,
+              description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${paymentMethod} Account: ${formatAccountLabel(account)}.${parsedDiscount > 0 ? ` (Discount given: ${parsedDiscount})` : ""}`,
+              transactionType: "Income",
+              amount: parsedAmount,
+              name: "Sales Partial Payment",
+              source: "Auto",
+              category: "Sales",
+              paymentMethod: paymentMethod,
+              reference: sale._id,
+              referenceModel: "Sale",
+              miscReference: {
+                saleId: sale.saleId,
+                customerName: sale.customer.name,
+                paymentAmount: parsedAmount,
+                paymentMethod: paymentMethod,
+                discountGiven: parsedDiscount,
+              },
+            },
+          ],
+          { session },
+        );
+      }
+    } // End of parsedAmount > 0 block
 
     // These operations should happen regardless of the payment method specific logic
     sale.payments.push(payment);
     sale.modifiedBy = req.user?._id || null;
-
-    // --- Strict Payment Validation ---
-    const totalPaid = mathUtil.sum(sale.payments.map(p => p.amount));
-
-    if (totalPaid > sale.totalAmountToBePaid) {
-      throw new ApiError(
-        400,
-        `Payment amount (${totalPaid}) cannot exceed the total amount to be paid (${sale.totalAmountToBePaid}).`
-      );
-    }
 
     await sale.save({ session });
 
@@ -1636,7 +1682,15 @@ async function addPartialPayment(req, res, next) {
     session.endSession();
 
     // Audit: Partial payment
-    auditService.log({ action: "PAYMENT", module: "Sale", documentId: sale._id, displayId: sale.saleId, userId: req.user?._id, description: `Added partial payment of ${amount} to sale ${sale.saleId} via ${paymentMethod}`, metadata: { amount, paymentMethod, accountId }, req });
+    let auditDesc;
+    if (parsedAmount > 0 && parsedDiscount > 0) {
+      auditDesc = `Added payment of ${parsedAmount} with discount of ${parsedDiscount} to sale ${sale.saleId} via ${paymentMethod}`;
+    } else if (parsedAmount > 0) {
+      auditDesc = `Added partial payment of ${parsedAmount} to sale ${sale.saleId} via ${paymentMethod}`;
+    } else {
+      auditDesc = `Applied discount of ${parsedDiscount} to sale ${sale.saleId}`;
+    }
+    auditService.log({ action: "PAYMENT", module: "Sale", documentId: sale._id, displayId: sale.saleId, userId: req.user?._id, description: auditDesc, metadata: { amount: parsedAmount, discount: parsedDiscount, paymentMethod: paymentMethod || "Discount", accountId }, req });
 
     return res
       .status(200)

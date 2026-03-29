@@ -1121,6 +1121,7 @@ module.exports = {
   downloadCustomerDocument,
   deleteCustomerDocument,
   addStoreCredit,
+  withdrawStoreCredit,
   getCreditHistory,
   upload,
 };
@@ -1225,6 +1226,130 @@ async function addStoreCredit(req, res, next) {
     return res
       .status(200)
       .json(new ApiResponse(200, customer, "Credit added successfully"));
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    next(error);
+  }
+}
+
+async function withdrawStoreCredit(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { id } = req.params;
+    const { amount, paymentMethod, accountId, date, reason } = req.body;
+
+    // Validation
+    const parsedAmount = Number(amount);
+    if (!parsedAmount || parsedAmount <= 0)
+      throw new ApiError(400, "Valid amount is required");
+    if (!paymentMethod) throw new ApiError(400, "Payment method is required");
+    if (!accountId) throw new ApiError(400, "Account is required");
+
+    const customer = await Customer.findById(id).session(session);
+    if (!customer) throw new ApiError(404, "Customer not found");
+
+    // Check sufficient credit balance
+    if ((customer.creditBalance || 0) < parsedAmount) {
+      throw new ApiError(
+        400,
+        `Insufficient credit balance. Available: ${customer.creditBalance || 0}, Requested: ${parsedAmount}`,
+      );
+    }
+
+    // 1. Account & DailyCash Logic (Real Money Out — refund to customer)
+    const account = await Account.findById(accountId).session(session);
+    if (!account) throw new ApiError(404, "Account not found");
+
+    if (
+      account.accountType !==
+      (paymentMethod === "Mobile Banking" ? "Mobile Banking" : paymentMethod)
+    ) {
+      throw new ApiError(
+        400,
+        `Account type mismatch. Expected ${paymentMethod}`,
+      );
+    }
+
+    // Check account has sufficient balance
+    if (account.balance < parsedAmount) {
+      throw new ApiError(
+        400,
+        `Insufficient account balance. Available: ${account.balance}, Requested: ${parsedAmount}`,
+      );
+    }
+
+    const txDate = date ? new Date(date) : now();
+    const paymentDateNormalized = startOfDay(txDate, req.businessTimezone);
+    const dailyCash = await DailyCash.findOne({
+      date: paymentDateNormalized,
+    })
+      .sort({ createdAt: -1 })
+      .session(session);
+
+    if (!dailyCash || dailyCash.status === "Closed") {
+      throw new ApiError(
+        400,
+        `Daily cash is closed for ${paymentDateNormalized.toDateString()}.`,
+      );
+    }
+
+    // Deduct from account (money goes out)
+    account.balance = mathUtil.sub(account.balance, parsedAmount);
+    await account.save({ session });
+
+    // 2. Transaction Record (Expense — money leaving the business)
+    const [transaction] = await Transaction.create(
+      [
+        {
+          accountId,
+          date: txDate,
+          transactionType: "Expense",
+          amount: parsedAmount,
+          name: "Credit Withdrawal / Refund",
+          source: "Manual",
+          category: "Customer Credit",
+          paymentMethod,
+          reference: customer._id,
+          referenceModel: "Customer",
+          description: `Credit withdrawal/refund to ${customer.name} (${customer.customerId}) via ${paymentMethod} Account: ${formatAccountLabel(account)}${reason ? `. Reason: ${reason}` : ""}`,
+          createdBy: req.user?._id,
+        },
+      ],
+      { session },
+    );
+
+    // 3. Update Customer Credit Balance
+    customer.creditBalance = mathUtil.sub(customer.creditBalance || 0, parsedAmount);
+    await customer.save({ session });
+
+    // 4. Credit History Record
+    await CreditHistory.create(
+      [
+        {
+          customer: customer._id,
+          amount: parsedAmount,
+          type: "Debit",
+          reason: "Withdrawal",
+          reference: transaction._id,
+          referenceModel: "Transaction",
+          description: `Withdrawal/Refund via ${paymentMethod} Account: ${formatAccountLabel(account)}${reason ? `. Reason: ${reason}` : ""}`,
+          createdBy: req.user?._id,
+        },
+      ],
+      { session },
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // Audit: Credit withdrawal
+    auditService.log({ action: "PAYMENT", module: "Customer", documentId: customer._id, displayId: customer.customerId, userId: req.user?._id, description: `Withdrew/Refunded credit of ${parsedAmount} from ${customer.name} via ${paymentMethod}`, metadata: { amount: parsedAmount, paymentMethod, accountId, reason }, req });
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, customer, "Credit withdrawn successfully"));
   } catch (error) {
     await session.abortTransaction();
     session.endSession();

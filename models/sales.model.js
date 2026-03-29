@@ -37,17 +37,20 @@ const chargeSchema = new mongoose.Schema({
  */
 const paymentSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
+  discount: { type: Number, default: 0 },
   date: { type: Date, required: true },
   method: {
     type: String,
-    enum: ["Cash", "Bank", "Mobile Banking", "Customer Credit"],
-    required: true,
+    enum: ["Cash", "Bank", "Mobile Banking", "Customer Credit", "Discount"],
+    required: function () {
+      return this.amount > 0; // Method only required for actual payments, not discount-only entries
+    },
   },
   accountId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Account",
     required: function () {
-      return ["Bank", "Mobile Banking", "Cash"].includes(this.method);
+      return this.amount > 0 && ["Bank", "Mobile Banking", "Cash"].includes(this.method);
     },
   },
 });

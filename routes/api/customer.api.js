@@ -10,6 +10,7 @@ const {
   downloadCustomerDocument,
   deleteCustomerDocument,
   addStoreCredit,
+  withdrawStoreCredit,
   getCreditHistory,
   upload,
 } = require("../../controllers/customer.controller");
@@ -82,6 +83,13 @@ customerRoutes.post(
   authenticate,
   authorize(PERMISSIONS.CUSTOMER_UPDATE),
   addStoreCredit,
+);
+
+customerRoutes.post(
+  "/:id/store-credit/withdraw",
+  authenticate,
+  authorize(PERMISSIONS.CUSTOMER_UPDATE),
+  withdrawStoreCredit,
 );
 
 customerRoutes.get(
