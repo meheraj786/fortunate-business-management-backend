@@ -25,8 +25,7 @@ const Trash = require("../models/trash.model");
 
 
 // --- Initialize Storage ---
-// Ensure all necessary directories exist on application startup.
-storageUtil.initializeStorage();
+// (Handled automatically on application startup in index.js)
 
 // --- Multer Configuration ---
 const storage = multer.diskStorage({

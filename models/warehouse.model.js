@@ -8,7 +8,6 @@ const warehouseSchema = new mongoose.Schema({
   },
   location: {
     type: String,
-    required: true,
     trim: true,
   },
   isDeleted: {

@@ -18,6 +18,7 @@ const { dbConnect } = require("./database/db.config"); // Database connection
 const routers = require("./routes"); // All routes
 const { ApiError } = require("./utils/ApiError"); // Custom API error
 const logger = require("./utils/logger"); // Logger
+const { initializeStorage } = require("./utils/storage.util"); // Storage dir init
 const {
   autoCloseDailyCashForCron,
   closeMissedDailyCashEntries,
@@ -125,6 +126,7 @@ app.listen(PORT, () => {
 (async () => {
   try {
     await dbConnect(); // Connect database
+    await initializeStorage(); // Ensure upload directories exist
     // Puppeteer is lazily initialized on first PDF request via getBrowser() singleton
     await closeMissedDailyCashEntries(); // Fix missed cash entries
     logger.info("Background startup tasks completed"); // Log success

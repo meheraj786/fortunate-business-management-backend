@@ -8,7 +8,13 @@ const accountSchema = new mongoose.Schema(
       required: true,
     },
     accountName: { type: String, required: true, trim: true },
-    accountHolderName: { type: String, trim: true, required: true },
+    accountHolderName: {
+      type: String,
+      trim: true,
+      required: function () {
+        return this.accountType === "Cash";
+      },
+    },
     bankName: {
       type: String,
       trim: true,
@@ -19,9 +25,6 @@ const accountSchema = new mongoose.Schema(
     branchName: {
       type: String,
       trim: true,
-      required: function () {
-        return this.accountType === "Bank";
-      },
     },
     accountNumber: {
       type: String,
