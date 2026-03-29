@@ -827,6 +827,7 @@ async function getCustomersSummary(req, res, next) {
     // Stage 4: Sorting
     const sortStage = {};
     const validSortBy = [
+      "name",
       "creditLimit",
       "joinDate",
       "totalPurchases",
@@ -838,7 +839,7 @@ async function getCustomersSummary(req, res, next) {
     if (validSortBy.includes(sortBy)) {
       sortStage[sortBy] = sortOrderNum;
     } else {
-      sortStage.joinDate = -1; // Default sort
+      sortStage.name = 1; // Default sort
     }
 
     // Stage 5: Facet for pagination and total count
