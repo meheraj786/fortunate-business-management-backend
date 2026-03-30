@@ -45,6 +45,23 @@ const productSchema = new mongoose.Schema(
       ref: "User",
       default: null,
     },
+    lotClosed: {
+      type: Boolean,
+      default: false,
+    },
+    lotClosedAt: {
+      type: Date,
+      default: null,
+    },
+    lotClosedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    lotClosedQuantity: {
+      type: Number,
+      default: null,
+    },
   },
   { timestamps: true, optimisticConcurrency: true },
 );

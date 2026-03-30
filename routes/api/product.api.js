@@ -7,6 +7,7 @@ const {
   deleteProductInWarehouse,
   getProductSalesHistory,
   getProductsForSale,
+  closeLotInWarehouse,
 } = require("../../controllers/product.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const {
@@ -56,6 +57,11 @@ productRoutes.delete(
   "/:productId",
   authorizeWarehouseAccess(PERMISSIONS.PRODUCT_DELETE),
   deleteProductInWarehouse
+);
+productRoutes.post(
+  "/:productId/close-lot",
+  authorizeWarehouseAccess(PERMISSIONS.PRODUCT_LOT_CLOSE),
+  closeLotInWarehouse
 );
 
 module.exports = productRoutes;

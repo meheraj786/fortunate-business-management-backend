@@ -228,6 +228,48 @@ async function getProductSalesHistory(req, res, next) {
   }
 }
 
+async function closeLotInWarehouse(req, res, next) {
+  try {
+    const { warehouseId, productId } = req.params;
+    const userId = req.user?._id || null;
+
+    const updated = await productService.closeLot(
+      productId,
+      warehouseId,
+      userId,
+    );
+
+    // Audit: Lot closed
+    auditService.log({
+      action: "LOT_CLOSE",
+      module: "Product",
+      documentId: updated._id,
+      userId: req.user?._id,
+      description: `Closed lot for product ${updated.name} — residual quantity ${updated.lotClosedQuantity} written off`,
+      changes: [
+        { field: "quantity", oldValue: updated.lotClosedQuantity, newValue: 0 },
+        { field: "lotClosed", oldValue: false, newValue: true },
+      ],
+      req,
+    });
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, updated, "Lot closed successfully — stock set to zero."));
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    logger.error(error);
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred. Please try again.",
+        [],
+        error.message,
+      ),
+    );
+  }
+}
+
 module.exports = {
   createProductInWarehouse,
   getProductsByWarehouse,
@@ -236,4 +278,5 @@ module.exports = {
   deleteProductInWarehouse,
   getProductsForSale,
   getProductSalesHistory,
+  closeLotInWarehouse,
 };

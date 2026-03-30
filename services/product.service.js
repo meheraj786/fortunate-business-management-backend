@@ -582,6 +582,8 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         totalDueInvoices: 1,
         totalNotInvoiced: 1,
         stockStatus: 1,
+        lotClosed: 1,
+        lotClosedQuantity: 1,
         category: { id: "$category._id", name: "$category.name" },
         LC: {
           $cond: {
@@ -623,6 +625,50 @@ const getProductWithStatsById = async (productId, warehouseId) => {
 };
 
 /**
+ * Closes a product lot — zeros out remaining stock
+ * @param {string} productId - Product ID
+ * @param {string} warehouseId - Warehouse ID
+ * @param {string} userId - User ID performing the close
+ * @returns {Promise<Object>} - Updated product
+ */
+const closeLot = async (productId, warehouseId, userId) => {
+  const product = await Product.findOne({
+    _id: productId,
+    warehouse: warehouseId,
+    isDeleted: false,
+  });
+
+  if (!product) {
+    throw new ApiError(404, "Product not found in this warehouse");
+  }
+
+  if (product.lotClosed) {
+    throw new ApiError(400, "This lot has already been closed.");
+  }
+
+  if (product.quantity <= 0) {
+    throw new ApiError(400, "Product already has zero stock. No need to close the lot.");
+  }
+
+  const residualQuantity = product.quantity;
+
+  const updated = await Product.findByIdAndUpdate(
+    productId,
+    {
+      quantity: 0,
+      lotClosed: true,
+      lotClosedAt: new Date(),
+      lotClosedBy: userId,
+      lotClosedQuantity: residualQuantity,
+      modifiedBy: userId,
+    },
+    { new: true },
+  );
+
+  return updated;
+};
+
+/**
  * Gets products for sale dropdown
  * @param {string} warehouseId
  * @param {string} categoryId (optional)
@@ -632,6 +678,7 @@ const getProductsForSale = async (warehouseId, categoryId) => {
     warehouse: warehouseId,
     isDeleted: false,
     quantity: { $gt: 0 },
+    lotClosed: { $ne: true },
   };
 
   if (categoryId) {
@@ -683,6 +730,7 @@ module.exports = {
   createProduct,
   updateProduct,
   deleteProduct,
+  closeLot,
   getProductsWithStats,
   getProductWithStatsById,
   getProductsForSale,
