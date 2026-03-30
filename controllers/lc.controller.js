@@ -554,11 +554,8 @@ async function updateLC(req, res, next) {
     // Capture snapshot for audit diff (before mutation)
     const lcSnapshot = lc.toObject();
 
-    // Preserve the original lcNumber to prevent it from being updated
+    // Track the original LC number for document operations and potential directory rename
     const originalLcNumber = lc.basicInfo.lcNumber;
-    if (updateData.basicInfo) {
-      updateData.basicInfo.lcNumber = originalLcNumber;
-    }
 
     // --- Document Management ---
     const existingDocs = lc.documentsNotes.uploadedDocuments || [];
@@ -574,11 +571,11 @@ async function updateLC(req, res, next) {
 
     for (const doc of docsToDelete) {
       await storageUtil.deleteLcDocument(
-        lc.basicInfo.lcNumber,
+        originalLcNumber,
         doc.path,
         doc.storedName,
       );
-      storageUtil.cleanupEmptyLcDirectory(lc.basicInfo.lcNumber, doc.path);
+      storageUtil.cleanupEmptyLcDirectory(originalLcNumber, doc.path);
     }
 
     finalDocs = existingDocs.filter((doc) =>
@@ -606,12 +603,18 @@ async function updateLC(req, res, next) {
 
     const updatedLC = await lc.save({ session });
 
+    // If LC number changed, rename existing document directories before committing new files
+    const newLcNumber = updatedLC.basicInfo.lcNumber;
+    if (originalLcNumber !== newLcNumber) {
+      await storageUtil.renameLcDirectory(originalLcNumber, newLcNumber);
+    }
+
     if (preparedNewDocs.length > 0) {
       for (const preparedDoc of preparedNewDocs) {
         await storageUtil.commitDocument(
           preparedDoc.tempPath,
           preparedDoc.docData,
-          lc.basicInfo.lcNumber,
+          newLcNumber,
         );
       }
     }
@@ -620,7 +623,7 @@ async function updateLC(req, res, next) {
     session.endSession();
 
     // Audit: LC updated
-    auditService.log({ action: "UPDATE", module: "LC", documentId: updatedLC._id, displayId: updatedLC.basicInfo.lcNumber, userId: req.user?._id, description: `Updated LC ${updatedLC.basicInfo.lcNumber}`, changes: auditService.diffChanges(lcSnapshot, updatedLC, ["basicInfo.status", "basicInfo.supplierName", "basicInfo.supplierCountry", "financialInfo.lcAmountUsd", "financialInfo.exchangeRate"]), req });
+    auditService.log({ action: "UPDATE", module: "LC", documentId: updatedLC._id, displayId: updatedLC.basicInfo.lcNumber, userId: req.user?._id, description: `Updated LC ${updatedLC.basicInfo.lcNumber}`, changes: auditService.diffChanges(lcSnapshot, updatedLC, ["basicInfo.lcNumber", "basicInfo.status", "basicInfo.supplierName", "basicInfo.supplierCountry", "financialInfo.lcAmountUsd", "financialInfo.exchangeRate"]), req });
 
     return res
       .status(200)

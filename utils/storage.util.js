@@ -132,6 +132,42 @@ async function deleteCustomerDocument(customerId, docPath, storedName) {
   }
 }
 
+async function renameLcDirectory(oldLcNumber, newLcNumber) {
+  const sanitizedOld = sanitizeForPath(oldLcNumber);
+  const sanitizedNew = sanitizeForPath(newLcNumber);
+  if (sanitizedOld === sanitizedNew) return; // No change after sanitization
+
+  // Scan all year/month subdirectories for the old LC folder and rename each
+  try {
+    const years = await fs.readdir(LC_DOCUMENTS_DIR).catch(() => []);
+    for (const year of years) {
+      const yearDir = path.join(LC_DOCUMENTS_DIR, year);
+      const stat = await fs.stat(yearDir).catch(() => null);
+      if (!stat || !stat.isDirectory()) continue;
+
+      const months = await fs.readdir(yearDir).catch(() => []);
+      for (const month of months) {
+        const oldDir = path.join(yearDir, month, sanitizedOld);
+        const newDir = path.join(yearDir, month, sanitizedNew);
+        try {
+          await fs.access(oldDir);
+          await fs.rename(oldDir, newDir);
+          logger.info(`Renamed LC directory: ${oldDir} -> ${newDir}`);
+        } catch (err) {
+          if (err.code !== 'ENOENT') {
+            logger.error(`Failed to rename LC directory: ${oldDir} -> ${newDir}`, err);
+            throw new Error(`Could not rename LC document directory from "${oldLcNumber}" to "${newLcNumber}".`);
+          }
+          // ENOENT = no folder for this year/month, which is fine
+        }
+      }
+    }
+  } catch (err) {
+    if (err.message.startsWith('Could not rename')) throw err;
+    logger.error('Error scanning LC directories for rename:', err);
+  }
+}
+
 async function cleanupEmptyLcDirectory(lcNumber, docPath) {
   const sanitizedLcNumber = sanitizeForPath(lcNumber);
   const lcSpecificDir = path.join(LC_DOCUMENTS_DIR, docPath, sanitizedLcNumber);
@@ -188,6 +224,7 @@ module.exports = {
   commitCustomerDocument,
   deleteLcDocument,
   deleteCustomerDocument,
+  renameLcDirectory,
   cleanupEmptyLcDirectory,
   cleanupEmptyCustomerDirectory,
   cleanupTempFiles
