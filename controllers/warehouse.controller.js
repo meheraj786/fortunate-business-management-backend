@@ -482,7 +482,13 @@ const updateWarehouse = async (req, res, next) => {
 
     const warehouse = await Warehouse.findByIdAndUpdate(
       id,
-      { ...updates, modifiedBy: req.user?._id || null },
+      {
+        $set: {
+          name: updates.name,
+          location: updates.location,
+          modifiedBy: req.user?._id || null,
+        },
+      },
       {
         new: true,
         runValidators: true,
