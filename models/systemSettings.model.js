@@ -102,9 +102,34 @@ const systemSettingsSchema = new mongoose.Schema(
         type: String,
         default: "02:00", // 24h format
       },
+      weeklyDay: {
+        type: String,
+        enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+        default: "Saturday",
+      },
       retentionCount: {
         type: Number,
         default: 7,
+      },
+      retention: {
+        daily: {
+          type: Number,
+          default: 7,
+          min: 1,
+          max: 90,
+        },
+        weekly: {
+          type: Number,
+          default: 4,
+          min: 1,
+          max: 52,
+        },
+        monthly: {
+          type: Number,
+          default: 6,
+          min: 1,
+          max: 24,
+        },
       },
       includeFiles: {
         type: Boolean,
@@ -115,10 +140,8 @@ const systemSettingsSchema = new mongoose.Schema(
           type: Boolean,
           default: false,
         },
-        password: {
-          type: String,
-          select: false, // Do not return by default
-        },
+        // Password is ALWAYS read from BACKUP_ENCRYPTION_PASSWORD env variable (SEC-3)
+        // Never stored in database
       },
     },
     logging: {
@@ -150,7 +173,13 @@ systemSettingsSchema.statics.getSingleton = async function () {
       backup: {
         frequency: "Daily",
         time: "02:00",
+        weeklyDay: "Saturday",
         retentionCount: 7,
+        retention: {
+          daily: 7,
+          weekly: 4,
+          monthly: 6,
+        },
         includeFiles: true,
         encryption: {
           enabled: false,
@@ -161,9 +190,7 @@ systemSettingsSchema.statics.getSingleton = async function () {
   return settings;
 };
 
-systemSettingsSchema.statics.getSingletonWithPassword = async function () {
-  return this.findOne().select('+backup.encryption.password');
-};
+// Note: getSingletonWithPassword removed — password is now always from env variable (SEC-3)
 
 // Update settings (ensures only one document exists)
 systemSettingsSchema.statics.updateSingleton = async function (updateData) {
