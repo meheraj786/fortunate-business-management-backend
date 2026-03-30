@@ -5,6 +5,7 @@ const lcRoutes = require("./lc.api");
 const salesRoutes = require("./sales.api");
 const warehouseRoutes = require("./warehouse.api");
 const categoryRouter = require("./category.api");
+const countryRouter = require("./country.api");
 const unitRouter = require("./unit.api");
 const dailyCashRouter = require("./dailyCash.api");
 const invoiceRouter = require("./invoice.api");
@@ -25,6 +26,7 @@ apiRoutes.use("/lc", lcRoutes);
 apiRoutes.use("/sales", salesRoutes);
 apiRoutes.use("/warehouses", warehouseRoutes); // authenticate is already inside warehouseRoutes
 apiRoutes.use("/category", categoryRouter);
+apiRoutes.use("/country", countryRouter);
 apiRoutes.use("/unit", unitRouter);
 apiRoutes.use("/cash", dailyCashRouter); // authenticate is already inside dailyCashRouter
 apiRoutes.use("/invoice", invoiceRouter);
