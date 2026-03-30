@@ -364,21 +364,43 @@ async function getTransactionDetails(req, res, next) {
           as: "lcRef",
         },
       },
+      {
+        $lookup: {
+          from: "customers",
+          localField: "reference",
+          foreignField: "_id",
+          as: "customerRef",
+        },
+      },
+      {
+        $lookup: {
+          from: "advancepayments",
+          localField: "reference",
+          foreignField: "_id",
+          as: "advancePaymentRef",
+        },
+      },
       { $unwind: { path: "$accountId", preserveNullAndEmptyArrays: true } },
       { $unwind: { path: "$saleRef", preserveNullAndEmptyArrays: true } },
       { $unwind: { path: "$lcRef", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$customerRef", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$advancePaymentRef", preserveNullAndEmptyArrays: true } },
       {
         $addFields: {
           reference: {
-            $cond: {
-              if: { $eq: ["$referenceModel", "Sale"] },
-              then: "$saleRef",
-              else: "$lcRef",
+            $switch: {
+              branches: [
+                { case: { $eq: ["$referenceModel", "Sale"] }, then: "$saleRef" },
+                { case: { $eq: ["$referenceModel", "LC"] }, then: "$lcRef" },
+                { case: { $eq: ["$referenceModel", "Customer"] }, then: "$customerRef" },
+                { case: { $eq: ["$referenceModel", "AdvancePayment"] }, then: "$advancePaymentRef" },
+              ],
+              default: null,
             },
           },
         },
       },
-      { $project: { saleRef: 0, lcRef: 0 } }, // Clean up
+      { $project: { saleRef: 0, lcRef: 0, customerRef: 0, advancePaymentRef: 0 } }, // Clean up
     ]);
 
     if (results.length === 0) {
