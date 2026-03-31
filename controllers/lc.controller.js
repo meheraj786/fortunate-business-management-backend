@@ -20,6 +20,7 @@ const Unit = require("../models/unit.model");
 const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
 const Transaction = require("../models/transaction.model");
+const SystemSettings = require("../models/systemSettings.model");
 const Product = require("../models/product.model");
 const Trash = require("../models/trash.model");
 
@@ -930,6 +931,7 @@ async function getAllCompletedLCs(_, res, next) {
 
 async function getLCCountsByStatus(req, res, next) {
   try {
+    // 1. Status counts (existing)
     const counts = await LC.aggregate([
       { $match: { isDeleted: false } },
       {
@@ -940,7 +942,6 @@ async function getLCCountsByStatus(req, res, next) {
       },
     ]);
 
-    // Transform the result into a more usable format
     const statusCounts = {
       Active: 0,
       Completed: 0,
@@ -952,12 +953,72 @@ async function getLCCountsByStatus(req, res, next) {
       statusCounts[item._id] = item.count;
     });
 
+    // 2. Total cost + total product quantity (grouped by unit) for Active & Draft LCs
+    const activeDraftStats = await LC.aggregate([
+      {
+        $match: {
+          isDeleted: false,
+          "basicInfo.status": { $in: ["Active", "Draft"] },
+        },
+      },
+      {
+        $facet: {
+          costStats: [
+            {
+              $group: {
+                _id: null,
+                totalCost: { $sum: { $ifNull: ["$totalCost", 0] } },
+              },
+            },
+          ],
+          quantityByUnit: [
+            { $unwind: { path: "$productInfo", preserveNullAndEmptyArrays: false } },
+            {
+              $group: {
+                _id: "$productInfo.quantityUnit",
+                totalQuantity: { $sum: { $ifNull: ["$productInfo.quantity", 0] } },
+              },
+            },
+            {
+              $lookup: {
+                from: "units",
+                localField: "_id",
+                foreignField: "_id",
+                as: "unit",
+              },
+            },
+            { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
+            {
+              $project: {
+                _id: 0,
+                unitName: { $ifNull: ["$unit.name", "Unknown"] },
+                totalQuantity: 1,
+              },
+            },
+            { $sort: { totalQuantity: -1 } },
+          ],
+        },
+      },
+    ]);
+
+    const costResult = activeDraftStats[0]?.costStats[0];
+    const quantityByUnit = activeDraftStats[0]?.quantityByUnit || [];
+
+    // Get system currency
+    const settings = await SystemSettings.getSingleton();
+    const currency = settings?.currency || "BDT";
+
     return res
       .status(200)
       .json(
         new ApiResponse(
           200,
-          statusCounts,
+          {
+            ...statusCounts,
+            activeDraftTotalCost: costResult?.totalCost || 0,
+            activeDraftQuantityByUnit: quantityByUnit,
+            currency,
+          },
           "LC counts by status fetched successfully",
         ),
       );
