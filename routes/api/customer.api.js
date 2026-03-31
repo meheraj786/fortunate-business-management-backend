@@ -6,6 +6,7 @@ const {
   deleteCustomer,
   getCustomersSummary,
   getCustomerStats,
+  searchCustomers,
   getDueCustomers,
   getAllActiveCustomers,
   downloadCustomerDocument,
@@ -56,6 +57,11 @@ customerRoutes.get(
   authenticate,
   authorize(PERMISSIONS.CUSTOMER_VIEW_TABLE),
   getCustomerStats,
+);
+customerRoutes.get(
+  "/search",
+  authenticate,
+  searchCustomers,
 );
 customerRoutes.get(
   "/summary",

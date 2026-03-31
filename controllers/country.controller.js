@@ -250,3 +250,28 @@ exports.deleteCountry = async (req, res, next) => {
     );
   }
 };
+
+/* ================= SEARCH (lightweight, for combobox autocomplete) ================= */
+exports.searchCountries = async (req, res, next) => {
+  try {
+    const { q = "", limit = 20 } = req.query;
+    const query = { isDeleted: { $ne: true } };
+
+    if (q.trim()) {
+      query.name = { $regex: q.trim(), $options: "i" };
+    }
+
+    const countries = await Country.find(query)
+      .select("name")
+      .sort({ name: 1 })
+      .limit(parseInt(limit, 10))
+      .lean();
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, countries, "Countries searched successfully"));
+  } catch (error) {
+    logger.error(error);
+    next(new ApiError(500, "Failed to search countries."));
+  }
+};

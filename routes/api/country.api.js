@@ -5,6 +5,7 @@ const {
   getCountryById,
   updateCountry,
   deleteCountry,
+  searchCountries,
 } = require("../../controllers/country.controller");
 const { authorize } = require("../../middleware/authorize.middleware");
 const { authenticate } = require("../../middleware/auth.middleware");
@@ -22,6 +23,11 @@ countryRouter.get(
   authenticate,
   authorize(PERMISSIONS.COUNTRY_VIEW),
   getCountries
+);
+countryRouter.get(
+  "/search",
+  authenticate,
+  searchCountries
 );
 countryRouter.get(
   "/get-country/:id",

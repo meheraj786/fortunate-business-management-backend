@@ -1207,6 +1207,39 @@ async function getCustomerStats(req, res, next) {
   }
 }
 
+/* ================= SEARCH (lightweight, for combobox autocomplete) ================= */
+async function searchCustomers(req, res, next) {
+  try {
+    const { q = "", limit = 20 } = req.query;
+    const query = {
+      isDeleted: { $ne: true },
+      customerStatus: "Active",
+    };
+
+    if (q.trim()) {
+      const searchRegex = { $regex: escapeRegex(q.trim()), $options: "i" };
+      query.$or = [
+        { name: searchRegex },
+        { phone: searchRegex },
+        { customerId: searchRegex },
+      ];
+    }
+
+    const customers = await Customer.find(query)
+      .select("name phone customerId creditBalance")
+      .sort({ name: 1 })
+      .limit(parseInt(limit, 10))
+      .lean();
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, customers, "Customers searched successfully"));
+  } catch (error) {
+    logger.error(error);
+    next(new ApiError(500, "Failed to search customers."));
+  }
+}
+
 module.exports = {
   createCustomer,
   getCustomerById,
@@ -1214,6 +1247,7 @@ module.exports = {
   deleteCustomer,
   getCustomersSummary,
   getCustomerStats,
+  searchCustomers,
   getDueCustomers,
   getAllActiveCustomers,
   downloadCustomerDocument,

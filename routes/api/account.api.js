@@ -6,6 +6,7 @@ const {
   updateAccount,
   deleteAccount,
   getAccountDetails,
+  searchAccounts,
 } = require("../../controllers/account.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const { authorize } = require("../../middleware/authorize.middleware");
@@ -24,6 +25,11 @@ accountRoutes.get(
   authenticate,
   // authorize(PERMISSIONS.ACCOUNT_VIEW_ALL),
   getAllAccounts
+);
+accountRoutes.get(
+  "/search",
+  authenticate,
+  searchAccounts
 );
 accountRoutes.get(
   "/get-account/:id",

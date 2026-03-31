@@ -673,7 +673,7 @@ const closeLot = async (productId, warehouseId, userId) => {
  * @param {string} warehouseId
  * @param {string} categoryId (optional)
  */
-const getProductsForSale = async (warehouseId, categoryId) => {
+const getProductsForSale = async (warehouseId, categoryId, searchQuery) => {
   const query = {
     warehouse: warehouseId,
     isDeleted: false,
@@ -685,9 +685,14 @@ const getProductsForSale = async (warehouseId, categoryId) => {
     query.category = categoryId;
   }
 
+  if (searchQuery && searchQuery.trim()) {
+    query.name = { $regex: searchQuery.trim(), $options: "i" };
+  }
+
   const products = await Product.find(query)
     .populate("unit", "name conversionFactor type")
-    .select("name quantity unitPrice unit");
+    .select("name quantity unitPrice unit")
+    .limit(20);
 
   return products;
 };

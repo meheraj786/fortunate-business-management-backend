@@ -738,3 +738,42 @@ module.exports = {
   deleteAccount,
   getAccountDetails,
 };
+
+/* ================= SEARCH (lightweight, for combobox autocomplete) ================= */
+async function searchAccounts(req, res, next) {
+  try {
+    const { q = "", accountType, limit = 20 } = req.query;
+    const query = { status: "Active" };
+
+    if (accountType) {
+      query.accountType = accountType;
+    }
+
+    if (q.trim()) {
+      const searchRegex = { $regex: q.trim(), $options: "i" };
+      query.$or = [
+        { accountName: searchRegex },
+        { accountHolderName: searchRegex },
+        { bankName: searchRegex },
+        { branchName: searchRegex },
+        { accountNumber: searchRegex },
+        { serviceName: searchRegex },
+      ];
+    }
+
+    const accounts = await Account.find(query)
+      .select("accountType accountName accountHolderName bankName branchName accountNumber serviceName mobileNumber balance")
+      .sort({ accountName: 1 })
+      .limit(parseInt(limit, 10))
+      .lean();
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, accounts, "Accounts searched successfully"));
+  } catch (error) {
+    logger.error(error);
+    next(new ApiError(500, "Failed to search accounts."));
+  }
+}
+
+module.exports.searchAccounts = searchAccounts;

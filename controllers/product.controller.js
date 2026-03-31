@@ -199,10 +199,11 @@ async function deleteProductInWarehouse(req, res, next) {
 async function getProductsForSale(req, res, next) {
   try {
     const { warehouseId } = req.params;
-    const { category } = req.query;
+    const { category, q } = req.query;
     const products = await productService.getProductsForSale(
       warehouseId,
       category,
+      q,
     );
     return res
       .status(200)
