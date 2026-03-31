@@ -983,14 +983,20 @@ async function getLCCountsByStatus(req, res, next) {
             },
             { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
             {
-              // Convert every quantity to its base unit using conversionFactor
+              // Convert every quantity to KG:
+              // quantity * conversionFactor = grams (base unit), then / 1000 = KG
               $group: {
                 _id: { $ifNull: ["$unit.type", "Unknown"] },
                 totalBaseQuantity: {
                   $sum: {
-                    $multiply: [
-                      { $ifNull: ["$productInfo.quantity", 0] },
-                      { $ifNull: ["$unit.conversionFactor", 1] },
+                    $divide: [
+                      {
+                        $multiply: [
+                          { $ifNull: ["$productInfo.quantity", 0] },
+                          { $ifNull: ["$unit.conversionFactor", 1] },
+                        ],
+                      },
+                      1000,
                     ],
                   },
                 },
