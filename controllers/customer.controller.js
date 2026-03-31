@@ -727,6 +727,8 @@ async function getCustomersSummary(req, res, next) {
       search,
       status,
       customerType,
+      hasDue,
+      hasCreditBalance,
       sortBy,
       sortOrder = "desc",
     } = req.query;
@@ -824,11 +826,24 @@ async function getCustomersSummary(req, res, next) {
       },
     });
 
+    // Stage 3b: Post-computation filters (hasDue, hasCreditBalance)
+    const postMatchConditions = {};
+    if (hasDue === "true") {
+      postMatchConditions.totalDue = { $gt: 0 };
+    }
+    if (hasCreditBalance === "true") {
+      postMatchConditions.creditBalance = { $gt: 0 };
+    }
+    if (Object.keys(postMatchConditions).length > 0) {
+      pipeline.push({ $match: postMatchConditions });
+    }
+
     // Stage 4: Sorting
     const sortStage = {};
     const validSortBy = [
       "name",
       "creditLimit",
+      "creditBalance",
       "joinDate",
       "totalPurchases",
       "totalSpent",
@@ -1111,12 +1126,94 @@ async function getDueCustomers(req, res, next) {
   }
 }
 
+async function getCustomerStats(req, res, next) {
+  try {
+    const result = await Customer.aggregate([
+      { $match: { isDeleted: { $ne: true } } },
+      {
+        $facet: {
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalCustomers: { $sum: 1 },
+                totalCreditBalance: { $sum: { $ifNull: ["$creditBalance", 0] } },
+              },
+            },
+          ],
+          byStatus: [
+            { $group: { _id: "$customerStatus", count: { $sum: 1 } } },
+          ],
+          byType: [
+            { $group: { _id: "$customerType", count: { $sum: 1 } } },
+          ],
+        },
+      },
+    ]);
+
+    const facets = result[0] || {};
+    const totals = facets.totals?.[0] || { totalCustomers: 0, totalCreditBalance: 0 };
+
+    const statusCounts = {};
+    (facets.byStatus || []).forEach((s) => {
+      if (s._id) statusCounts[s._id] = s.count;
+    });
+
+    const typeCounts = {};
+    (facets.byType || []).forEach((t) => {
+      if (t._id) typeCounts[t._id] = t.count;
+    });
+
+    // Get total outstanding dues from Sales collection
+    const dueResult = await Sales.aggregate([
+      {
+        $match: {
+          isDeleted: { $ne: true },
+          paymentStatus: "Due payment",
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalDue: {
+            $sum: {
+              $subtract: [
+                "$totalAmountToBePaid",
+                { $ifNull: ["$totalPaid", 0] },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    const totalOutstandingDue = dueResult[0]?.totalDue || 0;
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        totalCustomers: totals.totalCustomers,
+        active: statusCounts.Active || 0,
+        suspended: statusCounts.Suspended || 0,
+        retail: typeCounts.Retail || 0,
+        wholesale: typeCounts.Wholesale || 0,
+        totalOutstandingDue,
+        totalCreditBalance: totals.totalCreditBalance,
+      }, "Customer stats fetched successfully"),
+    );
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    logger.error(error);
+    next(new ApiError(500, "Failed to fetch customer stats."));
+  }
+}
+
 module.exports = {
   createCustomer,
   getCustomerById,
   updateCustomer,
   deleteCustomer,
   getCustomersSummary,
+  getCustomerStats,
   getDueCustomers,
   getAllActiveCustomers,
   downloadCustomerDocument,

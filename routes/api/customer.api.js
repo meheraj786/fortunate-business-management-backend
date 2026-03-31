@@ -5,6 +5,7 @@ const {
   updateCustomer,
   deleteCustomer,
   getCustomersSummary,
+  getCustomerStats,
   getDueCustomers,
   getAllActiveCustomers,
   downloadCustomerDocument,
@@ -49,6 +50,12 @@ customerRoutes.delete(
   authenticate,
   authorize(PERMISSIONS.CUSTOMER_DELETE),
   deleteCustomer,
+);
+customerRoutes.get(
+  "/stats",
+  authenticate,
+  authorize(PERMISSIONS.CUSTOMER_VIEW_TABLE),
+  getCustomerStats,
 );
 customerRoutes.get(
   "/summary",
