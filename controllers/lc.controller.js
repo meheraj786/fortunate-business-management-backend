@@ -1057,7 +1057,9 @@ async function exportLCAsPDF(req, res, next) {
       .populate("financialInfo.costs.accountId")
       .populate("shippingCustomsInfo.costs.accountId")
       .populate("agentTransportInfo.costs.accountId")
-      .populate("otherExpenses.costs.accountId");
+      .populate("otherExpenses.costs.accountId")
+      .populate("documentProductInfo.costs.accountId")
+      .populate("documentProductInfo.products.quantityUnit", "name type conversionFactor");
 
     if (!lc) {
       return res.status(404).json({
@@ -1066,33 +1068,13 @@ async function exportLCAsPDF(req, res, next) {
       });
     }
 
-    // Validate LC has minimum required data BEFORE calling generateLCPDF
-    if (!lc.basicInfo) {
+    // Only require the absolute minimum — basicInfo with an LC number.
+    // All other sections (products, financial, shipping, etc.) are optional
+    // so that Draft, Cancelled, and partially-filled LCs can still be exported.
+    if (!lc.basicInfo || !lc.basicInfo.lcNumber) {
       return res.status(400).json({
         error: "Invalid LC data",
-        message: "LC is missing basic information",
-      });
-    }
-
-    if (!lc.basicInfo.lcNumber) {
-      return res.status(400).json({
-        error: "Invalid LC data",
-        message: "LC is missing LC Number",
-      });
-    }
-
-    if (!lc.productInfo || lc.productInfo.length === 0) {
-      return res.status(400).json({
-        error: "Invalid LC data",
-        message: "LC must have at least one product",
-      });
-    }
-
-    // Additional validation - check if financial info exists
-    if (!lc.financialInfo || !lc.financialInfo.lcAmountUsd) {
-      return res.status(400).json({
-        error: "Invalid LC data",
-        message: "LC is missing financial information",
+        message: "LC is missing basic information or LC Number",
       });
     }
 
