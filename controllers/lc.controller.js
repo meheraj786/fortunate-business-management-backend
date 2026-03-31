@@ -974,28 +974,36 @@ async function getLCCountsByStatus(req, res, next) {
           quantityByUnit: [
             { $unwind: { path: "$productInfo", preserveNullAndEmptyArrays: false } },
             {
-              $group: {
-                _id: "$productInfo.quantityUnit",
-                totalQuantity: { $sum: { $ifNull: ["$productInfo.quantity", 0] } },
-              },
-            },
-            {
               $lookup: {
                 from: "units",
-                localField: "_id",
+                localField: "productInfo.quantityUnit",
                 foreignField: "_id",
                 as: "unit",
               },
             },
             { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
             {
-              $project: {
-                _id: 0,
-                unitName: { $ifNull: ["$unit.name", "Unknown"] },
-                totalQuantity: 1,
+              // Convert every quantity to its base unit using conversionFactor
+              $group: {
+                _id: { $ifNull: ["$unit.type", "Unknown"] },
+                totalBaseQuantity: {
+                  $sum: {
+                    $multiply: [
+                      { $ifNull: ["$productInfo.quantity", 0] },
+                      { $ifNull: ["$unit.conversionFactor", 1] },
+                    ],
+                  },
+                },
               },
             },
-            { $sort: { totalQuantity: -1 } },
+            {
+              $project: {
+                _id: 0,
+                unitType: "$_id",
+                totalBaseQuantity: 1,
+              },
+            },
+            { $sort: { totalBaseQuantity: -1 } },
           ],
         },
       },
