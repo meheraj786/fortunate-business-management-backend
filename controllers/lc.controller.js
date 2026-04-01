@@ -123,9 +123,6 @@ async function createLC(req, res, next) {
       if (!lcData.financialInfo?.exchangeRate || lcData.financialInfo.exchangeRate <= 0) {
         throw new ApiError(400, "Exchange Rate is required for non-Draft LCs.");
       }
-      if (!lcData.productInfo || lcData.productInfo.length === 0) {
-        throw new ApiError(400, "At least one product is required for non-Draft LCs.");
-      }
     }
 
     // --- Cost Validation ---
@@ -471,9 +468,6 @@ async function updateLC(req, res, next) {
       }
       if (!updateData.financialInfo?.exchangeRate || updateData.financialInfo.exchangeRate <= 0) {
         throw new ApiError(400, "Exchange Rate is required for non-Draft LCs.");
-      }
-      if (!updateData.productInfo || updateData.productInfo.length === 0) {
-        throw new ApiError(400, "At least one product is required for non-Draft LCs.");
       }
     }
 
