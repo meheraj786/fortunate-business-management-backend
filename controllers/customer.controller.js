@@ -202,9 +202,58 @@ async function createCustomer(req, res, next) {
 
 async function getAllActiveCustomers(_, res, next) {
   try {
-    const customers = await Customer.find({ isDeleted: false })
-      .select("_id name customerId phone creditBalance")
-      .lean();
+    const customers = await Customer.aggregate([
+      { $match: { isDeleted: false } },
+      {
+        $lookup: {
+          from: "sales",
+          let: { customerId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$customer.customerId", "$$customerId"] },
+                    { $ne: ["$isDeleted", true] },
+                    { $eq: ["$invoiceStatus", "Invoiced"] },
+                    { $eq: ["$paymentStatus", "Due payment"] },
+                  ],
+                },
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                totalDue: {
+                  $sum: {
+                    $subtract: [
+                      "$totalAmountToBePaid",
+                      { $ifNull: ["$totalPaid", 0] },
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+          as: "dueStats",
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          customerId: 1,
+          phone: 1,
+          creditBalance: 1,
+          outstandingDue: {
+            $ifNull: [
+              { $arrayElemAt: ["$dueStats.totalDue", 0] },
+              0,
+            ],
+          },
+        },
+      },
+    ]);
 
     return res
       .status(200)

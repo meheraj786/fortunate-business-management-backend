@@ -692,7 +692,8 @@ const getProductsForSale = async (warehouseId, categoryId, searchQuery) => {
   const products = await Product.find(query)
     .populate("unit", "name conversionFactor type")
     .select("name quantity unitPrice unit")
-    .limit(20);
+    .sort({ name: 1 })
+    .limit(500);
 
   return products;
 };
