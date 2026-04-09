@@ -9,6 +9,9 @@ const {
   getProductsForSale,
   closeLotInWarehouse,
 } = require("../../controllers/product.controller");
+const {
+  transferStock,
+} = require("../../controllers/warehouse.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const {
   authorizeWarehouseAccess,
@@ -64,4 +67,14 @@ productRoutes.post(
   closeLotInWarehouse
 );
 
+// @desc    Transfer stock to another warehouse (full or partial)
+// @route   POST /api/v1/warehouses/:warehouseId/products/:productId/transfer
+// @access  Private (requires PRODUCT_TRANSFER permission + access to both warehouses)
+productRoutes.post(
+  "/:productId/transfer",
+  authorizeWarehouseAccess(PERMISSIONS.PRODUCT_TRANSFER),
+  transferStock
+);
+
 module.exports = productRoutes;
+

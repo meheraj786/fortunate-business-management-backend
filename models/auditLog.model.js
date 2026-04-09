@@ -45,6 +45,7 @@ const auditLogSchema = new mongoose.Schema(
                 "AdvancePayment",
                 "System",
                 "Invoice",
+                "StockTransfer",
             ],
             index: true,
         },

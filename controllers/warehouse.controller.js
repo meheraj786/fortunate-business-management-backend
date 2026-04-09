@@ -8,6 +8,7 @@ const logger = require("../utils/logger");
 const { now } = require("../utils/timezone.util");
 const Trash = require("../models/trash.model");
 const auditService = require("../services/audit.service");
+const stockTransferService = require("../services/stockTransfer.service");
 
 const createWarehouse = async (req, res, next) => {
   try {
@@ -637,10 +638,72 @@ const deleteWarehouse = async (req, res, next) => {
   }
 };
 
+const transferStock = async (req, res, next) => {
+  try {
+    const { warehouseId, productId } = req.params;
+    const { destinationWarehouseId, transferType, quantity, notes } = req.body;
+
+    if (!destinationWarehouseId) {
+      return next(new ApiError(400, "Destination warehouse is required."));
+    }
+
+    // Authorization: Check that user has access to the DESTINATION warehouse
+    // (Source warehouse access is already checked by authorizeWarehouseAccess middleware)
+    const user = req.user;
+    if (user.roleName !== "ADMIN" && user.roleName !== "SUPER_ADMIN") {
+      const hasDestAccess = user.warehouse.some(
+        (wh) => wh.toString() === destinationWarehouseId,
+      );
+      if (!hasDestAccess) {
+        return next(
+          new ApiError(
+            403,
+            "You do not have access to the destination warehouse.",
+          ),
+        );
+      }
+    }
+
+    const result = await stockTransferService.transferStock({
+      productId,
+      sourceWarehouseId: warehouseId,
+      destinationWarehouseId,
+      transferType: transferType || "full",
+      quantity: quantity ? Number(quantity) : undefined,
+      notes,
+      userId: req.user?._id,
+      req,
+    });
+
+    const message =
+      transferType === "partial"
+        ? `Successfully transferred ${quantity} units to ${result.destinationWarehouse.name}.`
+        : `Successfully transferred product to ${result.destinationWarehouse.name}.`;
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, result, message));
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    logger.error(error);
+    next(
+      new ApiError(
+        500,
+        "An unexpected error occurred during transfer. Please try again.",
+        [],
+        error.message,
+      ),
+    );
+  }
+};
+
 module.exports = {
   createWarehouse,
   getAllWarehouses,
   getWarehouseById,
   updateWarehouse,
   deleteWarehouse,
+  transferStock,
 };
