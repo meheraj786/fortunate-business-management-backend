@@ -856,7 +856,8 @@ async function updateSale(req, res, next) {
       product: i.productId || i.product._id || i.product,
       quantity: parseFloat(i.quantity),
       unit: i.unit._id || i.unit,
-      pricePerUnit: parseFloat(i.pricePerUnit)
+      pricePerUnit: parseFloat(i.pricePerUnit),
+      remark: i.remark || ""
     }));
 
     // 3. Stock Reconciliation
