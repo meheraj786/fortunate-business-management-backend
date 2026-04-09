@@ -76,6 +76,7 @@ const saleItemSchema = new mongoose.Schema({
   },
   pricePerUnit: { type: Number, required: true, min: 0 },
   total: { type: Number, required: true, min: 0 },
+  remark: { type: String, default: "" },
 });
 
 /*

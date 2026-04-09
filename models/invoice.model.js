@@ -83,6 +83,7 @@ const invoiceSchema = new mongoose.Schema(
         unitName: { type: String }, // Storing name for historical accuracy
         pricePerUnit: { type: Number, required: true },
         total: { type: Number, required: true },
+        remark: { type: String, default: "" },
       },
     ],
     customerDetails: {

@@ -191,6 +191,7 @@ async function generateInvoice(req, res, next) {
       unitName: item.unit.name,
       pricePerUnit: item.pricePerUnit,
       total: item.total,
+      remark: item.remark || "",
     }));
 
     const invoice = await Invoice.create({
