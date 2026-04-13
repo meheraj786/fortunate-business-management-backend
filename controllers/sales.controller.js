@@ -893,6 +893,8 @@ async function updateSale(req, res, next) {
     // calculateStockDiff already checks if product belongs to warehouse (lines 122 in service) - so we are good there.
 
     // 4. Recalculate Financials
+    // Store old payments and costs for reconciliation
+    const oldPayments = [...(sale.payments || [])].map(p => p.toObject ? p.toObject() : { ...p });
     // Store old costs for reconciliation
     const oldCosts = sale.costs || [];
 
@@ -959,10 +961,17 @@ async function updateSale(req, res, next) {
       );
     }
 
-    // 5. Strict Financial Check
-    // In update flow, if payments are being passed in updateData, we need to consider them.
-    // However, payments are usually handled separately or appended. If they are in updateData:
+    // 5. Reconcile Payments (Financial Side Effects)
+    // If payments are provided in the update, reconcile them to create/reverse
+    // Transaction records and update Account balances.
     if (updateData.payments) {
+      await SalesService.reconcilePayments(
+        oldPayments,
+        updateData.payments,
+        sale,
+        session,
+        req.businessTimezone
+      );
       sale.payments = updateData.payments;
     }
     const totalPaid = mathUtil.round(mathUtil.sum(sale.payments.map(p => p.amount)));

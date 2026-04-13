@@ -9,6 +9,7 @@ const Account = require("../models/account.model");
 const DailyCash = require("../models/dailyCash.model");
 const { formatAccountLabel } = require("../utils/format.util");
 const mathUtil = require("../utils/math.util");
+const CreditHistory = require("../models/creditHistory.model");
 
 /**
  * Generates a new sequential Sale ID (e.g., SALE-24-000001)
@@ -606,4 +607,247 @@ async function applyCostTransaction(cost, sale, session, businessTimezone) {
       costAmount: cost.amount,
     },
   }], { session });
+}
+
+/**
+ * Reconciles payments during a sale update.
+ * Identifies added and removed payments and processes financial side-effects
+ * (Account balance updates, Transaction records, DailyCash checks, Customer Credit).
+ *
+ * Modeled after the existing reconcileCosts pattern.
+ */
+
+exports.reconcilePayments = async (
+  oldPayments = [],
+  newPayments = [],
+  sale,
+  session,
+  businessTimezone
+) => {
+  // Build a map of old payments by _id for efficient lookup
+  const oldMap = new Map();
+  oldPayments.forEach(p => {
+    if (p._id) oldMap.set(p._id.toString(), p);
+  });
+
+  const processedIds = new Set();
+
+  // 1. Process New/Updated Payments
+  for (const newPayment of newPayments) {
+    if (newPayment._id && oldMap.has(newPayment._id.toString())) {
+      // Existing payment — mark as processed (no changes needed since payments are immutable once created)
+      processedIds.add(newPayment._id.toString());
+      // Note: We do NOT support modifying an existing payment's amount/method.
+      // If needed, the user should remove and re-add the payment.
+    } else {
+      // NEW payment — process financial side effects
+      await applyPaymentTransaction(newPayment, sale, session, businessTimezone);
+    }
+  }
+
+  // 2. Process Removed Payments (old payments not found in new set)
+  for (const [id, oldPayment] of oldMap.entries()) {
+    if (!processedIds.has(id)) {
+      await reversePaymentTransaction(oldPayment, sale, session, businessTimezone);
+    }
+  }
+};
+
+/**
+ * Applies financial side effects for a new payment.
+ * Creates Transaction record, updates Account balance, checks DailyCash, handles Customer Credit.
+ * Mirrors the logic in createSale (lines 229-338) and addPartialPayment (lines 1564-1669).
+ */
+async function applyPaymentTransaction(payment, sale, session, businessTimezone) {
+  if (!payment.amount || payment.amount <= 0) return;
+
+  if (payment.method === "Customer Credit") {
+    // Handle Customer Credit Payment
+    if (!sale.customer?.customerId) {
+      throw new ApiError(400, "Guest/Manual customers cannot pay with Customer Credit.");
+    }
+
+    // Atomic deduction with balance guard
+    const updatedCustomer = await Customer.findOneAndUpdate(
+      {
+        _id: sale.customer.customerId,
+        creditBalance: { $gte: payment.amount },
+        isDeleted: { $ne: true },
+      },
+      { $inc: { creditBalance: -payment.amount } },
+      { session, new: true }
+    );
+
+    if (!updatedCustomer) {
+      const customer = await Customer.findOne({
+        _id: sale.customer.customerId,
+        isDeleted: { $ne: true },
+      }).session(session);
+      throw new ApiError(
+        400,
+        `Insufficient credit balance. Available: ${customer?.creditBalance || 0}, Required: ${payment.amount}`
+      );
+    }
+
+    // Record Credit History (Debit)
+    await CreditHistory.create(
+      [
+        {
+          customer: sale.customer.customerId,
+          amount: payment.amount,
+          type: "Debit",
+          reason: "Purchase",
+          reference: sale._id,
+          referenceModel: "Sale",
+          description: `Payment for Sale ID: ${sale.saleId} (added during edit)`,
+        },
+      ],
+      { session }
+    );
+  } else if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+    // Handle Real Money Payment
+    if (!payment.accountId) {
+      throw new ApiError(400, `Account ID is required for ${payment.method} payment.`);
+    }
+
+    const account = await Account.findById(payment.accountId).session(session);
+    if (!account) {
+      throw new ApiError(404, `Account not found for payment.`);
+    }
+
+    // Validate account type
+    const expectedAccountType =
+      payment.method === "Mobile Banking" ? "Mobile Banking" : payment.method;
+    if (account.accountType !== expectedAccountType) {
+      throw new ApiError(
+        400,
+        `Payment method '${payment.method}' requires a '${expectedAccountType}' account, but a '${account.accountType}' account was provided.`
+      );
+    }
+
+    // DailyCash Gatekeeper Check
+    const paymentDate = startOfDay(new Date(payment.date), businessTimezone);
+    const dailyCash = await DailyCash.findOne({ date: paymentDate }).session(session);
+    if (!dailyCash || dailyCash.status === "Closed") {
+      throw new ApiError(
+        400,
+        `Daily cash is closed (or not opened) for ${paymentDate.toDateString()}. Cannot record payment.`
+      );
+    }
+
+    // Increase account balance
+    account.balance = mathUtil.add(account.balance, payment.amount);
+    await account.save({ session });
+
+    // Create Transaction record
+    await Transaction.create(
+      [
+        {
+          accountId: account._id,
+          date: payment.date,
+          description: `Payment received for Sale ID: ${sale.saleId} from ${sale.customer?.name || "Guest"} via ${payment.method} Account: ${formatAccountLabel(account)}.`,
+          transactionType: "Income",
+          amount: payment.amount,
+          name: "Sales Payment",
+          source: "Auto",
+          category: "Sales",
+          paymentMethod: payment.method,
+          reference: sale._id,
+          referenceModel: "Sale",
+          miscReference: {
+            saleId: sale.saleId,
+            customerName: sale.customer?.name,
+            paymentAmount: payment.amount,
+            paymentMethod: payment.method,
+          },
+        },
+      ],
+      { session }
+    );
+  }
+}
+
+/**
+ * Reverses financial side effects for a removed payment.
+ * Creates reversal Transaction record, updates Account balance, refunds Customer Credit.
+ * Mirrors the logic in deleteSale (lines 1131-1199).
+ */
+async function reversePaymentTransaction(payment, sale, session, businessTimezone) {
+  if (!payment.amount || payment.amount <= 0) return;
+
+  if (payment.method === "Customer Credit") {
+    // Refund Customer Credit
+    if (sale.customer?.customerId) {
+      await Customer.findByIdAndUpdate(
+        sale.customer.customerId,
+        { $inc: { creditBalance: payment.amount } },
+        { session }
+      );
+
+      await CreditHistory.create(
+        [
+          {
+            customer: sale.customer.customerId,
+            amount: payment.amount,
+            type: "Credit",
+            reason: "Payment Removed",
+            reference: sale._id,
+            referenceModel: "Sale",
+            description: `Reversal of payment for Sale ID: ${sale.saleId} (payment removed during edit)`,
+          },
+        ],
+        { session }
+      );
+    }
+  } else if (["Bank", "Mobile Banking", "Cash"].includes(payment.method)) {
+    if (!payment.accountId) return;
+
+    const account = await Account.findById(payment.accountId).session(session);
+    if (!account) {
+      throw new ApiError(
+        400,
+        `Cannot reverse payment because the associated account (ID: ${payment.accountId}) is missing. Please restore the account first.`
+      );
+    }
+
+    // DailyCash Check
+    const date = startOfDay(new Date(payment.date || sale.saleDate), businessTimezone);
+    const dailyCash = await DailyCash.findOne({ date }).session(session);
+    if (dailyCash && dailyCash.status === "Closed") {
+      throw new ApiError(
+        400,
+        `Cannot reverse payment because Daily Cash for ${date.toDateString()} is closed.`
+      );
+    }
+
+    // Decrease account balance (reverse the income)
+    account.balance = mathUtil.sub(account.balance, payment.amount);
+    await account.save({ session });
+
+    // Create reversal Transaction
+    await Transaction.create(
+      [
+        {
+          accountId: payment.accountId,
+          date: now(),
+          description: `Reversal: Payment removed for Sale ID: ${sale.saleId} (Customer: ${sale.customer?.name || "Guest"}) via ${payment.method} Account: ${formatAccountLabel(account)}.`,
+          transactionType: "Expense",
+          amount: payment.amount,
+          name: "Sales Payment Reversal",
+          source: "Auto",
+          category: "Sales Reversal",
+          paymentMethod: payment.method,
+          reference: sale._id,
+          referenceModel: "Sale",
+          miscReference: {
+            saleId: sale.saleId,
+            customerName: sale.customer?.name,
+            paymentAmount: payment.amount,
+            paymentMethod: payment.method,
+          },
+        },
+      ],
+      { session }
+    );
+  }
 }
