@@ -8,6 +8,7 @@ const {
   getSalesSummary,
   getAll_invoices_status_count,
   addPartialPayment,
+  reversePayment,
   cancelSale,
   getSalesByCustomerId,
   getPaginatedSalesSummary,
@@ -89,6 +90,11 @@ salesRoutes.post(
   authorize(PERMISSIONS.SALE_ADD_PAYMENT),
   idempotencyGuard,
   addPartialPayment
+);
+salesRoutes.delete(
+  "/:id/payments/:paymentId",
+  authorize(PERMISSIONS.SALE_REVERSE_PAYMENT),
+  reversePayment
 );
 
 salesRoutes.get(

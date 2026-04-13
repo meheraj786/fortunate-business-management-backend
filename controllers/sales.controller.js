@@ -1747,6 +1747,170 @@ async function addPartialPayment(req, res, next) {
   }
 }
 
+async function reversePayment(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { id, paymentId } = req.params;
+
+    const sale = await Sales.findById(id).session(session);
+    if (!sale) {
+      throw new ApiError(404, "Sale not found");
+    }
+    if (sale.isDeleted) {
+      throw new ApiError(400, "Cannot reverse payment on a deleted sale.");
+    }
+    if (sale.invoiceStatus === "Cancelled") {
+      throw new ApiError(400, "Cannot reverse payment on a cancelled sale.");
+    }
+
+    // Find the specific payment
+    const paymentIndex = sale.payments.findIndex(
+      (p) => p._id.toString() === paymentId
+    );
+    if (paymentIndex === -1) {
+      throw new ApiError(404, "Payment not found on this sale.");
+    }
+
+    const payment = sale.payments[paymentIndex];
+
+    // DailyCash Gatekeeper — must be open TODAY for reversal processing
+    const today = startOfDay(now(), req.businessTimezone);
+    const dailyCash = await DailyCash.findOne({ date: today })
+      .sort({ createdAt: -1 })
+      .session(session);
+
+    if (!dailyCash || dailyCash.status === "Closed") {
+      throw new ApiError(
+        400,
+        `Daily cash is closed for ${today.toDateString()}. Cannot reverse payment.`
+      );
+    }
+
+    // --- Reverse Financial Side Effects ---
+    if (payment.amount > 0) {
+      if (payment.method === "Customer Credit") {
+        // Refund Customer Credit
+        if (sale.customer?.customerId) {
+          await Customer.findByIdAndUpdate(
+            sale.customer.customerId,
+            { $inc: { creditBalance: payment.amount } },
+            { session }
+          );
+
+          await CreditHistory.create(
+            [
+              {
+                customer: sale.customer.customerId,
+                amount: payment.amount,
+                type: "Credit",
+                reason: "Payment Reversed",
+                reference: sale._id,
+                referenceModel: "Sale",
+                description: `Reversed payment for Sale ID: ${sale.saleId}`,
+                createdBy: req.user?._id,
+              },
+            ],
+            { session }
+          );
+        }
+      } else if (
+        ["Bank", "Mobile Banking", "Cash"].includes(payment.method)
+      ) {
+        const account = await Account.findById(payment.accountId).session(
+          session
+        );
+        if (!account) {
+          throw new ApiError(
+            400,
+            `Cannot reverse payment because the associated account is missing. Please restore the account first.`
+          );
+        }
+
+        // Decrease account balance
+        account.balance = mathUtil.sub(account.balance, payment.amount);
+        await account.save({ session });
+
+        // Create reversal Transaction record
+        await Transaction.create(
+          [
+            {
+              name: "Sales Payment Reversal",
+              accountId: payment.accountId,
+              date: now(),
+              description: `Reversed payment for Sale ID: ${sale.saleId} (Customer: ${sale.customer?.name || "Guest"}) via ${payment.method}. Account: ${formatAccountLabel(account)}.`,
+              transactionType: "Expense",
+              amount: payment.amount,
+              source: "Auto",
+              category: "Sales Reversal",
+              paymentMethod: payment.method,
+              reference: sale._id,
+              referenceModel: "Sale",
+              miscReference: {
+                saleId: sale.saleId,
+                customerName: sale.customer?.name,
+                paymentId: payment._id,
+                reversedAmount: payment.amount,
+                reversedMethod: payment.method,
+              },
+            },
+          ],
+          { session }
+        );
+      }
+    }
+
+    // If the payment had a discount component, reduce the sale-level discount
+    if (payment.discount > 0) {
+      sale.discount = mathUtil.sub(sale.discount || 0, payment.discount);
+      if (sale.discount < 0) sale.discount = 0; // Safety floor
+    }
+
+    // Remove the payment from the sale
+    sale.payments.splice(paymentIndex, 1);
+    sale.modifiedBy = req.user?._id || null;
+
+    await sale.save({ session });
+
+    // Reconcile sale financials (recalculate totalPaid, balanceDue, paymentStatus)
+    await SalesService.reconcileSaleFinancials(sale._id, session);
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // Audit
+    auditService.log({
+      action: "PAYMENT_REVERSAL",
+      module: "Sale",
+      documentId: sale._id,
+      displayId: sale.saleId,
+      userId: req.user?._id,
+      description: `Reversed payment of ${payment.amount} (${payment.method}) on sale ${sale.saleId}${payment.discount > 0 ? ` (discount: ${payment.discount})` : ""}`,
+      metadata: {
+        reversedPaymentId: paymentId,
+        amount: payment.amount,
+        discount: payment.discount || 0,
+        method: payment.method,
+        accountId: payment.accountId,
+      },
+      req,
+    });
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, sale, "Payment reversed successfully"));
+  } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    session.endSession();
+
+    if (error instanceof ApiError) return next(error);
+    logger.error("ReversePayment Error:", error);
+    next(new ApiError(500, "Failed to reverse payment. Please try again."));
+  }
+}
+
 async function getSalesByCustomerId(req, res, next) {
   try {
     const { customerId } = req.params;
@@ -2451,6 +2615,7 @@ module.exports = {
   getSalesSummary,
   getAll_invoices_status_count,
   addPartialPayment,
+  reversePayment,
   cancelSale,
   getSalesByCustomerId,
   getPaginatedSalesSummary,
