@@ -53,6 +53,9 @@ const paymentSchema = new mongoose.Schema({
       return this.amount > 0 && ["Bank", "Mobile Banking", "Cash"].includes(this.method);
     },
   },
+  isReversed: { type: Boolean, default: false },
+  reversedAt: { type: Date },
+  reversedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
 /*

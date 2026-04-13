@@ -1866,8 +1866,11 @@ async function reversePayment(req, res, next) {
       if (sale.discount < 0) sale.discount = 0; // Safety floor
     }
 
-    // Remove the payment from the sale
-    sale.payments.splice(paymentIndex, 1);
+    // Mark the payment as reversed instead of removing it from the array
+    payment.isReversed = true;
+    payment.reversedAt = Date.now();
+    payment.reversedBy = req.user?._id || null;
+    
     sale.modifiedBy = req.user?._id || null;
 
     await sale.save({ session });

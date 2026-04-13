@@ -434,7 +434,7 @@ exports.reconcileSaleFinancials = async (saleId, session) => {
   // We focus on PAYMENTS and STATUS here.
 
   // const totalPaid = sale.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-  const totalPaid = sale.payments.reduce((sum, p) => mathUtil.add(sum, p.amount || 0), 0);
+  const totalPaid = sale.payments.reduce((sum, p) => p.isReversed ? sum : mathUtil.add(sum, p.amount || 0), 0);
   const totalDue = sale.totalAmountToBePaid;
 
   let balanceDue = 0;
