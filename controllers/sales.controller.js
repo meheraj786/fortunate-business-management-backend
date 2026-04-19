@@ -2478,8 +2478,20 @@ async function getPaginatedSalesSummary(req, res, next) {
       },
     });
 
-    // Lookup LCs (from items.product.LC) -> complex for array, but for search we can try
-    // Just looking up products is usually enough for "Search by Product Name"
+    // Lookup Warehouses
+    pipeline.push({
+      $lookup: {
+        from: "warehouses",
+        localField: "warehouse",
+        foreignField: "_id",
+        as: "warehouseDetails",
+      },
+    });
+    
+    // Unwind Warehouse for sorting
+    pipeline.push({
+      $unwind: { path: "$warehouseDetails", preserveNullAndEmptyArrays: true },
+    });
 
     // 2. Computed Fields (for Sorting/Searching)
     pipeline.push({
@@ -2494,6 +2506,7 @@ async function getPaginatedSalesSummary(req, res, next) {
         primaryProductName: { $arrayElemAt: ["$productDetails.name", 0] },
         // Calculate Total Quantity (sum of items.quantity)
         totalQuantity: { $sum: "$items.quantity" },
+        warehouseName: "$warehouseDetails.name",
       },
     });
 
@@ -2530,6 +2543,7 @@ async function getPaginatedSalesSummary(req, res, next) {
       else if (sortBy === "quantity") sort.totalQuantity = sortDir;
       else if (sortBy === "customerName") sort.finalCustomerName = sortDir;
       else if (sortBy === "productName") sort.primaryProductName = sortDir;
+      else if (sortBy === "warehouseName") sort.warehouseName = sortDir;
       else sort.saleDate = -1; // Fallback
     } else {
       sort.saleDate = -1;
@@ -2578,6 +2592,7 @@ async function getPaginatedSalesSummary(req, res, next) {
       .populate("customer.customerId", "name phone")
       .populate("items.product", "name") // Populate product details in items
       .populate("items.unit", "name")    // Populate unit details in items
+      .populate("warehouse", "name")     // Populate warehouse details
       .lean();
 
     // 7. Re-order results to match the specific sort order from Aggregation
