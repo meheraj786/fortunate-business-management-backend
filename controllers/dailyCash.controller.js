@@ -964,6 +964,8 @@ async function addExpense(req, res, next) {
       "Office Expense",
       "Transport",
       "Utility",
+      "Jakat",
+      "Self",
       "Others",
     ];
     if (!expenseCategories.includes(category))
