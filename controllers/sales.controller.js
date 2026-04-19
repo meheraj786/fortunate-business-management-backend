@@ -23,7 +23,7 @@ async function createSale(req, res, next) {
   session.startTransaction();
   try {
     // Generate saleId using service
-    const newSaleId = await SalesService.generateSaleId();
+    const newSaleId = await SalesService.generateSaleId(session);
     req.body.saleId = newSaleId;
 
     const {

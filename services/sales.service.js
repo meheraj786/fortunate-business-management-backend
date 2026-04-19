@@ -20,7 +20,7 @@ const Counter = require("../models/counter.model");
  * Generates a new sequential Sale ID (e.g., SALE-24-000001)
  * Uses a persistent Counter model to ensure IDs are never reused, even if sales are deleted.
  */
-exports.generateSaleId = async () => {
+exports.generateSaleId = async (session) => {
   // Use the business timezone to determine the current year, ensuring ID sequences align with the business day.
   // This prevents "future" IDs (e.g. 2025 IDs in 2024) if the server is behind, or vice versa.
   const currentYearStr = formatInTimeZone(new Date(), "yyyy", DEFAULT_TIMEZONE);
@@ -33,7 +33,7 @@ exports.generateSaleId = async () => {
   let counter = await Counter.findByIdAndUpdate(
     counterId,
     { $inc: { seq: 1 } },
-    { new: true, upsert: true }
+    { new: true, upsert: true, session }
   );
 
   // 2. SELF-HEALING / INITIALIZATION CHECK
@@ -42,7 +42,7 @@ exports.generateSaleId = async () => {
   if (counter.seq === 1) {
     const lastSale = await Sales.findOne({
       saleId: new RegExp(`^SALE-${shortYear}-`, "i"),
-    }).sort({ saleId: -1 });
+    }).sort({ saleId: -1 }).session(session);
 
     let maxLegacyId = 0;
     if (lastSale && lastSale.saleId) {
@@ -59,7 +59,7 @@ exports.generateSaleId = async () => {
       counter = await Counter.findByIdAndUpdate(
         counterId,
         { $set: { seq: maxLegacyId + 1 } },
-        { new: true }
+        { new: true, session }
       );
     }
   }
