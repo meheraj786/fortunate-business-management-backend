@@ -1288,13 +1288,27 @@ async function deleteSale(req, res, next) {
   }
 }
 
-async function getSalesSummary(_, res, next) {
+async function getSalesSummary(req, res, next) {
   try {
+    const initialMatch = { isDeleted: { $ne: true } };
+
+    if (req.user && req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN") {
+      const allowedWarehouses = req.user.warehouse?.map(id => new mongoose.Types.ObjectId(id)) || [];
+      if (req.query.warehouseId) {
+        if (!req.user.warehouse?.map(String).includes(String(req.query.warehouseId))) {
+          return res.status(403).json({ success: false, message: "Access denied to this warehouse" });
+        }
+        initialMatch.warehouse = new mongoose.Types.ObjectId(req.query.warehouseId);
+      } else {
+        initialMatch.warehouse = { $in: allowedWarehouses };
+      }
+    } else if (req.query.warehouseId) {
+      initialMatch.warehouse = new mongoose.Types.ObjectId(req.query.warehouseId);
+    }
+
     const summary = await Sales.aggregate([
       {
-        $match: {
-          isDeleted: { $ne: true },
-        },
+        $match: initialMatch,
       },
       {
         $group: {
@@ -1397,11 +1411,25 @@ async function getSalesSummary(_, res, next) {
 // get all sales invoices count in respose - suppose, total not invoiced sales (2), total paid {paid invoices are those, those's payment is completed} invoices sales (5)
 async function getAll_invoices_status_count(req, res, next) {
   try {
+    const initialMatch = { isDeleted: { $ne: true } };
+
+    if (req.user && req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN") {
+      const allowedWarehouses = req.user.warehouse?.map(id => new mongoose.Types.ObjectId(id)) || [];
+      if (req.query.warehouseId) {
+        if (!req.user.warehouse?.map(String).includes(String(req.query.warehouseId))) {
+          return res.status(403).json({ success: false, message: "Access denied to this warehouse" });
+        }
+        initialMatch.warehouse = new mongoose.Types.ObjectId(req.query.warehouseId);
+      } else {
+        initialMatch.warehouse = { $in: allowedWarehouses };
+      }
+    } else if (req.query.warehouseId) {
+      initialMatch.warehouse = new mongoose.Types.ObjectId(req.query.warehouseId);
+    }
+
     const stats = await Sales.aggregate([
       {
-        $match: {
-          isDeleted: { $ne: true },
-        },
+        $match: initialMatch,
       },
       {
         $group: {
