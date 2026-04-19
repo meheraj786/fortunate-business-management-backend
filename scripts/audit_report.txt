@@ -1,0 +1,1078 @@
+=== DETAILED TRANSACTION AUDIT (READ-ONLY) ===
+Generated at: 2026-04-19T21:46:54.328Z
+
+Connected to production DB.
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Sun Mar 29 2026
+   Opening Balance: 0
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🟢 IN  |     +6,400,000 |      6,400,000 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   2    | 🟢 IN  |    +24,210,000 |     30,610,000 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   3    | 🟢 IN  |     +6,305,500 |     36,915,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   4    | 🟢 IN  |    +16,793,000 |     53,708,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   5    | 🟢 IN  |     +4,580,000 |     58,288,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   6    | 🟢 IN  |    +17,160,000 |     75,448,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   7    | 🟢 IN  |     +6,550,000 |     81,998,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   8    | 🟢 IN  |    +29,490,000 |    111,488,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   9    | 🟢 IN  |    +18,638,000 |    130,126,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   10   | 🟢 IN  |     +9,877,000 |    140,003,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   11   | 🟢 IN  |     +6,150,000 |    146,153,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   12   | 🟢 IN  |    +13,297,000 |    159,450,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   13   | 🟢 IN  |     +9,800,000 |    169,250,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   14   | 🟢 IN  |     +1,000,000 |    170,250,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   15   | 🟢 IN  |     +6,000,000 |    176,250,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   16   | 🟢 IN  |    +10,100,000 |    186,350,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   17   | 🟢 IN  |     +2,000,000 |    188,350,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   18   | 🟢 IN  |    +10,000,000 |    198,350,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   19   | 🟢 IN  |     +7,000,000 |    205,350,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   20   | 🟢 IN  |     +1,380,000 |    206,730,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   21   | 🟢 IN  |     +2,000,000 |    208,730,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 21 transactions | Income: +208,730,500 | Expense: -0
+   Closing Balance: 208,730,500 | Stored: 208,730,500 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Mon Mar 30 2026
+   Opening Balance: 208730500
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🔴 OUT |       -235,000 |    208,495,500 | Cash     | Auto     | LC                     | LC Cost: Margin(07/12/25)
+   2    | 🔴 OUT |       -700,000 |    207,795,500 | Cash     | Auto     | LC                     | LC Cost: Duty
+   3    | 🔴 OUT |       -980,000 |    206,815,500 | Cash     | Auto     | LC                     | LC Cost: Doc
+   4    | 🟢 IN  |       +800,000 |    207,615,500 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   5    | 🔴 OUT |     -1,344,940 |    206,270,560 | Cash     | Auto     | LC                     | LC Cost: MARGIN+OPENING+INSURANCE
+   6    | 🔴 OUT |       -904,531 |    205,366,029 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   7    | 🔴 OUT |       -990,500 |    204,375,529 | Cash     | Auto     | LC                     | LC Cost: Remit
+   8    | 🔴 OUT |       -117,800 |    204,257,729 | Cash     | Auto     | LC                     | LC Cost: Remit
+   9    | 🔴 OUT |     -1,091,465 |    203,166,264 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   10   | 🔴 OUT |     -4,316,271 |    198,849,993 | Cash     | Auto     | LC                     | LC Cost: Doc
+   11   | 🔴 OUT |     -1,554,900 |    197,295,093 | Cash     | Auto     | LC                     | LC Cost: Remit
+   12   | 🔴 OUT |       -851,639 |    196,443,454 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   13   | 🔴 OUT |     -1,827,250 |    194,616,204 | Cash     | Auto     | LC                     | LC Cost: Remit
+   14   | 🔴 OUT |       -965,442 |    193,650,762 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   15   | 🔴 OUT |       -856,035 |    192,794,727 | Cash     | Auto     | LC                     | LC Cost: Remit
+   16   | 🔴 OUT |     -3,043,803 |    189,750,924 | Cash     | Auto     | LC                     | LC Cost: Doc-Margin
+   17   | 🔴 OUT |            -65 |    189,750,859 | Cash     | Auto     | LC                     | LC Cost: Remit
+   18   | 🔴 OUT |     -1,081,579 |    188,669,280 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   19   | 🔴 OUT |       -319,660 |    188,349,620 | Cash     | Auto     | LC                     | LC Cost: Remit
+   20   | 🔴 OUT |     -1,204,768 |    187,144,852 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   21   | 🔴 OUT |       -339,000 |    186,805,852 | Cash     | Auto     | LC                     | LC Cost: Remit
+   22   | 🔴 OUT |        -66,100 |    186,739,752 | Cash     | Auto     | LC                     | LC Cost: Remit
+   23   | 🔴 OUT |     -1,148,689 |    185,591,063 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   24   | 🔴 OUT |     -4,208,000 |    181,383,063 | Cash     | Auto     | LC                     | LC Cost: Doc
+   25   | 🔴 OUT |     -1,244,000 |    180,139,063 | Cash     | Auto     | LC                     | LC Cost: Remit
+   26   | 🔴 OUT |       -570,800 |    179,568,263 | Cash     | Auto     | LC                     | LC Cost: Remit
+   27   | 🔴 OUT |     -2,500,000 |    177,068,263 | Cash     | Auto     | LC                     | LC Cost: Duty
+   28   | 🔴 OUT |     -1,295,198 |    175,773,065 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   29   | 🔴 OUT |     -5,597,966 |    170,175,099 | Cash     | Auto     | LC                     | LC Cost: Doc
+   30   | 🔴 OUT |     -3,931,900 |    166,243,199 | Cash     | Auto     | LC                     | LC Cost: Remit
+   31   | 🔴 OUT |       -197,998 |    166,045,201 | Cash     | Auto     | LC                     | LC Cost: Remit
+   32   | 🔴 OUT |       -695,362 |    165,349,839 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   33   | 🔴 OUT |       -718,500 |    164,631,339 | Cash     | Auto     | LC                     | LC Cost: Remit
+   34   | 🔴 OUT |     -2,106,067 |    162,525,272 | Cash     | Auto     | LC                     | LC Cost: Doc
+   35   | 🔴 OUT |     -1,300,000 |    161,225,272 | Cash     | Auto     | LC                     | LC Cost: Duty
+   36   | 🔴 OUT |     -1,057,227 |    160,168,045 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   37   | 🔴 OUT |       -680,500 |    159,487,545 | Cash     | Auto     | LC                     | LC Cost: Remit
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 37 transactions | Income: +800,000 | Expense: -50,042,955
+   Closing Balance: 159,487,545 | Stored: 159,487,545 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Tue Mar 31 2026
+   Opening Balance: 159487545
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🔴 OUT |       -831,757 |    158,655,788 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   2    | 🔴 OUT |     -1,514,400 |    157,141,388 | Cash     | Auto     | LC                     | LC Cost: Remit
+   3    | 🔴 OUT |     -2,105,509 |    155,035,879 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   4    | 🔴 OUT |       -787,799 |    154,248,080 | Cash     | Auto     | LC                     | LC Cost: Remit
+   5    | 🔴 OUT |             -1 |    154,248,079 | Cash     | Auto     | LC                     | LC Cost: Remit
+   6    | 🔴 OUT |     -1,498,473 |    152,749,606 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   7    | 🔴 OUT |       -606,400 |    152,143,206 | Cash     | Auto     | LC                     | LC Cost: Remit
+   8    | 🔴 OUT |       -808,757 |    151,334,449 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   9    | 🔴 OUT |     -1,258,000 |    150,076,449 | Cash     | Auto     | LC                     | LC Cost: Remit
+   10   | 🔴 OUT |     -1,226,730 |    148,849,719 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   11   | 🔴 OUT |     -1,501,269 |    147,348,450 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   12   | 🔴 OUT |     -1,603,900 |    145,744,550 | Cash     | Auto     | LC                     | LC Cost: Remit
+   13   | 🔴 OUT |        -23,600 |    145,720,950 | Cash     | Auto     | LC                     | LC Cost: Remit
+   14   | 🔴 OUT |     -6,478,912 |    139,242,038 | Cash     | Auto     | LC                     | LC Cost: Doc (Total Value - Margin)
+   15   | 🔴 OUT |     -1,885,539 |    137,356,499 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   16   | 🔴 OUT |       -735,700 |    136,620,799 | Cash     | Auto     | LC                     | LC Cost: Remit+30
+   17   | 🔴 OUT |       -961,555 |    135,659,244 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   18   | 🔴 OUT |     -1,015,400 |    134,643,844 | Cash     | Auto     | LC                     | LC Cost: Remit
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 18 transactions | Income: +0 | Expense: -24,843,701
+   Closing Balance: 134,643,844 | Stored: 134,643,844 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Wed Apr 01 2026
+   Opening Balance: 134643844
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🔴 OUT |       -961,555 |    133,682,289 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   2    | 🔴 OUT |       -533,500 |    133,148,789 | Cash     | Auto     | LC                     | LC Cost: Remit
+   3    | 🔴 OUT |     -1,057,229 |    132,091,560 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   4    | 🔴 OUT |       -909,200 |    131,182,360 | Cash     | Auto     | LC                     | LC Cost: Remit
+   5    | 🔴 OUT |     -1,365,422 |    129,816,938 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   6    | 🔴 OUT |     -1,208,000 |    128,608,938 | Cash     | Auto     | LC                     | LC Cost: Remit
+   7    | 🔴 OUT |     -2,412,366 |    126,196,572 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   8    | 🔴 OUT |     -1,061,500 |    125,135,072 | Cash     | Auto     | LC                     | LC Cost: Remit
+   9    | 🔴 OUT |     -1,208,889 |    123,926,183 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   10   | 🔴 OUT |       -665,300 |    123,260,883 | Cash     | Auto     | LC                     | LC Cost: Remit
+   11   | 🔴 OUT |       -557,319 |    122,703,564 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   12   | 🔴 OUT |        -66,500 |    122,637,064 | Cash     | Auto     | LC                     | LC Cost: Remit
+   13   | 🔴 OUT |     -1,434,471 |    121,202,593 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   14   | 🔴 OUT |       -967,500 |    120,235,093 | Cash     | Auto     | LC                     | LC Cost: Remit+20$
+   15   | 🔴 OUT |        -83,500 |    120,151,593 | Cash     | Auto     | LC                     | LC Cost: Remit
+   16   | 🔴 OUT |     -2,694,036 |    117,457,557 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   17   | 🔴 OUT |     -1,991,508 |    115,466,049 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   18   | 🔴 OUT |     -1,706,600 |    113,759,449 | Cash     | Auto     | LC                     | LC Cost: Remit
+   19   | 🔴 OUT |     -1,315,889 |    112,443,560 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   20   | 🔴 OUT |     -2,202,700 |    110,240,860 | Cash     | Auto     | LC                     | LC Cost: Remit
+   21   | 🔴 OUT |     -1,038,495 |    109,202,365 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   22   | 🔴 OUT |       -871,000 |    108,331,365 | Cash     | Auto     | LC                     | LC Cost: Remit
+   23   | 🔴 OUT |     -1,794,400 |    106,536,965 | Cash     | Auto     | LC                     | LC Cost: Remit
+   24   | 🔴 OUT |     -2,376,149 |    104,160,816 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   25   | 🔴 OUT |     -1,188,675 |    102,972,141 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   26   | 🔴 OUT |     -1,107,900 |    101,864,241 | Cash     | Auto     | LC                     | LC Cost: Remit
+   27   | 🔴 OUT |     -2,448,434 |     99,415,807 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   28   | 🔴 OUT |     -2,477,300 |     96,938,507 | Cash     | Auto     | LC                     | LC Cost: Remit
+   29   | 🔴 OUT |       -497,343 |     96,441,164 | Cash     | Auto     | LC                     | LC Cost: Margin
+   30   | 🔴 OUT |     -1,153,800 |     95,287,364 | Cash     | Auto     | LC                     | LC Cost: Remit
+   31   | 🔴 OUT |     -3,010,062 |     92,277,302 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin
+   32   | 🔴 OUT |       -815,222 |     91,462,080 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   33   | 🔴 OUT |       -625,000 |     90,837,080 | Cash     | Auto     | LC                     | LC Cost: Remit
+   34   | 🔴 OUT |     -1,217,449 |     89,619,631 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   35   | 🔴 OUT |     -1,260,000 |     88,359,631 | Cash     | Auto     | LC                     | LC Cost: Remit
+   36   | 🔴 OUT |     -1,191,089 |     87,168,542 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   37   | 🔴 OUT |       -917,600 |     86,250,942 | Cash     | Auto     | LC                     | LC Cost: Remit
+   38   | 🔴 OUT |     -2,303,104 |     83,947,838 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin
+   39   | 🔴 OUT |     -1,800,700 |     82,147,138 | Cash     | Auto     | LC                     | LC Cost: Remit
+   40   | 🔴 OUT |     -1,161,461 |     80,985,677 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin
+   41   | 🔴 OUT |     -2,383,876 |     78,601,801 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin
+   42   | 🔴 OUT |       -629,750 |     77,972,051 | Cash     | Auto     | LC                     | LC Cost: Remit
+   43   | 🔴 OUT |       -629,750 |     77,342,301 | Cash     | Auto     | LC                     | LC Cost: Remit
+   44   | 🔴 OUT |     -1,181,102 |     76,161,199 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   45   | 🔴 OUT |     -2,314,500 |     73,846,699 | Cash     | Auto     | LC                     | LC Cost: Remit
+   46   | 🔴 OUT |     -1,190,179 |     72,656,520 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin
+   47   | 🔴 OUT |       -394,100 |     72,262,420 | Cash     | Auto     | LC                     | LC Cost: Remit+30$
+   48   | 🔴 OUT |        -23,000 |     72,239,420 | Cash     | Auto     | LC                     | LC Cost: Processing Fee
+   49   | 🔴 OUT |     -1,280,195 |     70,959,225 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin
+   50   | 🔴 OUT |     -2,182,200 |     68,777,025 | Cash     | Auto     | LC                     | LC Cost: Remit
+   51   | 🔴 OUT |     -1,039,753 |     67,737,272 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   52   | 🔴 OUT |     -1,734,213 |     66,003,059 | Cash     | Auto     | LC                     | LC Cost: Opening+Margin+Insurance
+   53   | 🟢 IN  |     +1,325,000 |     67,328,059 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   54   | 🟢 IN  |     +1,500,000 |     68,828,059 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   55   | 🟢 IN  |    +29,620,000 |     98,448,059 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 55 transactions | Income: +32,445,000 | Expense: -68,640,785
+   Closing Balance: 98,448,059 | Stored: 98,448,059 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Sat Apr 04 2026
+   Opening Balance: 98448059
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 0 transactions | Income: +0 | Expense: -0
+   Closing Balance: 98,448,059 | Stored: 98,448,059 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Sun Apr 05 2026
+   Opening Balance: 98448059
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🔴 OUT |     -1,000,000 |     97,448,059 | Cash     | Auto     | Advance Payment        | Advance Payment: Imran Vai MTB
+   2    | 🔴 OUT |        -10,000 |     97,438,059 | Cash     | Auto     | Advance Payment        | Advance Payment: Kalam Vai
+   3    | 🔴 OUT |       -100,000 |     97,338,059 | Cash     | Auto     | Advance Payment        | Advance Payment: Hasan
+   4    | 🔴 OUT |       -300,000 |     97,038,059 | Cash     | Auto     | Advance Payment        | Advance Payment: Zia Steel
+   5    | 🔴 OUT |       -200,000 |     96,838,059 | Cash     | Auto     | Advance Payment        | Advance Payment: Soieb Vai Kalaiya
+   6    | 🔴 OUT |        -50,000 |     96,788,059 | Cash     | Auto     | Advance Payment        | Advance Payment: Bappi
+   7    | 🔴 OUT |       -140,000 |     96,648,059 | Cash     | Auto     | Advance Payment        | Advance Payment: Sazzad Vai
+   8    | 🔴 OUT |       -130,000 |     96,518,059 | Cash     | Auto     | Advance Payment        | Advance Payment: Rafiq Pyada
+   9    | 🔴 OUT |        -50,000 |     96,468,059 | Cash     | Auto     | Advance Payment        | Advance Payment: Nannu Kazi Paribahan
+   10   | 🔴 OUT |       -825,800 |     95,642,259 | Cash     | Auto     | Advance Payment        | Advance Payment: Sohid Mawlana
+   11   | 🔴 OUT |        -15,000 |     95,627,259 | Cash     | Auto     | Advance Payment        | Advance Payment: Parvez
+   12   | 🔴 OUT |        -50,000 |     95,577,259 | Cash     | Auto     | Advance Payment        | Advance Payment: PBL Manager
+   13   | 🔴 OUT |        -50,000 |     95,527,259 | Cash     | Auto     | Advance Payment        | Advance Payment: Helal Munshi
+   14   | 🔴 OUT |       -400,000 |     95,127,259 | Cash     | Auto     | Advance Payment        | Advance Payment: Alkas Mollah
+   15   | 🔴 OUT |        -50,000 |     95,077,259 | Cash     | Auto     | Advance Payment        | Advance Payment: Opu vai UBL
+   16   | 🔴 OUT |       -300,000 |     94,777,259 | Cash     | Auto     | Advance Payment        | Advance Payment: Kamal Dhandi
+   17   | 🔴 OUT |       -300,000 |     94,477,259 | Cash     | Auto     | Advance Payment        | Advance Payment: Kalam Mama
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 17 transactions | Income: +0 | Expense: -3,970,800
+   Closing Balance: 94,477,259 | Stored: 94,477,259 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Mon Apr 06 2026
+   Opening Balance: 94477259
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🔴 OUT |       -150,000 |     94,327,259 | Cash     | Manual   | Others                 | Donation
+   2    | 🔴 OUT |         -5,300 |     94,321,959 | Cash     | Manual   | Transport              | Bike Servicing
+   3    | 🔴 OUT |       -100,000 |     94,221,959 | Cash     | Manual   | Others                 | Eid
+   4    | 🔴 OUT |         -4,130 |     94,217,829 | Cash     | Manual   | Office Expense         | Shop
+   5    | 🔴 OUT |         -1,500 |     94,216,329 | Cash     | Manual   | Transport              | Bike
+   6    | 🔴 OUT |       -100,000 |     94,116,329 | Cash     | Manual   | Others                 | Jakath
+   7    | 🟢 IN  |       +200,000 |     94,316,329 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   8    | 🟢 IN  |        +10,000 |     94,326,329 | Cash     | Auto     | Advance Payment        | Advance Refund: Parvez
+   9    | 🔴 OUT |         -7,000 |     94,319,329 | Cash     | Manual   | Others                 | Labour Bill
+   10   | 🟢 IN  |       +500,000 |     94,819,329 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   11   | 🔴 OUT |       -500,000 |     94,319,329 | Cash     | Manual   | Others                 | Jakath
+   12   | 🟢 IN  |     +3,250,000 |     97,569,329 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   13   | 🔴 OUT |     -3,250,000 |     94,319,329 | Cash     | Auto     | LC                     | LC Cost: Duty
+   14   | 🟢 IN  |     +4,400,000 |     98,719,329 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   15   | 🔴 OUT |     -2,300,000 |     96,419,329 | Cash     | Auto     | LC                     | LC Cost: Duty
+   16   | 🔴 OUT |     -2,100,000 |     94,319,329 | Cash     | Auto     | LC                     | LC Cost: Duty
+   17   | 🟢 IN  |       +800,000 |     95,119,329 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   18   | 🟢 IN  |       +300,000 |     95,419,329 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   19   | 🟢 IN  |     +7,400,000 |    102,819,329 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   20   | 🟢 IN  |       +198,000 |    103,017,329 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   21   | 🟢 IN  |       +400,000 |    103,417,329 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   22   | 🔴 OUT |       -200,000 |    103,217,329 | Cash     | Manual   | Transfer Out           | Transfer to Humayun Kabir
+   23   | 🔴 OUT |       -250,000 |    102,967,329 | Cash     | Manual   | Others                 | Jakath
+   24   | 🔴 OUT |       -160,000 |    102,807,329 | Cash     | Manual   | Others                 | Self Expenses
+   25   | 🟢 IN  |         +6,900 |    102,814,229 | Cash     | Auto     | Sales                  | Sales Payment
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 25 transactions | Income: +17,464,900 | Expense: -9,127,930
+   Closing Balance: 102,814,229 | Stored: 102,814,229 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Tue Apr 07 2026
+   Opening Balance: 102814229
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🟢 IN  |       +423,000 |    103,237,229 | Cash     | Auto     | Sales                  | Sales Payment
+   2    | 🟢 IN  |       +159,500 |    103,396,729 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   3    | 🟢 IN  |     +2,703,900 |    106,100,629 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   4    | 🟢 IN  |       +300,000 |    106,400,629 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   5    | 🔴 OUT |       -300,000 |    106,100,629 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   6    | 🟢 IN  |     +2,527,948 |    108,628,577 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   7    | 🔴 OUT |     -1,610,000 |    107,018,577 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   8    | 🟢 IN  |        +50,000 |    107,068,577 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   9    | 🔴 OUT |       -417,200 |    106,651,377 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   10   | 🟢 IN  |       +367,200 |    107,018,577 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   11   | 🔴 OUT |     -1,000,000 |    106,018,577 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   12   | 🟢 IN  |       +700,000 |    106,718,577 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   13   | 🔴 OUT |        -96,800 |    106,621,777 | Cash     | Manual   | Transport              | BORAK
+   14   | 🔴 OUT |     -2,000,000 |    104,621,777 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading Ltd.
+   15   | 🔴 OUT |     -2,215,200 |    102,406,577 | Cash     | Auto     | LC                     | LC Cost: rEMIT
+   16   | 🔴 OUT |       -488,700 |    101,917,877 | Cash     | Auto     | LC                     | LC Cost: Remit
+   17   | 🔴 OUT |     -3,300,100 |     98,617,777 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading Ltd.
+   18   | 🔴 OUT |     -2,527,948 |     96,089,829 | Cash     | Auto     | LC                     | LC Cost: Duty
+   19   | 🟢 IN  |     +2,000,000 |     98,089,829 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   20   | 🔴 OUT |       -200,000 |     97,889,829 | Cash     | Auto     | LC                     | LC Cost: Duty Cash
+   21   | 🔴 OUT |     -1,945,500 |     95,944,329 | Cash     | Auto     | LC                     | LC Cost: Remit
+   22   | 🔴 OUT |     -1,945,500 |     93,998,829 | Cash     | Auto     | LC                     | LC Cost: Remit
+   23   | 🔴 OUT |         -6,500 |     93,992,329 | Cash     | Manual   | Others                 | Rice Seed
+   24   | 🔴 OUT |        -19,500 |     93,972,829 | Cash     | Manual   | Office Expense         | Unloading
+   25   | 🔴 OUT |         -4,500 |     93,968,329 | Cash     | Manual   | Office Expense         | Memo Bill
+   26   | 🔴 OUT |         -6,330 |     93,961,999 | Cash     | Manual   | Office Expense         | Nasta
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 26 transactions | Income: +9,231,548 | Expense: -18,083,778
+   Closing Balance: 93,961,999 | Stored: 93,961,999 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Wed Apr 08 2026
+   Opening Balance: 93961999
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🟢 IN  |       +250,000 |     94,211,999 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   2    | 🟢 IN  |       +300,000 |     94,511,999 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   3    | 🟢 IN  |       +412,500 |     94,924,499 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   4    | 🟢 IN  |       +187,500 |     95,111,999 | Cash     | Auto     | Sales                  | Sales Payment
+   5    | 🟢 IN  |       +330,000 |     95,441,999 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   6    | 🟢 IN  |       +457,000 |     95,898,999 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   7    | 🟢 IN  |       +200,000 |     96,098,999 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   8    | 🟢 IN  |       +145,000 |     96,243,999 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   9    | 🟢 IN  |     +8,900,000 |    105,143,999 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   10   | 🟢 IN  |     +1,860,000 |    107,003,999 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   11   | 🟢 IN  |     +1,300,000 |    108,303,999 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   12   | 🟢 IN  |     +7,000,000 |    115,303,999 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   13   | 🟢 IN  |     +3,000,000 |    118,303,999 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   14   | 🟢 IN  |     +3,000,000 |    121,303,999 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   15   | 🟢 IN  |       +136,000 |    121,439,999 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   16   | 🔴 OUT |     -1,800,000 |    119,639,999 | Cash     | Manual   | Transfer Out           | Transfer to Steel Kingdom
+   17   | 🔴 OUT |     -1,200,000 |    118,439,999 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   18   | 🔴 OUT |     -1,000,000 |    117,439,999 | Cash     | Manual   | Transfer Out           | Transfer to Fortunate Trade Land
+   19   | 🔴 OUT |       -100,000 |    117,339,999 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   20   | 🔴 OUT |     -8,900,000 |    108,439,999 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   21   | 🔴 OUT |       -100,000 |    108,339,999 | Cash     | Manual   | Others                 | Jakath
+   22   | 🔴 OUT |       -140,000 |    108,199,999 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   23   | 🔴 OUT |        -23,700 |    108,176,299 | Cash     | Manual   | Others                 | Konakhola Shed
+   24   | 🔴 OUT |       -580,000 |    107,596,299 | Cash     | Manual   | Office Expense         | Lc-189 Miss
+   25   | 🔴 OUT |       -380,000 |    107,216,299 | Cash     | Auto     | LC                     | LC Cost: Miss
+   26   | 🔴 OUT |       -380,000 |    106,836,299 | Cash     | Auto     | LC                     | LC Cost: Miss
+   27   | 🔴 OUT |       -700,000 |    106,136,299 | Cash     | Auto     | LC                     | LC Cost: Miss
+   28   | 🔴 OUT |       -100,000 |    106,036,299 | Cash     | Manual   | Others                 | Jakath
+   29   | 🔴 OUT |        -14,600 |    106,021,699 | Cash     | Manual   | Office Expense         | Memo Bill
+   30   | 🔴 OUT |         -1,500 |    106,020,199 | Cash     | Manual   | Office Expense         | Shop Expense
+   31   | 🟢 IN  |       +500,000 |    106,520,199 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   32   | 🟢 IN  |       +400,000 |    106,920,199 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   33   | 🟢 IN  |     +1,000,000 |    107,920,199 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   34   | 🟢 IN  |       +350,000 |    108,270,199 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   35   | 🟢 IN  |       +500,000 |    108,770,199 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   36   | 🟢 IN  |       +200,000 |    108,970,199 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   37   | 🟢 IN  |     +5,000,000 |    113,970,199 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   38   | 🟢 IN  |       +300,000 |    114,270,199 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   39   | 🟢 IN  |       +500,000 |    114,770,199 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   40   | 🟢 IN  |     +1,500,000 |    116,270,199 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   41   | 🟢 IN  |       +200,000 |    116,470,199 | Cash     | Auto     | Advance Payment        | Advance Refund: Soieb Vai Kalaiya
+   42   | 🟢 IN  |     +7,125,000 |    123,595,199 | Cash     | Manual   | Transfer In            | Transfer from Pay Order
+   43   | 🟢 IN  |       +500,000 |    124,095,199 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   44   | 🟢 IN  |       +217,200 |    124,312,399 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   45   | 🔴 OUT |     -5,050,000 |    119,262,399 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   46   | 🔴 OUT |       -300,000 |    118,962,399 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   47   | 🔴 OUT |     -6,400,000 |    112,562,399 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   48   | 🔴 OUT |     -2,000,000 |    110,562,399 | Cash     | Auto     | LC                     | LC Cost: Duty
+   49   | 🔴 OUT |     -1,300,000 |    109,262,399 | Cash     | Auto     | LC                     | LC Cost: Duty
+   50   | 🔴 OUT |     -1,300,000 |    107,962,399 | Cash     | Auto     | LC                     | LC Cost: Duty
+   51   | 🔴 OUT |     -1,950,000 |    106,012,399 | Cash     | Auto     | LC                     | LC Cost: Duty
+   52   | 🔴 OUT |     -1,350,000 |    104,662,399 | Cash     | Manual   | LC                     | Duty
+   53   | 🔴 OUT |     -1,300,000 |    103,362,399 | Cash     | Manual   | LC                     | Duty
+   54   | 🔴 OUT |     -2,600,000 |    100,762,399 | Cash     | Manual   | LC                     | Duty
+   55   | 🔴 OUT |     -2,650,000 |     98,112,399 | Cash     | Manual   | LC                     | Duty
+   56   | 🔴 OUT |     -3,830,000 |     94,282,399 | Cash     | Manual   | LC                     | Duty
+   57   | 🔴 OUT |       -150,500 |     94,131,899 | Cash     | Manual   | Others                 | Konakhola Shed
+   58   | 🔴 OUT |       -200,000 |     93,931,899 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   59   | 🔴 OUT |       -183,000 |     93,748,899 | Cash     | Manual   | Transport              | Master Transport
+   60   | 🔴 OUT |         -5,050 |     93,743,849 | Cash     | Manual   | Office Expense         | Transport
+   61   | 🔴 OUT |       -167,600 |     93,576,249 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   62   | 🔴 OUT |        -30,000 |     93,546,249 | Cash     | Manual   | Salary                 | Gofur Vai
+   63   | 🔴 OUT |        -19,600 |     93,526,649 | Cash     | Manual   | Office Expense         | Unloading GM
+   64   | 🔴 OUT |         -5,000 |     93,521,649 | Cash     | Manual   | Others                 | Jakath
+   65   | 🔴 OUT |         -6,300 |     93,515,349 | Cash     | Manual   | Office Expense         | Unloading
+   66   | 🔴 OUT |         -5,050 |     93,510,299 | Cash     | Manual   | Office Expense         | Memo Bill
+   67   | 🔴 OUT |           -900 |     93,509,399 | Cash     | Manual   | Office Expense         | Shop Expense
+   68   | 🔴 OUT |    -88,192,977 |      5,316,422 | Cash     | Manual   | Others                 | Cash Adjustment
+   69   | 🟢 IN  |       +100,000 |      5,416,422 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   70   | 🟢 IN  |       +200,000 |      5,616,422 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   71   | 🟢 IN  |     +4,000,000 |      9,616,422 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   72   | 🟢 IN  |       +400,000 |     10,016,422 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   73   | 🟢 IN  |       +200,000 |     10,216,422 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   74   | 🟢 IN  |       +600,000 |     10,816,422 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   75   | 🟢 IN  |       +500,000 |     11,316,422 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   76   | 🟢 IN  |       +500,000 |     11,816,422 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   77   | 🟢 IN  |     +1,500,000 |     13,316,422 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   78   | 🟢 IN  |       +300,000 |     13,616,422 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   79   | 🟢 IN  |     +7,000,000 |     20,616,422 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   80   | 🟢 IN  |     +3,000,000 |     23,616,422 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   81   | 🔴 OUT |     -2,000,000 |     21,616,422 | Cash     | Manual   | Transfer Out           | Transfer to Fortunate Trade Land
+   82   | 🔴 OUT |     -2,000,000 |     19,616,422 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   83   | 🔴 OUT |        -70,000 |     19,546,422 | Cash     | Manual   | Others                 | Jakath
+   84   | 🔴 OUT |     -2,200,100 |     17,346,322 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading Ltd.
+   85   | 🔴 OUT |     -8,000,000 |      9,346,322 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   86   | 🔴 OUT |     -3,500,000 |      5,846,322 | Cash     | Auto     | LC                     | LC Cost: Remit
+   87   | 🔴 OUT |       -530,000 |      5,316,322 | Cash     | Auto     | LC                     | LC Cost: Remit
+   88   | 🔴 OUT |       -200,000 |      5,116,322 | Cash     | Manual   | Others                 | Jakath
+   89   | 🔴 OUT |         -3,200 |      5,113,122 | Cash     | Manual   | Office Expense         | Memo Bill
+   90   | 🟢 IN  |        +18,100 |      5,131,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   91   | 🟢 IN  |        +50,000 |      5,181,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   92   | 🟢 IN  |       +500,000 |      5,681,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   93   | 🟢 IN  |       +500,000 |      6,181,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   94   | 🟢 IN  |       +100,000 |      6,281,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   95   | 🟢 IN  |       +150,000 |      6,431,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   96   | 🟢 IN  |       +100,000 |      6,531,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   97   | 🟢 IN  |     +1,000,000 |      7,531,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   98   | 🟢 IN  |       +200,000 |      7,731,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   99   | 🟢 IN  |       +200,000 |      7,931,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   100  | 🟢 IN  |     +1,200,000 |      9,131,222 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   101  | 🟢 IN  |     +6,000,000 |     15,131,222 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   102  | 🟢 IN  |        +10,300 |     15,141,522 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   103  | 🟢 IN  |       +100,000 |     15,241,522 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   104  | 🟢 IN  |       +200,000 |     15,441,522 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   105  | 🟢 IN  |        +57,000 |     15,498,522 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   106  | 🟢 IN  |        +50,000 |     15,548,522 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   107  | 🔴 OUT |         -1,000 |     15,547,522 | Cash     | Manual   | Office Expense         | Memo Bill
+   108  | 🔴 OUT |         -2,650 |     15,544,872 | Cash     | Manual   | Office Expense         | Shop Expense
+   109  | 🔴 OUT |           -900 |     15,543,972 | Cash     | Manual   | Office Expense         | Wifi Bill
+   110  | 🔴 OUT |       -113,000 |     15,430,972 | Cash     | Manual   | Rent                   | S B Math Bill
+   111  | 🔴 OUT |       -528,000 |     14,902,972 | Cash     | Auto     | LC                     | LC Cost: EPEC Commission
+   112  | 🔴 OUT |       -729,000 |     14,173,972 | Cash     | Auto     | LC                     | LC Cost: EPEC Commission
+   113  | 🔴 OUT |       -865,500 |     13,308,472 | Cash     | Auto     | LC                     | LC Cost: EPEC Commission
+   114  | 🔴 OUT |         -1,500 |     13,306,972 | Cash     | Manual   | Transport              | Truck Rent (Cow)
+   115  | 🟢 IN  |        +50,000 |     13,356,972 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   116  | 🟢 IN  |       +150,000 |     13,506,972 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   117  | 🟢 IN  |       +443,600 |     13,950,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   118  | 🟢 IN  |       +100,000 |     14,050,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   119  | 🟢 IN  |       +150,000 |     14,200,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   120  | 🟢 IN  |        +50,000 |     14,250,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   121  | 🟢 IN  |       +150,000 |     14,400,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   122  | 🟢 IN  |       +100,000 |     14,500,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   123  | 🟢 IN  |        +15,000 |     14,515,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   124  | 🟢 IN  |       +100,000 |     14,615,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   125  | 🟢 IN  |       +250,000 |     14,865,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   126  | 🟢 IN  |       +100,000 |     14,965,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   127  | 🟢 IN  |       +300,000 |     15,265,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   128  | 🟢 IN  |       +150,000 |     15,415,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   129  | 🔴 OUT |       -878,800 |     14,536,772 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   130  | 🔴 OUT |        -48,500 |     14,488,272 | Cash     | Manual   | Rent                   | Shop Rent GM
+   131  | 🔴 OUT |         -2,800 |     14,485,472 | Cash     | Manual   | Office Expense         | Electricity+Wifi GM
+   132  | 🔴 OUT |         -1,700 |     14,483,772 | Cash     | Manual   | Transport              | GM to Konakhola
+   133  | 🔴 OUT |         -1,000 |     14,482,772 | Cash     | Manual   | Office Expense         | GM Shop
+   134  | 🔴 OUT |       -213,000 |     14,269,772 | Cash     | Manual   | Others                 | Jakath
+   135  | 🔴 OUT |     -3,000,000 |     11,269,772 | Cash     | Auto     | LC                     | LC Cost: Duty
+   136  | 🔴 OUT |     -1,800,000 |      9,469,772 | Cash     | Manual   | LC                     | Duty
+   137  | 🔴 OUT |     -1,200,000 |      8,269,772 | Cash     | Manual   | LC                     | Duty
+   138  | 🟢 IN  |       +200,000 |      8,469,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   139  | 🟢 IN  |       +500,000 |      8,969,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   140  | 🟢 IN  |       +500,000 |      9,469,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   141  | 🟢 IN  |       +500,000 |      9,969,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   142  | 🟢 IN  |       +700,000 |     10,669,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   143  | 🟢 IN  |     +1,200,000 |     11,869,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   144  | 🟢 IN  |       +400,000 |     12,269,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   145  | 🟢 IN  |     +1,000,000 |     13,269,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   146  | 🟢 IN  |       +300,000 |     13,569,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   147  | 🟢 IN  |       +500,000 |     14,069,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   148  | 🟢 IN  |     +1,120,000 |     15,189,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   149  | 🟢 IN  |     +2,600,000 |     17,789,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   150  | 🟢 IN  |       +300,000 |     18,089,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   151  | 🟢 IN  |       +600,000 |     18,689,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   152  | 🟢 IN  |       +600,000 |     19,289,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   153  | 🟢 IN  |       +600,000 |     19,889,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   154  | 🟢 IN  |     +2,500,000 |     22,389,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   155  | 🟢 IN  |       +500,000 |     22,889,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   156  | 🟢 IN  |       +760,000 |     23,649,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   157  | 🟢 IN  |     +1,300,000 |     24,949,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   158  | 🟢 IN  |       +600,000 |     25,549,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   159  | 🔴 OUT |     -1,300,000 |     24,249,772 | Cash     | Manual   | Others                 | Parvez Jubaier Lc-14962
+   160  | 🟢 IN  |       +200,000 |     24,449,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   161  | 🟢 IN  |       +150,000 |     24,599,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   162  | 🟢 IN  |       +400,000 |     24,999,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   163  | 🟢 IN  |       +250,000 |     25,249,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   164  | 🟢 IN  |       +300,000 |     25,549,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   165  | 🟢 IN  |       +300,000 |     25,849,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   166  | 🟢 IN  |       +300,000 |     26,149,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   167  | 🟢 IN  |       +600,000 |     26,749,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   168  | 🟢 IN  |       +200,000 |     26,949,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   169  | 🔴 OUT |       -535,000 |     26,414,772 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   170  | 🔴 OUT |       -100,000 |     26,314,772 | Cash     | Manual   | Others                 | Jakath
+   171  | 🔴 OUT |     -7,500,000 |     18,814,772 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   172  | 🔴 OUT |     -4,019,500 |     14,795,272 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   173  | 🔴 OUT |     -5,000,000 |      9,795,272 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   174  | 🔴 OUT |     -3,767,000 |      6,028,272 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   175  | 🔴 OUT |       -150,000 |      5,878,272 | Cash     | Manual   | Transport              | Kazi Paribahan
+   176  | 🔴 OUT |       -600,000 |      5,278,272 | Cash     | Manual   | Customer Credit        | Credit Withdrawal / Refund
+   177  | 🟢 IN  |        +65,000 |      5,343,272 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   178  | 🟢 IN  |     +1,323,500 |      6,666,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   179  | 🟢 IN  |       +180,000 |      6,846,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   180  | 🟢 IN  |     +3,800,000 |     10,646,772 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   181  | 🟢 IN  |       +600,000 |     11,246,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   182  | 🟢 IN  |       +500,000 |     11,746,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   183  | 🟢 IN  |        +50,000 |     11,796,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   184  | 🟢 IN  |        +40,000 |     11,836,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   185  | 🟢 IN  |       +200,000 |     12,036,772 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   186  | 🟢 IN  |         +8,400 |     12,045,172 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   187  | 🔴 OUT |       -423,500 |     11,621,672 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   188  | 🔴 OUT |       -900,000 |     10,721,672 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   189  | 🔴 OUT |         -6,000 |     10,715,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   190  | 🔴 OUT |        -12,000 |     10,703,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   191  | 🔴 OUT |        -12,000 |     10,691,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   192  | 🔴 OUT |         -9,000 |     10,682,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   193  | 🔴 OUT |        -12,000 |     10,670,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   194  | 🔴 OUT |        -18,000 |     10,652,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   195  | 🔴 OUT |         -9,000 |     10,643,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   196  | 🔴 OUT |         -9,000 |     10,634,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   197  | 🔴 OUT |        -21,000 |     10,613,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   198  | 🔴 OUT |        -18,000 |     10,595,672 | Cash     | Auto     | LC                     | LC Cost: Uneven Container Charg
+   199  | 🔴 OUT |        -15,000 |     10,580,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   200  | 🔴 OUT |        -12,000 |     10,568,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   201  | 🔴 OUT |        -12,000 |     10,556,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   202  | 🔴 OUT |        -18,000 |     10,538,672 | Cash     | Auto     | LC                     | LC Cost: Uneven Container Charg
+   203  | 🔴 OUT |        -12,000 |     10,526,672 | Cash     | Auto     | LC                     | LC Cost: Container Charg
+   204  | 🔴 OUT |     -1,595,700 |      8,930,972 | Cash     | Auto     | LC                     | LC Cost: Remit
+   205  | 🔴 OUT |       -400,000 |      8,530,972 | Cash     | Manual   | Others                 | Prince Vai Lc-762
+   206  | 🔴 OUT |       -800,000 |      7,730,972 | Cash     | Manual   | Others                 | Prince Vai Lc-823+825
+   207  | 🔴 OUT |        -10,000 |      7,720,972 | Cash     | Manual   | Office Expense         | Rasel Engineering
+   208  | 🔴 OUT |        -19,000 |      7,701,972 | Cash     | Manual   | Salary                 | Imran
+   209  | 🔴 OUT |        -19,000 |      7,682,972 | Cash     | Manual   | Salary                 | Hanif
+   210  | 🔴 OUT |        -15,000 |      7,667,972 | Cash     | Manual   | Salary                 | Mithu
+   211  | 🔴 OUT |        -10,000 |      7,657,972 | Cash     | Manual   | Salary                 | Arafat
+   212  | 🔴 OUT |        -18,300 |      7,639,672 | Cash     | Manual   | Office Expense         | Unloading
+   213  | 🔴 OUT |        -21,000 |      7,618,672 | Cash     | Manual   | Salary                 | Nazrul
+   214  | 🔴 OUT |       -110,000 |      7,508,672 | Cash     | Manual   | Others                 | Home Expense
+   215  | 🔴 OUT |        -31,000 |      7,477,672 | Cash     | Manual   | Salary                 | Bappy
+   216  | 🔴 OUT |        -12,000 |      7,465,672 | Cash     | Manual   | Salary                 | Kaifi
+   217  | 🔴 OUT |        -16,000 |      7,449,672 | Cash     | Manual   | Salary                 | Parvez
+   218  | 🔴 OUT |        -10,000 |      7,439,672 | Cash     | Manual   | Salary                 | Mohibul
+   219  | 🔴 OUT |         -2,200 |      7,437,472 | Cash     | Manual   | Others                 | Nasta Bill
+   220  | 🔴 OUT |         -6,700 |      7,430,772 | Cash     | Manual   | Office Expense         | Iftar+ Shop Expense
+   221  | 🔴 OUT |         -1,300 |      7,429,472 | Cash     | Manual   | Office Expense         | Net Purchased Agro
+   222  | 🔴 OUT |         -2,600 |      7,426,872 | Cash     | Manual   | Office Expense         | Memo Bill
+   223  | 🟢 IN  |       +100,000 |      7,526,872 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   224  | 🟢 IN  |        +98,000 |      7,624,872 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   225  | 🟢 IN  |     +2,500,000 |     10,124,872 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   226  | 🟢 IN  |       +300,000 |     10,424,872 | Cash     | Auto     | Advance Payment        | Advance Refund: Kamal Dhandi
+   227  | 🟢 IN  |       +100,000 |     10,524,872 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   228  | 🟢 IN  |       +237,400 |     10,762,272 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   229  | 🟢 IN  |       +500,000 |     11,262,272 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   230  | 🟢 IN  |         +4,300 |     11,266,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   231  | 🟢 IN  |       +200,000 |     11,466,572 | Cash     | Auto     | Sales                  | Sales Partial Payment
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 231 transactions | Income: +107,400,800 | Expense: -189,896,227
+   Closing Balance: 11,466,572 | Stored: 11,466,572 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Thu Apr 09 2026
+   Opening Balance: 11466572
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🟢 IN  |       +300,000 |     11,766,572 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   2    | 🟢 IN  |        +30,000 |     11,796,572 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   3    | 🔴 OUT |       -100,000 |     11,696,572 | Cash     | Manual   | Transport              | Kazi Paribahan
+   4    | 🔴 OUT |         -3,000 |     11,693,572 | Cash     | Manual   | Office Expense         | Car Fuel
+   5    | 🔴 OUT |       -300,000 |     11,393,572 | Cash     | Manual   | Others                 | Jakath
+   6    | 🔴 OUT |        -30,000 |     11,363,572 | Cash     | Manual   | Salary                 | Boss
+   7    | 🔴 OUT |       -240,000 |     11,123,572 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   8    | 🔴 OUT |         -6,150 |     11,117,422 | Cash     | Manual   | Office Expense         | Memo Bill
+   9    | 🔴 OUT |         -2,950 |     11,114,472 | Cash     | Manual   | Office Expense         | Shop Expense
+   10   | 🔴 OUT |        -11,000 |     11,103,472 | Cash     | Manual   | Rent                   | BGB Shop Rent
+   11   | 🔴 OUT |     -3,100,100 |      8,003,372 | Cash     | Manual   | Office Expense         | Mainul Vai
+   12   | 🔴 OUT |     -5,100,000 |      2,903,372 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   13   | 🔴 OUT |       -265,500 |      2,637,872 | Cash     | Manual   | Transport              | Master Transport
+   14   | 🔴 OUT |        -17,900 |      2,619,972 | Cash     | Manual   | Others                 | Konakhola Shed
+   15   | 🔴 OUT |       -185,000 |      2,434,972 | Cash     | Manual   | Others                 | Jakath
+   16   | 🟢 IN  |     +1,500,000 |      3,934,972 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   17   | 🟢 IN  |     +4,400,000 |      8,334,972 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 17 transactions | Income: +6,230,000 | Expense: -9,361,600
+   Closing Balance: 8,334,972 | Stored: 8,334,972 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Sat Apr 11 2026
+   Opening Balance: 8334972
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🟢 IN  |     +1,000,000 |      9,334,972 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   2    | 🟢 IN  |        +15,500 |      9,350,472 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   3    | 🟢 IN  |     +6,000,000 |     15,350,472 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   4    | 🟢 IN  |       +101,500 |     15,451,972 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   5    | 🟢 IN  |        +21,700 |     15,473,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   6    | 🟢 IN  |       +100,000 |     15,573,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   7    | 🟢 IN  |     +2,348,000 |     17,921,672 | Cash     | Manual   | Transfer In            | Transfer from Fortunate Trade Land
+   8    | 🟢 IN  |     +1,000,000 |     18,921,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   9    | 🟢 IN  |       +500,000 |     19,421,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   10   | 🟢 IN  |       +400,000 |     19,821,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   11   | 🟢 IN  |       +500,000 |     20,321,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   12   | 🟢 IN  |       +200,000 |     20,521,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   13   | 🟢 IN  |       +100,000 |     20,621,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   14   | 🟢 IN  |        +50,000 |     20,671,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   15   | 🟢 IN  |        +50,000 |     20,721,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   16   | 🔴 OUT |       -400,000 |     20,321,672 | Cash     | Auto     | Advance Payment        | Advance Payment: Bashar Gazipur
+   17   | 🟢 IN  |       +230,000 |     20,551,672 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   18   | 🔴 OUT |       -117,500 |     20,434,172 | Cash     | Manual   | Transport              | Borak Transport
+   19   | 🔴 OUT |     -6,900,000 |     13,534,172 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading
+   20   | 🔴 OUT |     -1,200,000 |     12,334,172 | Cash     | Auto     | LC                     | LC Cost: Duty
+   21   | 🔴 OUT |        -32,000 |     12,302,172 | Cash     | Manual   | Utility                | CRV Tax
+   22   | 🔴 OUT |       -798,200 |     11,503,972 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   23   | 🔴 OUT |        -25,000 |     11,478,972 | Cash     | Manual   | Rent                   | Nahar Market
+   24   | 🔴 OUT |        -27,000 |     11,451,972 | Cash     | Manual   | Salary                 | Hasan
+   25   | 🔴 OUT |         -3,720 |     11,448,252 | Cash     | Manual   | Office Expense         | Shop Expense
+   26   | 🔴 OUT |     -2,348,000 |      9,100,252 | Cash     | Auto     | LC                     | LC Cost: Duty
+   27   | 🔴 OUT |       -874,900 |      8,225,352 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   28   | 🔴 OUT |        -77,700 |      8,147,652 | Cash     | Manual   | Others                 | Konakhola Shed
+   29   | 🔴 OUT |       -182,400 |      7,965,252 | Cash     | Auto     | LC                     | LC Cost: Remit
+   30   | 🔴 OUT |     -2,213,300 |      5,751,952 | Cash     | Auto     | LC                     | LC Cost: Remit
+   31   | 🔴 OUT |       -409,300 |      5,342,652 | Cash     | Auto     | LC                     | LC Cost: Remit
+   32   | 🔴 OUT |       -382,500 |      4,960,152 | Cash     | Auto     | LC                     | LC Cost: Remit
+   33   | 🟢 IN  |     +1,000,000 |      5,960,152 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   34   | 🔴 OUT |        -27,300 |      5,932,852 | Cash     | Manual   | Office Expense         | Product Rearrangement
+   35   | 🔴 OUT |        -15,100 |      5,917,752 | Cash     | Manual   | Office Expense         | Memo Bill
+   36   | 🔴 OUT |         -1,220 |      5,916,532 | Cash     | Manual   | Transport              | Bike Fuel
+   37   | 🟢 IN  |       +123,000 |      6,039,532 | Cash     | Manual   | Others                 | Sayem GP
+   38   | 🟢 IN  |     +1,358,600 |      7,398,132 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   39   | 🟢 IN  |     +1,150,000 |      8,548,132 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   40   | 🔴 OUT |        -62,000 |      8,486,132 | Cash     | Auto     | LC                     | LC Cost: Remit
+   41   | 🔴 OUT |       -109,900 |      8,376,232 | Cash     | Auto     | LC                     | LC Cost: Remit
+   42   | 🔴 OUT |        -79,200 |      8,297,032 | Cash     | Auto     | LC                     | LC Cost: Remit
+   43   | 🔴 OUT |        -93,400 |      8,203,632 | Cash     | Auto     | LC                     | LC Cost: Remit
+   44   | 🔴 OUT |       -123,700 |      8,079,932 | Cash     | Auto     | LC                     | LC Cost: Remit
+   45   | 🔴 OUT |        -65,200 |      8,014,732 | Cash     | Auto     | LC                     | LC Cost: Remit
+   46   | 🔴 OUT |       -109,400 |      7,905,332 | Cash     | Auto     | LC                     | LC Cost: Remit
+   47   | 🔴 OUT |        -62,000 |      7,843,332 | Cash     | Auto     | LC                     | LC Cost: Remit
+   48   | 🔴 OUT |       -125,700 |      7,717,632 | Cash     | Auto     | LC                     | LC Cost: Remit
+   49   | 🔴 OUT |        -64,100 |      7,653,532 | Cash     | Auto     | LC                     | LC Cost: Remit
+   50   | 🔴 OUT |        -34,400 |      7,619,132 | Cash     | Auto     | LC                     | LC Cost: Remit
+   51   | 🔴 OUT |        -62,200 |      7,556,932 | Cash     | Auto     | LC                     | LC Cost: Remit
+   52   | 🔴 OUT |       -123,000 |      7,433,932 | Cash     | Auto     | LC                     | LC Cost: Remit
+   53   | 🔴 OUT |       -113,400 |      7,320,532 | Cash     | Auto     | LC                     | LC Cost: Remit
+   54   | 🔴 OUT |        -65,900 |      7,254,632 | Cash     | Auto     | LC                     | LC Cost: Remit
+   55   | 🔴 OUT |        -65,100 |      7,189,532 | Cash     | Auto     | LC                     | LC Cost: Remit
+   56   | 🔴 OUT |        -15,000 |      7,174,532 | Cash     | Manual   | Office Expense         | VAT Office
+   57   | 🔴 OUT |       -400,100 |      6,774,432 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading Ltd.
+   58   | 🔴 OUT |       -195,000 |      6,579,432 | Cash     | Manual   | Others                 | Fish Project
+   59   | 🔴 OUT |     -1,215,000 |      5,364,432 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   60   | 🔴 OUT |         -2,000 |      5,362,432 | Cash     | Manual   | Office Expense         | Dholaikhal Somiti
+   61   | 🔴 OUT |         -1,700 |      5,360,732 | Cash     | Manual   | Office Expense         | Office Expense
+   62   | 🔴 OUT |         -3,350 |      5,357,382 | Cash     | Manual   | Office Expense         | Shop Expense
+   63   | 🟢 IN  |       +165,000 |      5,522,382 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   64   | 🟢 IN  |       +135,000 |      5,657,382 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   65   | 🟢 IN  |       +475,000 |      6,132,382 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   66   | 🟢 IN  |       +183,400 |      6,315,782 | Cash     | Auto     | Sales                  | Sales Payment
+   67   | 🟢 IN  |     +4,000,000 |     10,315,782 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   68   | 🔴 OUT |     -4,000,000 |      6,315,782 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   69   | 🟢 IN  |       +200,000 |      6,515,782 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   70   | 🟢 IN  |        +91,650 |      6,607,432 | Cash     | Auto     | Sales                  | Sales Payment
+   71   | 🟢 IN  |       +200,000 |      6,807,432 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   72   | 🟢 IN  |       +178,000 |      6,985,432 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   73   | 🟢 IN  |     +2,850,000 |      9,835,432 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   74   | 🟢 IN  |     +1,000,000 |     10,835,432 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   75   | 🟢 IN  |       +600,000 |     11,435,432 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   76   | 🟢 IN  |       +200,000 |     11,635,432 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   77   | 🟢 IN  |       +300,000 |     11,935,432 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   78   | 🔴 OUT |       -300,000 |     11,635,432 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   79   | 🔴 OUT |       -180,000 |     11,455,432 | Cash     | Manual   | Transport              | Master Transport
+   80   | 🔴 OUT |        -50,000 |     11,405,432 | Cash     | Manual   | Others                 | Konakhola Shed
+   81   | 🔴 OUT |     -3,200,000 |      8,205,432 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   82   | 🔴 OUT |     -3,800,100 |      4,405,332 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading Ltd.
+   83   | 🔴 OUT |           -800 |      4,404,532 | Cash     | Manual   | Office Expense         | Memo Bill
+   84   | 🔴 OUT |         -4,900 |      4,399,632 | Cash     | Manual   | Office Expense         | Shop Expense
+   85   | 🟢 IN  |       +400,000 |      4,799,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   86   | 🟢 IN  |       +100,000 |      4,899,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   87   | 🟢 IN  |       +100,000 |      4,999,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   88   | 🟢 IN  |       +481,500 |      5,481,132 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   89   | 🟢 IN  |        +20,000 |      5,501,132 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   90   | 🔴 OUT |     -1,070,000 |      4,431,132 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   91   | 🔴 OUT |           -800 |      4,430,332 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   92   | 🔴 OUT |         -5,000 |      4,425,332 | Cash     | Manual   | Transport              | Pickup
+   93   | 🔴 OUT |         -5,700 |      4,419,632 | Cash     | Manual   | Office Expense         | Unloading GM
+   94   | 🟢 IN  |       +500,000 |      4,919,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   95   | 🟢 IN  |       +200,000 |      5,119,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   96   | 🟢 IN  |       +200,000 |      5,319,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   97   | 🟢 IN  |       +500,000 |      5,819,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   98   | 🟢 IN  |       +200,000 |      6,019,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   99   | 🟢 IN  |       +350,000 |      6,369,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   100  | 🟢 IN  |     +1,200,000 |      7,569,632 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   101  | 🟢 IN  |        +20,000 |      7,589,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   102  | 🟢 IN  |     +1,040,000 |      8,629,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   103  | 🟢 IN  |       +272,000 |      8,901,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   104  | 🟢 IN  |       +100,000 |      9,001,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   105  | 🟢 IN  |       +200,000 |      9,201,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   106  | 🟢 IN  |       +200,000 |      9,401,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   107  | 🟢 IN  |       +100,000 |      9,501,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   108  | 🟢 IN  |       +400,000 |      9,901,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   109  | 🟢 IN  |       +400,000 |     10,301,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   110  | 🔴 OUT |       -400,000 |      9,901,632 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   111  | 🟢 IN  |       +100,000 |     10,001,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   112  | 🟢 IN  |       +390,000 |     10,391,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   113  | 🟢 IN  |       +200,000 |     10,591,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   114  | 🟢 IN  |       +160,000 |     10,751,632 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   115  | 🟢 IN  |       +700,000 |     11,451,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   116  | 🟢 IN  |       +500,000 |     11,951,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   117  | 🟢 IN  |       +500,000 |     12,451,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   118  | 🟢 IN  |       +100,000 |     12,551,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   119  | 🟢 IN  |       +100,000 |     12,651,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   120  | 🟢 IN  |        +42,000 |     12,693,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   121  | 🟢 IN  |        +17,000 |     12,710,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   122  | 🟢 IN  |        +50,000 |     12,760,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   123  | 🟢 IN  |       +100,000 |     12,860,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   124  | 🟢 IN  |       +150,000 |     13,010,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   125  | 🟢 IN  |       +100,000 |     13,110,632 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   126  | 🟢 IN  |        +99,600 |     13,210,232 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   127  | 🟢 IN  |        +20,000 |     13,230,232 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   128  | 🟢 IN  |       +250,000 |     13,480,232 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   129  | 🟢 IN  |        +50,000 |     13,530,232 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   130  | 🟢 IN  |       +200,000 |     13,730,232 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   131  | 🟢 IN  |     +1,600,000 |     15,330,232 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   132  | 🟢 IN  |       +170,000 |     15,500,232 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   133  | 🟢 IN  |       +150,000 |     15,650,232 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   134  | 🟢 IN  |       +150,000 |     15,800,232 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   135  | 🟢 IN  |       +600,000 |     16,400,232 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   136  | 🟢 IN  |       +225,000 |     16,625,232 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   137  | 🟢 IN  |       +500,000 |     17,125,232 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   138  | 🔴 OUT |       -100,000 |     17,025,232 | Cash     | Manual   | Others                 | Jakath
+   139  | 🔴 OUT |       -623,600 |     16,401,632 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   140  | 🔴 OUT |         -5,000 |     16,396,632 | Cash     | Manual   | Transport              | Pickup Konakhola to Nahar Market
+   141  | 🔴 OUT |           -800 |     16,395,832 | Cash     | Manual   | Office Expense         | Shop Expense GM
+   142  | 🔴 OUT |       -153,000 |     16,242,832 | Cash     | Manual   | Others                 | S B Math Bill
+   143  | 🔴 OUT |       -100,000 |     16,142,832 | Cash     | Manual   | Others                 | Jakath
+   144  | 🟢 IN  |     +1,500,000 |     17,642,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   145  | 🔴 OUT |       -125,000 |     17,517,832 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   146  | 🟢 IN  |       +500,000 |     18,017,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   147  | 🟢 IN  |     +2,000,000 |     20,017,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   148  | 🟢 IN  |     +1,450,000 |     21,467,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   149  | 🟢 IN  |     +1,850,000 |     23,317,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   150  | 🟢 IN  |       +500,000 |     23,817,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   151  | 🟢 IN  |       +100,000 |     23,917,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   152  | 🟢 IN  |       +500,000 |     24,417,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   153  | 🟢 IN  |       +700,000 |     25,117,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   154  | 🟢 IN  |     +1,400,000 |     26,517,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   155  | 🟢 IN  |     +1,222,000 |     27,739,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   156  | 🟢 IN  |       +400,000 |     28,139,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   157  | 🟢 IN  |       +800,000 |     28,939,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   158  | 🟢 IN  |       +700,000 |     29,639,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   159  | 🟢 IN  |       +700,000 |     30,339,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   160  | 🟢 IN  |       +600,000 |     30,939,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   161  | 🟢 IN  |       +800,000 |     31,739,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   162  | 🟢 IN  |       +700,000 |     32,439,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   163  | 🟢 IN  |       +250,000 |     32,689,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   164  | 🟢 IN  |        +70,000 |     32,759,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   165  | 🟢 IN  |       +100,000 |     32,859,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   166  | 🟢 IN  |       +700,000 |     33,559,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   167  | 🟢 IN  |       +300,000 |     33,859,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   168  | 🟢 IN  |       +100,000 |     33,959,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   169  | 🟢 IN  |       +100,000 |     34,059,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   170  | 🟢 IN  |       +600,000 |     34,659,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   171  | 🟢 IN  |       +100,000 |     34,759,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   172  | 🟢 IN  |       +550,000 |     35,309,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   173  | 🟢 IN  |       +300,000 |     35,609,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   174  | 🟢 IN  |       +350,000 |     35,959,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   175  | 🔴 OUT |    -11,700,000 |     24,259,832 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   176  | 🔴 OUT |     -2,350,000 |     21,909,832 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading
+   177  | 🟢 IN  |       +300,000 |     22,209,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   178  | 🟢 IN  |       +200,000 |     22,409,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   179  | 🟢 IN  |       +150,000 |     22,559,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   180  | 🟢 IN  |       +200,000 |     22,759,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   181  | 🟢 IN  |       +100,000 |     22,859,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   182  | 🟢 IN  |       +100,000 |     22,959,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   183  | 🟢 IN  |     +2,000,000 |     24,959,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   184  | 🟢 IN  |       +500,000 |     25,459,832 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   185  | 🟢 IN  |       +300,000 |     25,759,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   186  | 🟢 IN  |       +500,000 |     26,259,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   187  | 🟢 IN  |       +700,000 |     26,959,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   188  | 🟢 IN  |       +325,000 |     27,284,832 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   189  | 🟢 IN  |       +126,350 |     27,411,182 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   190  | 🟢 IN  |     +4,850,000 |     32,261,182 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   191  | 🔴 OUT |     -4,562,500 |     27,698,682 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   192  | 🔴 OUT |        -89,000 |     27,609,682 | Cash     | Manual   | Transport              | Kazi Paribahan
+   193  | 🔴 OUT |     -1,155,900 |     26,453,782 | Cash     | Auto     | LC                     | LC Cost: Remit+30$
+   194  | 🔴 OUT |       -348,200 |     26,105,582 | Cash     | Auto     | LC                     | LC Cost: Remit
+   195  | 🔴 OUT |     -4,500,000 |     21,605,582 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   196  | 🔴 OUT |       -410,000 |     21,195,582 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   197  | 🔴 OUT |     -7,125,000 |     14,070,582 | Cash     | Manual   | Transfer Out           | Transfer to Pay Order
+   198  | 🔴 OUT |     -1,100,100 |     12,970,482 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading Ltd.
+   199  | 🔴 OUT |     -1,225,500 |     11,744,982 | Cash     | Auto     | LC                     | LC Cost: rEMIT
+   200  | 🔴 OUT |        -14,600 |     11,730,382 | Cash     | Manual   | Office Expense         | Pickup+Unload
+   201  | 🔴 OUT |        -20,000 |     11,710,382 | Cash     | Manual   | Others                 | Rasel Engineering
+   202  | 🔴 OUT |        -20,000 |     11,690,382 | Cash     | Manual   | Others                 | Konakhola Shed
+   203  | 🔴 OUT |        -10,000 |     11,680,382 | Cash     | Manual   | Office Expense         | Konakhola
+   204  | 🔴 OUT |       -650,000 |     11,030,382 | Cash     | Manual   | Others                 | Prince Vai Lc-823+825
+   205  | 🔴 OUT |       -300,000 |     10,730,382 | Cash     | Manual   | Others                 | Prince Vai Lc-762
+   206  | 🔴 OUT |         -5,280 |     10,725,102 | Cash     | Manual   | Office Expense         | Shop Expense
+   207  | 🟢 IN  |       +856,035 |     11,581,137 | Cash     | Auto     | LC Reversal            | LC Cost Adjustment: Remit
+   208  | 🔴 OUT |       -856,100 |     10,725,037 | Cash     | Auto     | LC                     | LC Cost: Remit
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 208 transactions | Income: +72,182,835 | Expense: -69,792,770
+   Closing Balance: 10,725,037 | Stored: 10,725,037 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Mon Apr 13 2026
+   Opening Balance: 10725037
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🟢 IN  |       +600,000 |     11,325,037 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   2    | 🟢 IN  |         +5,700 |     11,330,737 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   3    | 🟢 IN  |       +150,000 |     11,480,737 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   4    | 🟢 IN  |       +200,000 |     11,680,737 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   5    | 🟢 IN  |     +1,300,000 |     12,980,737 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   6    | 🟢 IN  |       +102,900 |     13,083,637 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   7    | 🟢 IN  |        +72,000 |     13,155,637 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   8    | 🟢 IN  |       +300,000 |     13,455,637 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   9    | 🟢 IN  |     +9,123,000 |     22,578,637 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   10   | 🔴 OUT |        -20,000 |     22,558,637 | Cash     | Manual   | Others                 | Jakath
+   11   | 🔴 OUT |         -1,050 |     22,557,587 | Cash     | Manual   | Office Expense         | Khata
+   12   | 🔴 OUT |         -2,420 |     22,555,167 | Cash     | Manual   | Office Expense         | Shop Expense
+   13   | 🔴 OUT |     -4,200,000 |     18,355,167 | Cash     | Manual   | Transfer Out           | Transfer to Steel Kingdom
+   14   | 🔴 OUT |     -2,000,000 |     16,355,167 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   15   | 🔴 OUT |     -2,500,000 |     13,855,167 | Cash     | Manual   | Others                 | Jolshiri Flat
+   16   | 🔴 OUT |     -1,300,000 |     12,555,167 | Cash     | Manual   | Transfer Out           | Transfer to Fortune Steel Industry & Ser
+   17   | 🔴 OUT |         -1,200 |     12,553,967 | Cash     | Manual   | Office Expense         | Somiti
+   18   | 🔴 OUT |         -2,000 |     12,551,967 | Cash     | Manual   | Office Expense         | Madrasa
+   19   | 🔴 OUT |         -3,000 |     12,548,967 | Cash     | Manual   | Office Expense         | Boss Mobile
+   20   | 🔴 OUT |     -1,700,100 |     10,848,867 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading Ltd.
+   21   | 🔴 OUT |     -1,400,100 |      9,448,767 | Cash     | Manual   | Transfer Out           | Transfer to M/S Razu Trading
+   22   | 🔴 OUT |       -200,000 |      9,248,767 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   23   | 🔴 OUT |       -100,000 |      9,148,767 | Cash     | Manual   | Others                 | Konakhola Shed Yakub
+   24   | 🔴 OUT |        -13,000 |      9,135,767 | Cash     | Manual   | Others                 | Namzari Basundhara
+   25   | 🔴 OUT |     -2,954,500 |      6,181,267 | Cash     | Auto     | LC                     | LC Cost: Remit
+   26   | 🔴 OUT |     -1,319,000 |      4,862,267 | Cash     | Auto     | LC                     | LC Cost: Remit
+   27   | 🔴 OUT |       -372,000 |      4,490,267 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   28   | 🟢 IN  |       +120,900 |      4,611,167 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   29   | 🟢 IN  |       +100,000 |      4,711,167 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   30   | 🟢 IN  |        +73,000 |      4,784,167 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   31   | 🟢 IN  |       +500,000 |      5,284,167 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   32   | 🟢 IN  |        +50,000 |      5,334,167 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   33   | 🟢 IN  |        +60,000 |      5,394,167 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   34   | 🟢 IN  |     +1,800,000 |      7,194,167 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   35   | 🟢 IN  |         +7,000 |      7,201,167 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   36   | 🟢 IN  |       +800,000 |      8,001,167 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   37   | 🔴 OUT |        -40,000 |      7,961,167 | Cash     | Manual   | Others                 | Muslim Vai
+   38   | 🔴 OUT |       -910,900 |      7,050,267 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   39   | 🔴 OUT |        -20,000 |      7,030,267 | Cash     | Manual   | Salary                 | Boss
+   40   | 🔴 OUT |        -10,000 |      7,020,267 | Cash     | Manual   | Others                 | Selami
+   41   | 🔴 OUT |         -1,200 |      7,019,067 | Cash     | Manual   | Others                 | Rasel Engineering Paint
+   42   | 🔴 OUT |     -2,200,000 |      4,819,067 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   43   | 🔴 OUT |         -7,600 |      4,811,467 | Cash     | Manual   | Office Expense         | Memo Bill
+   44   | 🔴 OUT |           -860 |      4,810,607 | Cash     | Manual   | Office Expense         | Shop Expense
+   45   | 🔴 OUT |        -50,000 |      4,760,607 | Cash     | Auto     | Sales Reversal         | Sales Payment Reversal
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 45 transactions | Income: +15,364,500 | Expense: -21,328,930
+   Closing Balance: 4,760,607 | Stored: 4,760,607 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Wed Apr 15 2026
+   Opening Balance: 4760607
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🟢 IN  |       +200,000 |      4,960,607 | Cash     | Auto     | Sales                  | Sales Payment
+   2    | 🟢 IN  |        +75,400 |      5,036,007 | Cash     | Auto     | Sales                  | Sales Payment
+   3    | 🟢 IN  |       +202,500 |      5,238,507 | Cash     | Auto     | Sales                  | Sales Payment
+   4    | 🟢 IN  |       +464,000 |      5,702,507 | Cash     | Auto     | Sales                  | Sales Payment
+   5    | 🟢 IN  |       +586,400 |      6,288,907 | Cash     | Auto     | Sales                  | Sales Payment
+   6    | 🟢 IN  |       +200,000 |      6,488,907 | Cash     | Auto     | Sales                  | Sales Payment
+   7    | 🟢 IN  |        +20,500 |      6,509,407 | Cash     | Auto     | Sales                  | Sales Payment
+   8    | 🟢 IN  |       +500,000 |      7,009,407 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   9    | 🟢 IN  |       +100,000 |      7,109,407 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   10   | 🟢 IN  |     +1,000,000 |      8,109,407 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   11   | 🟢 IN  |     +2,500,000 |     10,609,407 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   12   | 🟢 IN  |       +200,000 |     10,809,407 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   13   | 🟢 IN  |       +200,000 |     11,009,407 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   14   | 🟢 IN  |        +20,000 |     11,029,407 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   15   | 🟢 IN  |     +4,400,000 |     15,429,407 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   16   | 🔴 OUT |     -1,070,400 |     14,359,007 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   17   | 🟢 IN  |       +100,000 |     14,459,007 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   18   | 🟢 IN  |     +5,000,000 |     19,459,007 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   19   | 🟢 IN  |       +500,000 |     19,959,007 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   20   | 🟢 IN  |     +5,000,000 |     24,959,007 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   21   | 🟢 IN  |     +1,800,000 |     26,759,007 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   22   | 🟢 IN  |     +3,200,000 |     29,959,007 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   23   | 🟢 IN  |       +300,000 |     30,259,007 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   24   | 🟢 IN  |       +100,000 |     30,359,007 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   25   | 🟢 IN  |    +10,000,000 |     40,359,007 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   26   | 🟢 IN  |     +4,530,000 |     44,889,007 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   27   | 🟢 IN  |        +19,000 |     44,908,007 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   28   | 🟢 IN  |     +2,000,000 |     46,908,007 | Cash     | Manual   | Others                 | Imran Doc Lc-017
+   29   | 🟢 IN  |        +50,000 |     46,958,007 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   30   | 🔴 OUT |     -3,750,100 |     43,207,907 | Cash     | Manual   | Transfer Out           | Transfer to Al Munzir Trading Ltd.
+   31   | 🔴 OUT |        -50,000 |     43,157,907 | Cash     | Manual   | Others                 | Agro Sakta
+   32   | 🔴 OUT |       -200,000 |     42,957,907 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   33   | 🔴 OUT |        -30,000 |     42,927,907 | Cash     | Manual   | Utility                | Konakhola
+   34   | 🔴 OUT |        -15,000 |     42,912,907 | Cash     | Manual   | Office Expense         | VAT & IRC Office
+   35   | 🔴 OUT |         -4,600 |     42,908,307 | Cash     | Manual   | Others                 | Jakath
+   36   | 🔴 OUT |       -300,000 |     42,608,307 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   37   | 🔴 OUT |     -2,809,000 |     39,799,307 | Cash     | Auto     | LC                     | LC Cost: Duty
+   38   | 🔴 OUT |       -300,000 |     39,499,307 | Cash     | Manual   | Others                 | Advance Hospital
+   39   | 🔴 OUT |     -2,791,000 |     36,708,307 | Cash     | Auto     | LC                     | LC Cost: Duty
+   40   | 🔴 OUT |     -2,790,000 |     33,918,307 | Cash     | Auto     | LC                     | LC Cost: Duty
+   41   | 🔴 OUT |     -4,500,000 |     29,418,307 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   42   | 🔴 OUT |         -3,000 |     29,415,307 | Cash     | Manual   | Others                 | Mosque
+   43   | 🔴 OUT |    -10,860,000 |     18,555,307 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   44   | 🔴 OUT |     -1,150,000 |     17,405,307 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   45   | 🔴 OUT |     -2,500,000 |     14,905,307 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   46   | 🔴 OUT |         -2,200 |     14,903,107 | Cash     | Manual   | Others                 | Konakhola Paint
+   47   | 🔴 OUT |       -500,000 |     14,403,107 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   48   | 🔴 OUT |     -5,000,000 |      9,403,107 | Cash     | Manual   | Others                 | Prince Vai lc-159
+   49   | 🔴 OUT |       -100,000 |      9,303,107 | Cash     | Manual   | Others                 | Jakath
+   50   | 🟢 IN  |        +50,000 |      9,353,107 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   51   | 🔴 OUT |         -1,800 |      9,351,307 | Cash     | Manual   | Office Expense         | Memo Bill
+   52   | 🔴 OUT |           -950 |      9,350,357 | Cash     | Manual   | Office Expense         | Shop Expense
+   53   | 🔴 OUT |         -5,200 |      9,345,157 | Cash     | Manual   | Office Expense         | Memo+Pickup
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 53 transactions | Income: +43,317,800 | Expense: -38,733,250
+   Closing Balance: 9,345,157 | Stored: 9,345,157 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Thu Apr 16 2026
+   Opening Balance: 9345157
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🟢 IN  |     +1,000,000 |     10,345,157 | Cash     | Auto     | Sales                  | Sales Payment
+   2    | 🟢 IN  |        +34,500 |     10,379,657 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   3    | 🟢 IN  |       +661,099 |     11,040,756 | Cash     | Auto     | Sales                  | Sales Payment
+   4    | 🟢 IN  |         +4,300 |     11,045,056 | Cash     | Auto     | Sales                  | Sales Payment
+   5    | 🟢 IN  |       +200,000 |     11,245,056 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   6    | 🟢 IN  |        +50,000 |     11,295,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   7    | 🟢 IN  |       +400,000 |     11,695,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   8    | 🔴 OUT |       -200,000 |     11,495,056 | Cash     | Manual   | Others                 | Jakath
+   9    | 🟢 IN  |     +1,450,000 |     12,945,056 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   10   | 🟢 IN  |     +1,485,000 |     14,430,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   11   | 🟢 IN  |       +100,000 |     14,530,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   12   | 🟢 IN  |       +300,000 |     14,830,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   13   | 🟢 IN  |       +700,000 |     15,530,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   14   | 🟢 IN  |       +400,000 |     15,930,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   15   | 🟢 IN  |       +100,000 |     16,030,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   16   | 🟢 IN  |       +150,000 |     16,180,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   17   | 🟢 IN  |       +450,000 |     16,630,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   18   | 🟢 IN  |        +50,000 |     16,680,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   19   | 🟢 IN  |       +300,000 |     16,980,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   20   | 🟢 IN  |       +100,000 |     17,080,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   21   | 🟢 IN  |       +300,000 |     17,380,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   22   | 🟢 IN  |       +150,000 |     17,530,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   23   | 🟢 IN  |       +160,000 |     17,690,056 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   24   | 🟢 IN  |       +600,000 |     18,290,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   25   | 🟢 IN  |       +500,000 |     18,790,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   26   | 🟢 IN  |       +100,000 |     18,890,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   27   | 🟢 IN  |       +250,000 |     19,140,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   28   | 🟢 IN  |        +94,000 |     19,234,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   29   | 🟢 IN  |        +50,000 |     19,284,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   30   | 🟢 IN  |       +100,000 |     19,384,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   31   | 🟢 IN  |       +200,000 |     19,584,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   32   | 🟢 IN  |        +20,000 |     19,604,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   33   | 🟢 IN  |        +50,000 |     19,654,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   34   | 🟢 IN  |        +10,000 |     19,664,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   35   | 🟢 IN  |       +500,000 |     20,164,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   36   | 🟢 IN  |       +100,000 |     20,264,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   37   | 🟢 IN  |       +200,000 |     20,464,056 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   38   | 🟢 IN  |        +52,500 |     20,516,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   39   | 🟢 IN  |       +150,000 |     20,666,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   40   | 🟢 IN  |       +100,000 |     20,766,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   41   | 🟢 IN  |     +2,125,000 |     22,891,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   42   | 🟢 IN  |       +600,000 |     23,491,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   43   | 🟢 IN  |       +100,000 |     23,591,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   44   | 🟢 IN  |       +800,000 |     24,391,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   45   | 🟢 IN  |       +100,000 |     24,491,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   46   | 🟢 IN  |     +1,200,000 |     25,691,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   47   | 🟢 IN  |       +150,000 |     25,841,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   48   | 🟢 IN  |       +700,000 |     26,541,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   49   | 🟢 IN  |       +500,000 |     27,041,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   50   | 🟢 IN  |     +3,400,000 |     30,441,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   51   | 🟢 IN  |       +500,000 |     30,941,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   52   | 🟢 IN  |       +300,000 |     31,241,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   53   | 🟢 IN  |       +200,000 |     31,441,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   54   | 🟢 IN  |       +500,000 |     31,941,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   55   | 🟢 IN  |     +1,500,000 |     33,441,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   56   | 🟢 IN  |     +1,500,000 |     34,941,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   57   | 🟢 IN  |       +900,000 |     35,841,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   58   | 🟢 IN  |     +1,800,000 |     37,641,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   59   | 🟢 IN  |       +350,000 |     37,991,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   60   | 🟢 IN  |       +100,000 |     38,091,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   61   | 🟢 IN  |        +70,000 |     38,161,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   62   | 🟢 IN  |       +110,000 |     38,271,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   63   | 🟢 IN  |     +1,400,000 |     39,671,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   64   | 🟢 IN  |     +1,400,000 |     41,071,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   65   | 🟢 IN  |       +700,000 |     41,771,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   66   | 🟢 IN  |       +700,000 |     42,471,556 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   67   | 🟢 IN  |       +700,000 |     43,171,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   68   | 🟢 IN  |       +300,000 |     43,471,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   69   | 🟢 IN  |     +1,500,000 |     44,971,556 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   70   | 🟢 IN  |       +114,900 |     45,086,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   71   | 🟢 IN  |       +700,000 |     45,786,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   72   | 🟢 IN  |       +290,000 |     46,076,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   73   | 🟢 IN  |       +600,000 |     46,676,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   74   | 🟢 IN  |       +557,000 |     47,233,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   75   | 🟢 IN  |       +165,000 |     47,398,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   76   | 🟢 IN  |       +250,000 |     47,648,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   77   | 🟢 IN  |       +300,000 |     47,948,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   78   | 🟢 IN  |       +150,000 |     48,098,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   79   | 🟢 IN  |       +200,000 |     48,298,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   80   | 🟢 IN  |       +500,000 |     48,798,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   81   | 🟢 IN  |       +300,000 |     49,098,456 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   82   | 🟢 IN  |     +9,200,000 |     58,298,456 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   83   | 🟢 IN  |       +410,000 |     58,708,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   84   | 🟢 IN  |       +100,000 |     58,808,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   85   | 🟢 IN  |       +100,000 |     58,908,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   86   | 🟢 IN  |       +750,000 |     59,658,456 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   87   | 🟢 IN  |       +100,000 |     59,758,456 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   88   | 🔴 OUT |       -950,000 |     58,808,456 | Cash     | Auto     | LC                     | LC Cost: Duty
+   89   | 🔴 OUT |        -12,500 |     58,795,956 | Cash     | Manual   | Office Expense         | Monitor
+   90   | 🔴 OUT |           -950 |     58,795,006 | Cash     | Manual   | Office Expense         | Shop Expense
+   91   | 🔴 OUT |     -1,220,000 |     57,575,006 | Cash     | Auto     | LC                     | LC Cost: EPEC COMMISSION
+   92   | 🔴 OUT |     -1,385,000 |     56,190,006 | Cash     | Auto     | LC                     | LC Cost: EPEC COMMISSION
+   93   | 🔴 OUT |     -3,400,100 |     52,789,906 | Cash     | Manual   | Others                 | Mainul Vai
+   94   | 🔴 OUT |     -1,228,000 |     51,561,906 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   95   | 🔴 OUT |     -3,939,000 |     47,622,906 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   96   | 🔴 OUT |        -40,000 |     47,582,906 | Cash     | Manual   | Others                 | Fish Project
+   97   | 🔴 OUT |       -175,000 |     47,407,906 | Cash     | Manual   | LC                     | TRANSPORT
+   98   | 🔴 OUT |     -3,969,000 |     43,438,906 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   99   | 🔴 OUT |       -900,000 |     42,538,906 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   100  | 🔴 OUT |     -1,300,000 |     41,238,906 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   101  | 🔴 OUT |     -5,810,800 |     35,428,106 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   102  | 🔴 OUT |     -4,000,000 |     31,428,106 | Cash     | Manual   | Transfer Out           | Transfer to S.U.M. TRADING
+   103  | 🔴 OUT |        -10,000 |     31,418,106 | Cash     | Manual   | Others                 | MOSQUE
+   104  | 🔴 OUT |     -4,000,000 |     27,418,106 | Cash     | Manual   | Transfer Out           | Transfer to Fortunate Trade Land
+   105  | 🔴 OUT |         -1,500 |     27,416,606 | Cash     | Manual   | Office Expense         | Shop Expense
+   106  | 🔴 OUT |     -3,000,000 |     24,416,606 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   107  | 🔴 OUT |       -100,000 |     24,316,606 | Cash     | Manual   | Others                 | Nazrul Sardar
+   108  | 🔴 OUT |       -300,000 |     24,016,606 | Cash     | Manual   | Others                 | Agro Cow Purched (Rony)
+   109  | 🔴 OUT |     -4,000,000 |     20,016,606 | Cash     | Manual   | Others                 | Prince Vai lc-159
+   110  | 🔴 OUT |       -271,800 |     19,744,806 | Cash     | Auto     | LC                     | LC Cost: Remit+15$
+   111  | 🔴 OUT |         -5,000 |     19,739,806 | Cash     | Manual   | Others                 | Konakhola Shed
+   112  | 🔴 OUT |        -10,000 |     19,729,806 | Cash     | Manual   | Others                 | Rasel Engineering
+   113  | 🔴 OUT |         -4,000 |     19,725,806 | Cash     | Manual   | Office Expense         | Dholaikhal Somiti
+   114  | 🔴 OUT |       -300,000 |     19,425,806 | Cash     | Manual   | Others                 | Prince Vai lc-762
+   115  | 🔴 OUT |       -600,000 |     18,825,806 | Cash     | Manual   | Others                 | Prince Vai lc-823+825
+   116  | 🔴 OUT |         -5,000 |     18,820,806 | Cash     | Manual   | Others                 | Jakath
+   117  | 🔴 OUT |         -1,300 |     18,819,506 | Cash     | Manual   | Office Expense         | Memo Bill
+   118  | 🔴 OUT |         -8,000 |     18,811,506 | Cash     | Manual   | Office Expense         | Monir Dokan
+   119  | 🔴 OUT |         -4,850 |     18,806,656 | Cash     | Manual   | Office Expense         | Shop Expense
+   120  | 🔴 OUT |        -50,000 |     18,756,656 | Cash     | Manual   | Others                 | Konakhola Shed
+   121  | 🔴 OUT |        -20,000 |     18,736,656 | Cash     | Manual   | Salary                 | Boss
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 121 transactions | Income: +50,613,299 | Expense: -41,221,800
+   Closing Balance: 18,736,656 | Stored: 18,736,656 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📅 Sun Apr 19 2026
+   Opening Balance: 18736656
+──────────────────────────────────────────────────────────────────────────────────────────
+   #    | Type     |         Amount |        Running | Method   | Source   | Category               | Name
+──────────────────────────────────────────────────────────────────────────────────────────
+   1    | 🟢 IN  |       +600,000 |     19,336,656 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   2    | 🟢 IN  |        +70,000 |     19,406,656 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   3    | 🟢 IN  |       +100,000 |     19,506,656 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   4    | 🟢 IN  |     +3,300,000 |     22,806,656 | Cash     | Manual   | Customer Credit        | Store Credit Deposit
+   5    | 🟢 IN  |     +2,000,000 |     24,806,656 | Cash     | Manual   | Transfer In            | Transfer from Business Idea
+   6    | 🟢 IN  |        +40,000 |     24,846,656 | Cash     | Auto     | Sales                  | Sales Payment
+   7    | 🟢 IN  |       +150,000 |     24,996,656 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   8    | 🟢 IN  |       +349,600 |     25,346,256 | Cash     | Auto     | Sales                  | Sales Payment
+   9    | 🔴 OUT |       -550,000 |     24,796,256 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   10   | 🔴 OUT |     -1,550,000 |     23,246,256 | Cash     | Manual   | Transfer Out           | Transfer to EPEC
+   11   | 🔴 OUT |       -976,000 |     22,270,256 | Cash     | Manual   | Others                 | Lc-081 EPEC Comission
+   12   | 🔴 OUT |       -707,000 |     21,563,256 | Cash     | Manual   | Others                 | Lc-082 EPEC Comission
+   13   | 🔴 OUT |       -182,000 |     21,381,256 | Cash     | Manual   | LC                     | EPEC Commission
+   14   | 🔴 OUT |       -329,000 |     21,052,256 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   15   | 🔴 OUT |         -5,000 |     21,047,256 | Cash     | Manual   | Office Expense         | VAT Purpose
+   16   | 🔴 OUT |       -361,000 |     20,686,256 | Cash     | Auto     | LC                     | LC Cost: Master Transport
+   17   | 🔴 OUT |       -180,500 |     20,505,756 | Cash     | Auto     | LC                     | LC Cost: Master Transport
+   18   | 🔴 OUT |        -90,500 |     20,415,256 | Cash     | Auto     | LC                     | LC Cost: Master Transport
+   19   | 🔴 OUT |     -1,500,000 |     18,915,256 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   20   | 🔴 OUT |     -2,000,000 |     16,915,256 | Cash     | Manual   | Transfer Out           | Transfer to Pay Order
+   21   | 🔴 OUT |       -333,500 |     16,581,756 | Cash     | Manual   | Office Expense         | New Crane Purpose
+   22   | 🔴 OUT |         -6,800 |     16,574,956 | Cash     | Manual   | Office Expense         | Unloading GM
+   23   | 🔴 OUT |       -486,800 |     16,088,156 | Cash     | Manual   | Transfer Out           | Transfer to Business Idea
+   24   | 🔴 OUT |        -28,300 |     16,059,856 | Cash     | Manual   | Office Expense         | IPS
+   25   | 🔴 OUT |        -14,800 |     16,045,056 | Cash     | Manual   | Office Expense         | KONAKHOLA
+   26   | 🔴 OUT |         -7,700 |     16,037,356 | Cash     | Manual   | Others                 | RASEL ENGINEERING (WELDING ROD)
+   27   | 🔴 OUT |     -1,800,000 |     14,237,356 | Cash     | Manual   | Customer Credit        | Credit Withdrawal / Refund
+   28   | 🔴 OUT |       -500,000 |     13,737,356 | Cash     | Manual   | Customer Credit        | Credit Withdrawal / Refund
+   29   | 🟢 IN  |       +500,000 |     14,237,356 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   30   | 🔴 OUT |       -993,000 |     13,244,356 | Cash     | Manual   | Customer Credit        | Credit Withdrawal / Refund
+   31   | 🟢 IN  |       +310,000 |     13,554,356 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   32   | 🟢 IN  |       +683,000 |     14,237,356 | Cash     | Auto     | Sales                  | Sales Partial Payment
+   33   | 🔴 OUT |     -2,069,000 |     12,168,356 | Cash     | Manual   | Transfer Out           | Transfer to Fortune Steel Industry & Ser
+   34   | 🟢 IN  |        +90,498 |     12,258,854 | Cash     | Manual   | Others                 | SALE-26-000112
+──────────────────────────────────────────────────────────────────────────────────────────
+   Total: 34 transactions | Income: +8,193,098 | Expense: -14,670,900
+   Closing Balance: 12,258,854 | Stored: 12,258,854 ✅
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📊 FINAL SUMMARY
+══════════════════════════════════════════════════════════════════════════════════════════
+   Cash Account "Cash Dholaikhal": 12,258,854
+   Total Cash Account Balance:       12,258,854
+   Daily Cash Calculated Balance:    12,258,854
+   ✅ MATCH
+
+══════════════════════════════════════════════════════════════════════════════════════════
+📊 NON-CASH TRANSACTION SUMMARY (Bank/Mobile Banking)
+══════════════════════════════════════════════════════════════════════════════════════════
+   [Bank] Expense: 202,273,757.89 (89 txs)
+   [Bank] Income: 338,844,275.89 (209 txs)
+
+=== AUDIT COMPLETE ===

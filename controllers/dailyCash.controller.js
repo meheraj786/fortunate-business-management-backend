@@ -213,22 +213,46 @@ async function closeCash(req, res, next) {
       req.businessTimezone,
     );
 
+    // 5. 🔒 INTEGRITY CHECK — Compare daily cash balance vs actual Cash account balances
+    let integrityWarning = null;
+    try {
+      const cashAccountAgg = await Account.aggregate([
+        { $match: { accountType: "Cash", isDeleted: { $ne: true } } },
+        { $group: { _id: null, totalBalance: { $sum: "$balance" } } },
+      ]);
+      const actualCashBalance = cashAccountAgg.length > 0 ? cashAccountAgg[0].totalBalance : 0;
+      const dailyCashBalance = finalRunningBalance;
+
+      if (Math.abs(mathUtil.sub(actualCashBalance, dailyCashBalance)) > 0.01) {
+        integrityWarning = `⚠️ INTEGRITY MISMATCH DETECTED on ${targetDate.toDateString()}: Daily Cash closing balance (${dailyCashBalance}) does NOT match Cash Account balance (${actualCashBalance}). Difference: ${mathUtil.sub(actualCashBalance, dailyCashBalance)}`;
+        logger.error(`[DAILY-CASH-INTEGRITY] ${integrityWarning}`);
+      } else {
+        logger.info(`[DAILY-CASH-INTEGRITY] ✅ Closing balance verified for ${targetDate.toDateString()}: ${dailyCashBalance}`);
+      }
+    } catch (integrityErr) {
+      logger.error(`[DAILY-CASH-INTEGRITY] Failed to run integrity check: ${integrityErr.message}`);
+    }
+
     auditService.log({
       action: "CLOSE",
       module: "DailyCash",
       documentId: openSession._id,
       userId: req.user?._id,
-      description: `Closed daily cash for ${targetDate.toDateString()} with closing balance ${finalRunningBalance}`,
+      description: `Closed daily cash for ${targetDate.toDateString()} with closing balance ${finalRunningBalance}${integrityWarning ? ' [INTEGRITY WARNING]' : ''}`,
       req,
     });
+
+    const responseData = { ...finalMetrics, integrityWarning: integrityWarning || null };
 
     return res
       .status(200)
       .json(
         new ApiResponse(
           200,
-          finalMetrics,
-          `Daily cash for ${targetDate.toDateString()} closed successfully with a closing balance of ${finalRunningBalance}.`,
+          responseData,
+          integrityWarning
+            ? `Daily cash closed, but an integrity warning was detected. ${integrityWarning}`
+            : `Daily cash for ${targetDate.toDateString()} closed successfully with a closing balance of ${finalRunningBalance}.`,
         ),
       );
   } catch (error) {

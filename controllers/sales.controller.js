@@ -1208,6 +1208,45 @@ async function deleteSale(req, res, next) {
       }
     }
 
+    // Reverse expense transactions for costs
+    if (saleToDelete.costs && saleToDelete.costs.length > 0) {
+      for (const cost of saleToDelete.costs) {
+        if (cost.accountId) {
+          const costAccount = await Account.findById(cost.accountId).session(session);
+          if (costAccount) {
+            // Return cost amount back to the account
+            costAccount.balance = mathUtil.add(costAccount.balance, cost.amount);
+            await costAccount.save({ session });
+
+            // Create reversal transaction
+            await Transaction.create(
+              [
+                {
+                  name: "Sale Cost Deletion Reversal",
+                  accountId: cost.accountId,
+                  date: now(),
+                  description: `Reversal of cost '${cost.name}' for Deleted Sale ID: ${saleToDelete.saleId} (Customer: ${saleToDelete.customer?.name}). Account: ${formatAccountLabel(costAccount)}`,
+                  transactionType: "Income",
+                  amount: cost.amount,
+                  source: "Auto",
+                  category: "Sales Expense Reversal",
+                  paymentMethod: cost.paymentMethod,
+                  reference: saleToDelete._id,
+                  referenceModel: "Sale",
+                  miscReference: {
+                    saleId: saleToDelete.saleId,
+                    costName: cost.name,
+                    costAmount: cost.amount,
+                  },
+                },
+              ],
+              { session },
+            );
+          }
+        }
+      }
+    }
+
     // Reverse Overpayment (Credit) if exists
     // If the sale resulted in an overpayment that was credited to the wallet, we must reverse it.
     if (saleToDelete.customer?.customerId) {
@@ -2343,6 +2382,7 @@ async function cancelSale(req, res, next) {
           await Transaction.create(
             [
               {
+                name: "Sale Cost Cancellation Reversal",
                 accountId: cost.accountId,
                 date: now(),
                 description: `Reversal of cost for cancelled Sale ID: ${saleToCancel.saleId} - ${cost.name}`,
@@ -2350,6 +2390,7 @@ async function cancelSale(req, res, next) {
                 amount: cost.amount,
                 source: "Auto",
                 category: "Sales Expense Reversal",
+                paymentMethod: cost.paymentMethod,
                 reference: saleToCancel._id,
                 referenceModel: "Sale",
                 miscReference: {

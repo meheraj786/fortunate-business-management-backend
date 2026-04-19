@@ -316,6 +316,51 @@ const restoreFromTrash = async (req, res, next) => {
           );
         }
       }
+
+      // 🔹 Restore costs (re-deduct cost amounts from accounts)
+      if (restoredDoc.costs && restoredDoc.costs.length > 0) {
+        for (const cost of restoredDoc.costs) {
+          if (cost.accountId && cost.amount > 0) {
+            const costAccount = await Account.findById(cost.accountId).session(session);
+            if (!costAccount) {
+              throw new ApiError(404, `Account for cost '${cost.name}' not found. Cannot restore sale.`);
+            }
+            if (costAccount.balance < cost.amount) {
+              throw new ApiError(
+                400,
+                `Insufficient balance in '${costAccount.accountName}' to restore cost '${cost.name}'. Available: ${costAccount.balance}, Required: ${cost.amount}`,
+              );
+            }
+
+            costAccount.balance = mathUtil.sub(costAccount.balance, cost.amount);
+            await costAccount.save({ session });
+
+            await Transaction.create(
+              [
+                {
+                  name: `Sale Cost Restored (Sale ID: ${restoredDoc.saleId})`,
+                  accountId: cost.accountId,
+                  date: now(),
+                  description: `Restored from Trash - Cost '${cost.name}' for Sale ID: ${restoredDoc.saleId} (Customer: ${restoredDoc.customer?.name}). Account: ${formatAccountLabel(costAccount)}`,
+                  transactionType: "Expense",
+                  amount: cost.amount,
+                  source: "Auto",
+                  category: "Sale Restoration",
+                  paymentMethod: cost.paymentMethod,
+                  reference: restoredDoc._id,
+                  referenceModel: "Sale",
+                  miscReference: {
+                    saleId: restoredDoc.saleId,
+                    costName: cost.name,
+                    costAmount: cost.amount,
+                  },
+                },
+              ],
+              { session },
+            );
+          }
+        }
+      }
     }
 
     /* =====================================================

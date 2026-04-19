@@ -925,15 +925,15 @@ async function deleteTransaction(req, res, next) {
     }
 
     // DailyCash Gatekeeper Check
-    const today = startOfDay(now(), req.businessTimezone);
+    const transactionDate = startOfDay(new Date(transaction.date), req.businessTimezone);
     const dailyCash = await DailyCash.findOne({
-      date: today,
+      date: transactionDate,
       status: "Open",
     }).session(session);
     if (!dailyCash) {
       throw new ApiError(
         400,
-        `Daily cash is closed for ${today.toDateString()}. Cannot delete transaction.`,
+        `Daily cash is closed for ${transactionDate.toDateString()}. Cannot delete transaction.`,
       );
     }
 
