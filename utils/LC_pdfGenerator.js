@@ -30,7 +30,7 @@ function fmt(amount, currency = "BDT") {
   if (amount === null || amount === undefined || isNaN(Number(amount))) return "N/A";
   const num = Number(amount);
   const symbols = {
-    USD: "$", BDT: "৳", EUR: "€", GBP: "£", INR: "₹",
+    USD: "$", BDT: "BDT", EUR: "€", GBP: "£", INR: "INR",
     JPY: "¥", CAD: "C$", AUD: "A$", CNY: "¥", AED: "AED", SAR: "SAR",
   };
   const symbol = symbols[currency] || currency;
