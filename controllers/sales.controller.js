@@ -2443,6 +2443,7 @@ async function getPaginatedSalesSummary(req, res, next) {
       search,
       sortBy,
       sortOrder = "desc", // default to descending order
+      warehouseId,
     } = req.query;
 
     const pageNum = parseInt(page);
@@ -2451,6 +2452,29 @@ async function getPaginatedSalesSummary(req, res, next) {
 
     // --- PIPELINE FOR FILTERING & SORTING & PAGINATION ---
     const pipeline = [];
+
+    // 0. Initial Match (RBAC and predefined native filters)
+    const initialMatch = { isDeleted: { $ne: true } };
+
+    if (invoiceStatus) initialMatch.invoiceStatus = invoiceStatus;
+    if (paymentStatus) initialMatch.paymentStatus = paymentStatus;
+
+    // Role-Based Access Control + Optional Warehouse filter
+    if (req.user && req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN") {
+      const allowedWarehouses = req.user.warehouse?.map(id => new mongoose.Types.ObjectId(id)) || [];
+      if (warehouseId) {
+        if (!req.user.warehouse?.map(String).includes(String(warehouseId))) {
+          return res.status(403).json({ message: "Access denied to this warehouse" });
+        }
+        initialMatch.warehouse = new mongoose.Types.ObjectId(warehouseId);
+      } else {
+        initialMatch.warehouse = { $in: allowedWarehouses };
+      }
+    } else if (warehouseId) {
+      initialMatch.warehouse = new mongoose.Types.ObjectId(warehouseId);
+    }
+
+    pipeline.push({ $match: initialMatch });
 
     // 1. Join Collections for Search/Sort Criteria
     pipeline.push({
@@ -2511,12 +2535,7 @@ async function getPaginatedSalesSummary(req, res, next) {
     });
 
     // 3. Match / Filter
-    const matchConditions = {
-      isDeleted: { $ne: true },
-    };
-
-    if (invoiceStatus) matchConditions.invoiceStatus = invoiceStatus;
-    if (paymentStatus) matchConditions.paymentStatus = paymentStatus;
+    const matchConditions = {};
 
     if (search) {
       const searchRegex = new RegExp(search, "i");
@@ -2531,7 +2550,9 @@ async function getPaginatedSalesSummary(req, res, next) {
       }
     }
 
-    pipeline.push({ $match: matchConditions });
+    if (Object.keys(matchConditions).length > 0) {
+      pipeline.push({ $match: matchConditions });
+    }
 
     // 4. Sort Configuration
     const sort = {};
