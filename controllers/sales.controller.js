@@ -963,7 +963,7 @@ async function updateSale(req, res, next) {
       const costsTotal = mathUtil.sum(sale.costs.map(c => c.amount));
       const chargesTotal = mathUtil.sum(sale.charges.map(c => c.amount));
       const prospectivePayments = updateData.payments || sale.payments;
-      const currentTotalPaid = mathUtil.sum(prospectivePayments.map(p => p.amount));
+      const currentTotalPaid = mathUtil.sum(prospectivePayments.filter(p => !p.isReversed).map(p => p.amount));
 
       await SalesService.checkCustomerCreditLimit(
         sale.customer.customerId,
@@ -1002,7 +1002,7 @@ async function updateSale(req, res, next) {
       );
       sale.payments = updateData.payments;
     }
-    const totalPaid = mathUtil.round(mathUtil.sum(sale.payments.map(p => p.amount)));
+    const totalPaid = mathUtil.round(mathUtil.sum(sale.payments.filter(p => !p.isReversed).map(p => p.amount)));
 
     // If the update reduces the total amount below what has already been paid, we prevent it.
     // The user must refund/remove payments first to lower the paid amount.
@@ -1639,7 +1639,7 @@ async function addPartialPayment(req, res, next) {
     }
 
     // Calculate current balance due before this payment
-    const currentTotalPaid = mathUtil.sum(sale.payments.map(p => p.amount));
+    const currentTotalPaid = mathUtil.sum(sale.payments.filter(p => !p.isReversed).map(p => p.amount));
     const currentBalanceDue = mathUtil.sub(sale.totalAmountToBePaid, currentTotalPaid);
 
     // Validate that payment + discount doesn't exceed balance due

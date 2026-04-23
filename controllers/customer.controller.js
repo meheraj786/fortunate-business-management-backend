@@ -610,7 +610,7 @@ async function deleteCustomer(req, res, next) {
 
     let outstandingDues = 0;
     sales.forEach((sale) => {
-      const totalPaid = sale.payments.reduce((acc, p) => acc + p.amount, 0);
+      const totalPaid = sale.payments.filter(p => !p.isReversed).reduce((acc, p) => acc + p.amount, 0);
       const due = sale.totalAmountToBePaid - totalPaid;
       if (due > 0) {
         outstandingDues += due;

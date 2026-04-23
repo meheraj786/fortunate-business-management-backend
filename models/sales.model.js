@@ -220,7 +220,7 @@ salesSchema.pre("validate", function (next) {
 salesSchema.pre("save", function (next) {
   if (this.invoiceStatus === "Invoiced") {
     const totalPaid = this.payments.reduce(
-      (acc, payment) => mathUtil.add(acc, payment.amount),
+      (acc, payment) => payment.isReversed ? acc : mathUtil.add(acc, payment.amount),
       0,
     );
     // Fix floating point precision issues (e.g. 179.2 vs 179.20000000000002)
