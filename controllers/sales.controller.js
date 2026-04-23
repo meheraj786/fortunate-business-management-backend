@@ -811,7 +811,7 @@ async function updateSale(req, res, next) {
       }
     }
 
-    // 1.6 Granular Permission Check — SALE_ITEM_ADD / SALE_ITEM_DELETE
+    // 1.6 Granular Permission Check — SALE_ITEM_ADD / SALE_ITEM_UPDATE / SALE_ITEM_DELETE
     if (updateData.items && !isInvoiced && !isCancelled) {
       const isAdmin = req.user.roleName === 'ADMIN' || req.user.roleName === 'SUPER_ADMIN';
       let userPermissions;
@@ -833,8 +833,36 @@ async function updateSale(req, res, next) {
       const hasRemovedItems = (sale.items || []).length > updateData.items.length ||
         [...oldProductIds].some(id => !newProductIds.has(id));
 
+      // Detect modifications to existing items (quantity, price, unit, remark changes)
+      let hasModifiedItems = false;
+      if (!hasNewItems && !hasRemovedItems) {
+        // Build signature maps for comparison (product -> full signature)
+        const oldSigMap = {};
+        for (const i of (sale.items || [])) {
+          const pid = (typeof i.product === 'object' ? i.product._id : i.product).toString();
+          const uid = (typeof i.unit === 'object' ? i.unit._id : i.unit)?.toString() || '';
+          oldSigMap[pid] = `${i.quantity}:${i.pricePerUnit}:${uid}:${i.remark || ''}`;
+        }
+        for (const i of (updateData.items || [])) {
+          const pid = (i.productId || i.product?._id || i.product).toString();
+          const uid = (i.unit?._id || i.unit)?.toString() || '';
+          const newSig = `${parseFloat(i.quantity)}:${parseFloat(i.pricePerUnit)}:${uid}:${i.remark || ''}`;
+          if (oldSigMap[pid] && oldSigMap[pid] !== newSig) {
+            hasModifiedItems = true;
+            break;
+          }
+        }
+      } else {
+        // If items were added or removed, there are likely modifications too
+        // but we only need the specific SALE_ITEM_UPDATE check when items count is the same
+        // and only existing items changed. Add/Delete permissions already cover those cases.
+      }
+
       if (hasNewItems && !isAdmin && !userPermissions.has(PERMISSIONS.SALE_ITEM_ADD)) {
         throw new ApiError(403, "You don't have permission to add items to a sale.");
+      }
+      if (hasModifiedItems && !isAdmin && !userPermissions.has(PERMISSIONS.SALE_ITEM_UPDATE)) {
+        throw new ApiError(403, "You don't have permission to edit/update items in a sale.");
       }
       if (hasRemovedItems && !isAdmin && !userPermissions.has(PERMISSIONS.SALE_ITEM_DELETE)) {
         throw new ApiError(403, "You don't have permission to remove items from a sale.");
