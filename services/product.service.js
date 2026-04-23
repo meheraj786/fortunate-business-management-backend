@@ -487,6 +487,40 @@ const getProductWithStatsById = async (productId, warehouseId) => {
     { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
     { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
 
+    // Populate transfer lineage (for products created via partial transfer)
+    {
+      $lookup: {
+        from: "products",
+        let: { transferredFromId: "$transferredFrom" },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ["$_id", "$$transferredFromId"] },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              warehouse: 1,
+            },
+          },
+        ],
+        as: "transferredFromProduct",
+      },
+    },
+    { $unwind: { path: "$transferredFromProduct", preserveNullAndEmptyArrays: true } },
+    // Populate the warehouse name for the transferred-from product
+    {
+      $lookup: {
+        from: "warehouses",
+        localField: "transferredFromProduct.warehouse",
+        foreignField: "_id",
+        as: "transferredFromWarehouse",
+      },
+    },
+    { $unwind: { path: "$transferredFromWarehouse", preserveNullAndEmptyArrays: true } },
+
     // Calculate Sales Stats
     {
       $lookup: {
@@ -513,6 +547,7 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         totalInGrams: {
           $ifNull: [{ $multiply: ["$quantity", "$unit.conversionFactor"] }, 0],
         },
+        // --- Total stats (across ALL warehouses) ---
         totalUnitsSold: { $sum: "$sales.items.quantity" },
         totalRevenue: {
           $sum: {
@@ -543,6 +578,37 @@ const getProductWithStatsById = async (productId, warehouseId) => {
               input: "$sales",
               as: "sale",
               cond: { $eq: ["$$sale.invoiceStatus", "Not-invoiced"] },
+            },
+          },
+        },
+        // --- Current warehouse stats (filtered by product's current warehouse) ---
+        currentWarehouseUnitsSold: {
+          $sum: {
+            $map: {
+              input: {
+                $filter: {
+                  input: "$sales",
+                  as: "s",
+                  cond: { $eq: ["$$s.warehouse", new mongoose.Types.ObjectId(warehouseId)] },
+                },
+              },
+              as: "ws",
+              in: "$$ws.items.quantity",
+            },
+          },
+        },
+        currentWarehouseRevenue: {
+          $sum: {
+            $map: {
+              input: {
+                $filter: {
+                  input: "$sales",
+                  as: "s",
+                  cond: { $eq: ["$$s.warehouse", new mongoose.Types.ObjectId(warehouseId)] },
+                },
+              },
+              as: "ws",
+              in: { $multiply: ["$$ws.items.quantity", "$$ws.items.pricePerUnit"] },
             },
           },
         },
@@ -581,6 +647,8 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         totalRevenue: 1,
         totalDueInvoices: 1,
         totalNotInvoiced: 1,
+        currentWarehouseUnitsSold: 1,
+        currentWarehouseRevenue: 1,
         stockStatus: 1,
         lotClosed: 1,
         lotClosedQuantity: 1,
@@ -616,6 +684,24 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         updatedAt: 1,
         createdBy: { name: "$createdBy.name", email: "$createdBy.email" },
         modifiedBy: { name: "$modifiedBy.name", email: "$modifiedBy.email" },
+        // Transfer lineage fields
+        transferredFrom: {
+          $cond: {
+            if: "$transferredFromProduct._id",
+            then: {
+              _id: "$transferredFromProduct._id",
+              name: "$transferredFromProduct.name",
+              warehouse: {
+                _id: "$transferredFromWarehouse._id",
+                name: "$transferredFromWarehouse.name",
+              },
+            },
+            else: null,
+          },
+        },
+        transferredAt: 1,
+        transferredBy: 1,
+        transferNotes: 1,
       },
     },
   ];
@@ -691,7 +777,7 @@ const getProductsForSale = async (warehouseId, categoryId, searchQuery) => {
 
   const products = await Product.find(query)
     .populate("unit", "name conversionFactor type")
-    .select("name quantity unitPrice unit")
+    .select("name quantity unitPrice unit transferredFrom transferredAt")
     .sort({ name: 1 })
     .limit(500);
 
@@ -717,6 +803,7 @@ const getProductSalesHistory = async (warehouseId, productId, queryParams) => {
     .populate("customer.customerId", "name phone")
     .populate("items.product", "name")
     .populate("items.unit", "name")
+    .populate("warehouse", "name")
     .sort({ saleDate: -1 })
     .limit(Number(limit))
     .skip(skip);

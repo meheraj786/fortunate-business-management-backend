@@ -62,6 +62,26 @@ const productSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    // Transfer Lineage — populated only on products created via partial transfer
+    transferredFrom: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+      default: null,
+    },
+    transferredAt: {
+      type: Date,
+      default: null,
+    },
+    transferredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    transferNotes: {
+      type: String,
+      trim: true,
+      default: null,
+    },
   },
   { timestamps: true, optimisticConcurrency: true },
 );

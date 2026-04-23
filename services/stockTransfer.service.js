@@ -3,6 +3,7 @@ const Product = require("../models/product.model");
 const Warehouse = require("../models/warehouse.model");
 const { ApiError } = require("../utils/ApiError");
 const auditService = require("./audit.service");
+const mathUtil = require("../utils/math.util");
 
 /**
  * Stock Transfer Service
@@ -77,6 +78,9 @@ const transferStock = async ({
       throw new ApiError(400, "Cannot transfer a product with zero stock.");
     }
 
+    // Capture original quantity BEFORE any mutation for accurate audit logging
+    const originalQuantity = sourceProduct.quantity;
+
     // 2. Validate warehouses exist
     const [sourceWarehouse, destinationWarehouse] = await Promise.all([
       Warehouse.findOne({ _id: sourceWarehouseId, isDeleted: { $ne: true } }).session(session),
@@ -109,6 +113,8 @@ const transferStock = async ({
         sourceWarehouse,
         destinationWarehouse,
         quantity,
+        userId,
+        notes,
         session,
       });
     }
@@ -120,7 +126,7 @@ const transferStock = async ({
     // 5. Audit Log (fire-and-forget, outside transaction)
     const auditDescription =
       transferType === "full"
-        ? `Full transfer of product "${sourceProduct.name}" (${sourceProduct.quantity} ${result.unitName || "units"}) from "${sourceWarehouse.name}" to "${destinationWarehouse.name}"`
+        ? `Full transfer of product "${sourceProduct.name}" (${originalQuantity} ${result.unitName || "units"}) from "${sourceWarehouse.name}" to "${destinationWarehouse.name}"`
         : `Partial transfer of ${quantity} ${result.unitName || "units"} of "${sourceProduct.name}" from "${sourceWarehouse.name}" to "${destinationWarehouse.name}"`;
 
     auditService.log({
@@ -132,12 +138,12 @@ const transferStock = async ({
       changes: {
         before: {
           warehouse: sourceWarehouse.name,
-          quantity: transferType === "full" ? sourceProduct.quantity : sourceProduct.quantity,
+          quantity: originalQuantity,
         },
         after: {
-          warehouse: destinationWarehouse.name,
-          quantity: transferType === "full" ? sourceProduct.quantity : quantity,
-          sourceRemainingQuantity: transferType === "partial" ? result.sourceProduct.quantity : 0,
+          warehouse: transferType === "full" ? destinationWarehouse.name : sourceWarehouse.name,
+          quantity: transferType === "full" ? originalQuantity : result.sourceProduct.quantity,
+          ...(transferType === "partial" ? { transferredQuantity: quantity } : {}),
         },
       },
       metadata: {
@@ -146,7 +152,7 @@ const transferStock = async ({
         destinationWarehouseId,
         sourceWarehouseName: sourceWarehouse.name,
         destinationWarehouseName: destinationWarehouse.name,
-        transferredQuantity: transferType === "full" ? sourceProduct.quantity : quantity,
+        transferredQuantity: transferType === "full" ? originalQuantity : quantity,
         notes: notes || null,
         ...(result.destinationProduct
           ? { newProductId: result.destinationProduct._id }
@@ -163,7 +169,11 @@ const transferStock = async ({
       destinationWarehouse: { _id: destinationWarehouse._id, name: destinationWarehouse.name },
     };
   } catch (error) {
-    await session.abortTransaction();
+    try {
+      await session.abortTransaction();
+    } catch (_abortErr) {
+      // Ignore — transaction may not have been started or already committed
+    }
     session.endSession();
     throw error;
   }
@@ -211,23 +221,31 @@ async function executeFullTransfer({
 
 /**
  * Executes a partial transfer — creates a new product in destination with the transferred quantity.
+ * The new product carries lineage metadata (transferredFrom, transferredAt, etc.)
+ * to maintain traceability back to the source product.
  */
 async function executePartialTransfer({
   sourceProduct,
   sourceWarehouse,
   destinationWarehouse,
   quantity,
+  userId,
+  notes,
   session,
 }) {
-  // 1. Atomically deduct quantity from source product (with guard)
+  // 1. Atomically deduct quantity from source product using precise math
+  //    We use findOneAndUpdate with $inc for atomicity (prevents going negative),
+  //    but the quantity value is validated through mathUtil first.
+  const deductQuantity = mathUtil.round(quantity, 6);
+
   const updatedSource = await Product.findOneAndUpdate(
     {
       _id: sourceProduct._id,
       isDeleted: { $ne: true },
-      quantity: { $gte: quantity }, // Atomic guard — prevents going negative
+      quantity: { $gte: deductQuantity }, // Atomic guard — prevents going negative
     },
     {
-      $inc: { quantity: -quantity },
+      $inc: { quantity: -deductQuantity },
     },
     { new: true, session },
   );
@@ -240,6 +258,7 @@ async function executePartialTransfer({
   }
 
   // 2. Create new product in destination warehouse with transferred quantity
+  //    Includes lineage tracking for traceability back to the source product.
   const newProductData = {
     name: sourceProduct.name,
     productDescription: sourceProduct.productDescription,
@@ -251,10 +270,16 @@ async function executePartialTransfer({
     length: sourceProduct.length,
     color: sourceProduct.color,
     grade: sourceProduct.grade,
-    quantity: quantity,
+    quantity: mathUtil.round(quantity, 6),
     unit: sourceProduct.unit,
     unitPrice: sourceProduct.unitPrice,
     warehouse: destinationWarehouse._id,
+    // Lineage tracking — so we can trace this product back to its origin
+    createdBy: userId || null,
+    transferredFrom: sourceProduct._id,
+    transferredAt: new Date(),
+    transferredBy: userId || null,
+    transferNotes: notes || null,
   };
 
   // Remove undefined fields to avoid Mongoose validation issues
