@@ -116,10 +116,9 @@ async function getPreparedInvoiceData(invoiceId) {
   }
 
   // Calculate financial totals
-  const totalPayments = invoice.paymentAndAmountInfo.payments.reduce(
-    (sum, p) => sum + p.amount,
-    0,
-  );
+  const totalPayments = invoice.paymentAndAmountInfo.payments
+    .filter(p => !p.isReversed)
+    .reduce((sum, p) => sum + p.amount, 0);
 
   let balanceDue =
     invoice.paymentAndAmountInfo.totalAmountToBePaid - totalPayments;

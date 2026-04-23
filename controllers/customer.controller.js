@@ -866,7 +866,13 @@ async function getCustomersSummary(req, res, next) {
               in: {
                 $subtract: [
                   "$$dueSale.totalAmountToBePaid",
-                  { $sum: "$$dueSale.payments.amount" },
+                  { $sum: {
+                    $map: {
+                      input: { $filter: { input: "$$dueSale.payments", as: "p", cond: { $ne: ["$$p.isReversed", true] } } },
+                      as: "ap",
+                      in: "$$ap.amount"
+                    }
+                  }},
                 ],
               },
             },
@@ -1077,7 +1083,13 @@ async function getDueCustomers(req, res, next) {
               in: {
                 $subtract: [
                   "$$dueSale.totalAmountToBePaid",
-                  { $sum: "$$dueSale.payments.amount" },
+                  { $sum: {
+                    $map: {
+                      input: { $filter: { input: "$$dueSale.payments", as: "p", cond: { $ne: ["$$p.isReversed", true] } } },
+                      as: "ap",
+                      in: "$$ap.amount"
+                    }
+                  }},
                 ],
               },
             },

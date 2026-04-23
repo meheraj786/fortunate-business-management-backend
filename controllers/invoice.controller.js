@@ -103,9 +103,13 @@ async function generateInvoice(req, res, next) {
         return sortAndStringify(arrA) === sortAndStringify(arrB);
       };
 
+      // Filter out reversed payments for comparison — reversed payments are
+      // kept in the sale for audit, but should not appear on new invoices
+      const activePayments = sale.payments.filter(p => !p.isReversed);
+
       if (
         areFinancialArraysEqual(
-          sale.payments,
+          activePayments,
           latestInvoice.paymentAndAmountInfo.payments,
         ) &&
         areFinancialArraysEqual(
@@ -160,8 +164,10 @@ async function generateInvoice(req, res, next) {
     }
 
     const paymentsArray = sale.payments || [];
+    // Only include active (non-reversed) payments in the invoice snapshot
+    const activePaymentsArray = paymentsArray.filter(p => !p.isReversed);
 
-    const transformedPayments = paymentsArray.map((p) => {
+    const transformedPayments = activePaymentsArray.map((p) => {
       const paymentObject = p.toObject ? p.toObject() : p;
       return {
         ...paymentObject,
@@ -171,7 +177,7 @@ async function generateInvoice(req, res, next) {
       };
     });
 
-    const paymentsMade = paymentsArray.reduce(
+    const paymentsMade = activePaymentsArray.reduce(
       (acc, payment) => acc + (payment.amount || 0),
       0,
     );
@@ -527,7 +533,13 @@ async function getInvoicesBySaleId(req, res, next) {
               {
                 $subtract: [
                   "$paymentAndAmountInfo.totalAmountToBePaid",
-                  { $sum: "$paymentAndAmountInfo.payments.amount" },
+                  { $sum: {
+                    $map: {
+                      input: { $filter: { input: "$paymentAndAmountInfo.payments", as: "p", cond: { $ne: ["$$p.isReversed", true] } } },
+                      as: "ap",
+                      in: "$$ap.amount"
+                    }
+                  }},
                 ],
               },
             ],

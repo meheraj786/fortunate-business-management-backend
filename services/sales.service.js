@@ -237,7 +237,16 @@ exports.checkCustomerCreditLimit = async (
           _id: null,
           totalDue: {
             $sum: {
-              $subtract: ["$totalAmountToBePaid", { $sum: "$payments.amount" }],
+              $subtract: [
+                "$totalAmountToBePaid",
+                { $sum: {
+                  $map: {
+                    input: { $filter: { input: "$payments", as: "p", cond: { $ne: ["$$p.isReversed", true] } } },
+                    as: "ap",
+                    in: "$$ap.amount"
+                  }
+                }},
+              ],
             },
           },
         },
