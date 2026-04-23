@@ -1,3 +1,8 @@
+// Fix DNS: system DNS is 127.0.0.1 which fails in Node.js
+// Must be set BEFORE any module that does DNS lookups
+const dns = require("dns");
+dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]);
+
 // Set the default timezone for the application
 process.env.TZ = "Asia/Dhaka";
 
