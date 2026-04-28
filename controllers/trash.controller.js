@@ -390,6 +390,7 @@ const restoreFromTrash = async (req, res, next) => {
         restoredDoc.shippingCustomsInfo,
         restoredDoc.agentTransportInfo,
         restoredDoc.otherExpenses,
+        restoredDoc.documentProductInfo,
       ];
 
       for (const section of sections) {

@@ -292,6 +292,7 @@ async function _handleLCCostTransaction(cost, lc, session, timezone) {
   // 1. DailyCash Gatekeeper Check
   const costDate = cost.date || now();
   const costDateNormalized = startOfDay(new Date(costDate), timezone);
+  const today = startOfDay(now(), timezone);
 
   const openSession = await DailyCash.findOne({
     date: costDateNormalized,
@@ -303,6 +304,22 @@ async function _handleLCCostTransaction(cost, lc, session, timezone) {
       400,
       `Daily cash is closed for ${costDateNormalized.toDateString()}. Cannot record LC cost.`,
     );
+  }
+
+  // H3 FIX: Also verify today's DailyCash is open (consistent with _reconcileLCCosts).
+  // This prevents backdating a cost to an open date while the current day is closed.
+  if (costDateNormalized.getTime() !== today.getTime()) {
+    const todayOpen = await DailyCash.findOne({
+      date: today,
+      status: "Open",
+      isDeleted: false,
+    }).session(session);
+    if (!todayOpen) {
+      throw new ApiError(
+        400,
+        `Daily cash is closed for today (${today.toDateString()}). Cannot record LC cost.`,
+      );
+    }
   }
 
   // 2. Find account and update balance
@@ -815,6 +832,11 @@ async function deleteLC(req, res, next) {
                   },
                 ],
                 { session },
+              );
+            } else {
+              // M3 FIX: Log when reversal is skipped due to missing account
+              logger.warn(
+                `[LC Delete] Account ${cost.accountId} not found during deletion reversal of cost "${cost.name}" (amount: ${cost.amount}) for LC ${deletedLC.basicInfo.lcNumber}. Reversal skipped — money may be lost.`,
               );
             }
           }
@@ -1562,10 +1584,27 @@ async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
     const originalCosts = originalLC[section]?.costs || [];
     const newCosts = updateData[section].costs;
 
+    // C2 FIX: Validate incoming cost _id integrity.
+    // Reject any incoming cost that claims an _id not present in the original document.
+    // This prevents a manipulated request from injecting fake _ids to bypass reconciliation.
+    for (const nc of newCosts) {
+      if (nc._id) {
+        const existsInOriginal = originalCosts.some(
+          (oc) => oc._id.toString() === nc._id.toString(),
+        );
+        if (!existsInOriginal) {
+          throw new ApiError(
+            400,
+            `Cost "${nc.name || "Unknown"}" references an invalid ID. The cost may have been modified outside this form. Please reload and try again.`,
+          );
+        }
+      }
+    }
+
     // A. Detect Deleted or Modify-requiring Costs (Present in Original but missing or changed in New)
     for (const oldCost of originalCosts) {
       // Only care about costs that had financial impact
-      if (!oldCost.accountId || !oldCost.amount) continue;
+      if (!oldCost.accountId || !oldCost.amount || oldCost.amount <= 0) continue;
 
       const matchingNewCost = newCosts.find(
         (nc) => nc._id && nc._id.toString() === oldCost._id.toString(),
@@ -1605,13 +1644,23 @@ async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
                 miscReference: {
                   lcNumber: originalLC.basicInfo.lcNumber,
                   costName: oldCost.name,
+                  costAmount: oldCost.amount,
                   costAmountUsd: oldCost.amountUsd || null,
                   costExchangeRate: oldCost.costExchangeRate || null,
+                  paymentMethod: oldCost.paymentMethod,
+                  accountId: oldCost.accountId,
                   modificationType: "Update/Delete",
+                  isReconciliation: true,
                 },
               },
             ],
             { session },
+          );
+        } else {
+          // M3 FIX: Log warning when reversal cannot be performed due to missing account.
+          // The cost's financial impact is silently lost — this must be visible in logs.
+          logger.warn(
+            `[LC Reconcile] Account ${oldCost.accountId} not found during reversal of cost "${oldCost.name}" (amount: ${oldCost.amount}) for LC ${originalLC.basicInfo.lcNumber}. Reversal skipped — account balance may be incorrect.`,
           );
         }
       }
@@ -1673,6 +1722,7 @@ async function _reconcileLCCosts(originalLC, updateData, session, timezone) {
                 costAmountUsd: newCost.amountUsd || null,
                 costExchangeRate: newCost.costExchangeRate || null,
                 modificationType: isNew ? "Create" : "Update",
+                isReconciliation: !isNew,
               },
             },
           ],
@@ -1730,6 +1780,9 @@ async function getActiveLcs(req, res, next) {
  * (e.g., can't set Active if supplier/financial fields are missing).
  */
 async function updateLCStatus(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -1739,13 +1792,15 @@ async function updateLCStatus(req, res, next) {
       throw new ApiError(400, `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}`);
     }
 
-    const lc = await LC.findById(id);
+    const lc = await LC.findById(id).session(session);
     if (!lc || lc.isDeleted) {
       throw new ApiError(404, "LC not found");
     }
 
     const oldStatus = lc.basicInfo.status;
     if (oldStatus === status) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(200).json(new ApiResponse(200, lc, "Status is already up to date."));
     }
 
@@ -1771,7 +1826,10 @@ async function updateLCStatus(req, res, next) {
 
     lc.basicInfo.status = status;
     lc.modifiedBy = req.user?._id || null;
-    await lc.save();
+    await lc.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
 
     // Audit: LC status changed
     auditService.log({
@@ -1789,6 +1847,9 @@ async function updateLCStatus(req, res, next) {
       .status(200)
       .json(new ApiResponse(200, lc, `LC status updated to "${status}" successfully.`));
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
     if (error instanceof ApiError) {
       return next(error);
     }
