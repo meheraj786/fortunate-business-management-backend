@@ -246,33 +246,70 @@ const restoreFromTrash = async (req, res, next) => {
           );
           if (!account) continue;
 
-          account.balance = mathUtil.add(account.balance, payment.amount);
-          await account.save({ session });
+          if (payment.method === "Cash") {
+            // Direct Cash restore — single transaction
+            account.balance = mathUtil.add(account.balance, payment.amount);
+            await account.save({ session });
 
-          await Transaction.create(
-            [
-              {
-                name: `Sale Payment Restored (Sale ID: ${restoredDoc.saleId})`,
-                accountId: payment.accountId,
-                date: now(),
-                description: `Restored from Trash - Payment for Sale ID: ${restoredDoc.saleId} (Customer: ${restoredDoc.customer?.name}) via ${payment.method} (Payment ${index + 1} of ${totalPayments}). Account: ${formatAccountLabel(account)}`,
-                transactionType: "Income",
-                amount: payment.amount,
-                source: "Auto",
-                category: "Sale Restoration",
-                paymentMethod: payment.method,
-                reference: restoredDoc._id,
-                referenceModel: "Sale",
-                miscReference: {
-                  saleId: restoredDoc.saleId,
-                  customerName: restoredDoc.customer?.name,
-                  paymentId: payment._id,
-                  paymentIndex: index,
+            await Transaction.create(
+              [
+                {
+                  name: `Sale Payment Restored (Sale ID: ${restoredDoc.saleId})`,
+                  accountId: payment.accountId,
+                  date: now(),
+                  description: `Restored from Trash - Payment for Sale ID: ${restoredDoc.saleId} (Customer: ${restoredDoc.customer?.name}) via Cash (Payment ${index + 1} of ${totalPayments}). Account: ${formatAccountLabel(account)}`,
+                  transactionType: "Income",
+                  amount: payment.amount,
+                  source: "Auto",
+                  category: "Sale Restoration",
+                  paymentMethod: "Cash",
+                  reference: restoredDoc._id,
+                  referenceModel: "Sale",
+                  miscReference: {
+                    saleId: restoredDoc.saleId,
+                    customerName: restoredDoc.customer?.name,
+                    paymentId: payment._id,
+                    paymentIndex: index,
+                  },
                 },
+              ],
+              { session },
+            );
+          } else {
+            // Bank / Mobile Banking — cash pass-through (3 transactions)
+            const cashAccount = await Account.findOne({ accountType: "Cash" }).session(session);
+            if (!cashAccount) {
+              throw new ApiError(400, "No active Cash account found. Required for restoring Bank/Mobile Banking payments.");
+            }
+
+            account.balance = mathUtil.add(account.balance, payment.amount);
+            await account.save({ session });
+
+            const restoreDate = now();
+            await Transaction.create([
+              {
+                accountId: cashAccount._id, date: restoreDate,
+                description: `Restored from Trash - Payment received for Sale ${restoredDoc.saleId} via ${payment.method} — routed through Cash.`,
+                transactionType: "Income", amount: payment.amount, name: "Sale Payment Restored", source: "Auto",
+                category: "Sale Restoration", paymentMethod: "Cash", reference: restoredDoc._id, referenceModel: "Sale",
+                miscReference: { saleId: restoredDoc.saleId, customerName: restoredDoc.customer?.name, isCashPassThrough: true, passThroughLeg: "cash-in" },
               },
-            ],
-            { session },
-          );
+              {
+                accountId: cashAccount._id, date: restoreDate,
+                description: `Restored from Trash - Transfer to ${payment.method} (${formatAccountLabel(account)}) for Sale ${restoredDoc.saleId}.`,
+                transactionType: "Expense", amount: payment.amount, name: `Cash to ${payment.method} Transfer`, source: "Auto",
+                category: "Internal Transfer", paymentMethod: "Cash", reference: restoredDoc._id, referenceModel: "Sale",
+                miscReference: { saleId: restoredDoc.saleId, customerName: restoredDoc.customer?.name, isCashPassThrough: true, passThroughLeg: "cash-out" },
+              },
+              {
+                accountId: account._id, date: restoreDate,
+                description: `Restored from Trash - Payment for Sale ${restoredDoc.saleId} deposited from Cash via ${payment.method}. Account: ${formatAccountLabel(account)}`,
+                transactionType: "Income", amount: payment.amount, name: "Sale Payment Restored", source: "Auto",
+                category: "Sale Restoration", paymentMethod: payment.method, reference: restoredDoc._id, referenceModel: "Sale",
+                miscReference: { saleId: restoredDoc.saleId, customerName: restoredDoc.customer?.name, isCashPassThrough: true, passThroughLeg: "bank-in" },
+              },
+            ], { session });
+          }
         }
         // Handle Customer Credit
         else if (payment.method === "Customer Credit") {

@@ -18,6 +18,88 @@ const mathUtil = require("../utils/math.util");
 const auditService = require("../services/audit.service");
 const { PERMISSIONS } = require("../utils/permissions.constants");
 
+/**
+ * Cash pass-through for Bank/Mobile Banking sales payments.
+ * Creates 3 transactions: Cash In, Cash Out (transfer), Bank/Mobile In.
+ * Updates ONLY the Bank/Mobile account balance (Cash is net-zero).
+ */
+async function _handleSalesPaymentWithPassThrough({
+  bankAccount, amount, paymentMethod, date, saleId, saleRef, customerName, session,
+}) {
+  const cashAccount = await Account.findOne({ accountType: "Cash" }).session(session);
+  if (!cashAccount) {
+    throw new ApiError(400, "No active Cash account found. Required for processing Bank/Mobile Banking payments through Daily Cash.");
+  }
+
+  bankAccount.balance = mathUtil.add(bankAccount.balance, amount);
+  await bankAccount.save({ session });
+
+  await Transaction.create([
+    {
+      accountId: cashAccount._id, date,
+      description: `Payment received for Sale ID: ${saleId} from ${customerName} via ${paymentMethod} — routed through Cash.`,
+      transactionType: "Income", amount, name: "Sales Payment", source: "Auto",
+      category: "Sales", paymentMethod: "Cash", reference: saleRef, referenceModel: "Sale",
+      miscReference: { saleId, customerName, paymentAmount: amount, paymentMethod, isCashPassThrough: true, passThroughLeg: "cash-in" },
+    },
+    {
+      accountId: cashAccount._id, date,
+      description: `Transfer to ${paymentMethod} (${formatAccountLabel(bankAccount)}) for Sale ${saleId}.`,
+      transactionType: "Expense", amount, name: `Cash to ${paymentMethod} Transfer`, source: "Auto",
+      category: "Internal Transfer", paymentMethod: "Cash", reference: saleRef, referenceModel: "Sale",
+      miscReference: { saleId, customerName, paymentAmount: amount, paymentMethod, isCashPassThrough: true, passThroughLeg: "cash-out", targetAccountId: bankAccount._id },
+    },
+    {
+      accountId: bankAccount._id, date,
+      description: `Payment for Sale ID: ${saleId} from ${customerName} deposited from Cash via ${paymentMethod}. Account: ${formatAccountLabel(bankAccount)}.`,
+      transactionType: "Income", amount, name: "Sales Payment", source: "Auto",
+      category: "Sales", paymentMethod, reference: saleRef, referenceModel: "Sale",
+      miscReference: { saleId, customerName, paymentAmount: amount, paymentMethod, isCashPassThrough: true, passThroughLeg: "bank-in" },
+    },
+  ], { session });
+}
+
+/**
+ * Reverse a cash pass-through for Bank/Mobile Banking sales payments.
+ * Creates 3 reversal transactions and decreases Bank/Mobile balance.
+ */
+async function _reverseSalesPaymentPassThrough({
+  bankAccount, amount, paymentMethod, saleId, saleRef, customerName, paymentId, session,
+}) {
+  const cashAccount = await Account.findOne({ accountType: "Cash" }).session(session);
+  if (!cashAccount) {
+    throw new ApiError(400, "No active Cash account found. Cannot reverse Bank/Mobile payment.");
+  }
+
+  bankAccount.balance = mathUtil.sub(bankAccount.balance, amount);
+  await bankAccount.save({ session });
+
+  const reversalDate = now();
+  await Transaction.create([
+    {
+      accountId: cashAccount._id, date: reversalDate,
+      description: `Reversed cash receipt for Sale ${saleId} (${paymentMethod} payment reversal).`,
+      transactionType: "Expense", amount, name: "Sales Payment Reversal", source: "Auto",
+      category: "Sales Reversal", paymentMethod: "Cash", reference: saleRef, referenceModel: "Sale",
+      miscReference: { saleId, customerName, reversedAmount: amount, paymentMethod, paymentId, isCashPassThrough: true, passThroughLeg: "reverse-cash-in" },
+    },
+    {
+      accountId: cashAccount._id, date: reversalDate,
+      description: `Reversed cash transfer for Sale ${saleId} (${paymentMethod} payment reversal).`,
+      transactionType: "Income", amount, name: "Sales Transfer Reversal", source: "Auto",
+      category: "Sales Reversal", paymentMethod: "Cash", reference: saleRef, referenceModel: "Sale",
+      miscReference: { saleId, customerName, reversedAmount: amount, paymentMethod, paymentId, isCashPassThrough: true, passThroughLeg: "reverse-cash-out" },
+    },
+    {
+      accountId: bankAccount._id, date: reversalDate,
+      description: `Reversed payment for Sale ID: ${saleId} (Customer: ${customerName}) via ${paymentMethod}. Account: ${formatAccountLabel(bankAccount)}.`,
+      transactionType: "Expense", amount, name: "Sales Payment Reversal", source: "Auto",
+      category: "Sales Reversal", paymentMethod, reference: saleRef, referenceModel: "Sale",
+      miscReference: { saleId, customerName, paymentId, reversedAmount: amount, reversedMethod: paymentMethod, isCashPassThrough: true, passThroughLeg: "reverse-bank-in" },
+    },
+  ], { session });
+}
+
 async function createSale(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -279,7 +361,7 @@ async function createSale(req, res, next) {
       } else if (
         ["Bank", "Mobile Banking", "Cash"].includes(payment.method)
       ) {
-        // Handle Real Money Payment (Cash/Bank)
+        // Handle Real Money Payment
         if (!payment.accountId) {
           throw new ApiError(
             400,
@@ -304,37 +386,51 @@ async function createSale(req, res, next) {
           );
         }
 
-        // Increase account balance (using precise math)
-        account.balance = mathUtil.add(account.balance, payment.amount);
-        await account.save({ session });
-
         // DailyCash Gatekeeper Check
         checkDailyCash(payment.date);
 
-        await Transaction.create(
-          [
-            {
-              accountId: account._id,
-              date: payment.date,
-              description: `Payment received for Sale ID: ${req.body.saleId} from ${finalCustomerInfo.name} via ${payment.method} Account: ${formatAccountLabel(account)}.`,
-              transactionType: "Income",
-              amount: payment.amount,
-              name: "Sales Payment",
-              source: "Auto",
-              category: "Sales",
-              paymentMethod: payment.method,
-              reference: sale._id,
-              referenceModel: "Sale",
-              miscReference: {
-                saleId: req.body.saleId,
-                customerName: finalCustomerInfo.name,
-                paymentAmount: payment.amount,
-                paymentMethod: payment.method,
+        if (payment.method === "Cash") {
+          // Direct Cash payment — single transaction
+          account.balance = mathUtil.add(account.balance, payment.amount);
+          await account.save({ session });
+
+          await Transaction.create(
+            [
+              {
+                accountId: account._id,
+                date: payment.date,
+                description: `Payment received for Sale ID: ${req.body.saleId} from ${finalCustomerInfo.name} via Cash Account: ${formatAccountLabel(account)}.`,
+                transactionType: "Income",
+                amount: payment.amount,
+                name: "Sales Payment",
+                source: "Auto",
+                category: "Sales",
+                paymentMethod: "Cash",
+                reference: sale._id,
+                referenceModel: "Sale",
+                miscReference: {
+                  saleId: req.body.saleId,
+                  customerName: finalCustomerInfo.name,
+                  paymentAmount: payment.amount,
+                  paymentMethod: "Cash",
+                },
               },
-            },
-          ],
-          { session },
-        );
+            ],
+            { session },
+          );
+        } else {
+          // Bank / Mobile Banking — cash pass-through (3 transactions)
+          await _handleSalesPaymentWithPassThrough({
+            bankAccount: account,
+            amount: payment.amount,
+            paymentMethod: payment.method,
+            date: payment.date,
+            saleId: req.body.saleId,
+            saleRef: sale._id,
+            customerName: finalCustomerInfo.name,
+            session,
+          });
+        }
       }
     }
 
@@ -1203,7 +1299,9 @@ async function deleteSale(req, res, next) {
               `Cannot delete sale because the associated account (ID: ${payment.accountId}) for payment is missing. Please restore the account first.`,
             );
           }
-          if (account) {
+
+          if (payment.method === "Cash") {
+            // Direct Cash reversal — single transaction
             account.balance = mathUtil.sub(account.balance, payment.amount);
             await account.save({ session });
 
@@ -1213,12 +1311,12 @@ async function deleteSale(req, res, next) {
                   name: "Sales Deletion Reversal",
                   accountId: payment.accountId,
                   date: now(),
-                  description: `Reversal for Deleted Sale ID: ${saleToDelete.saleId} (Customer: ${saleToDelete.customer?.name}) via ${payment.method} (Payment ${index + 1} of ${totalPayments}). Account: ${formatAccountLabel(account)}`,
+                  description: `Reversal for Deleted Sale ID: ${saleToDelete.saleId} (Customer: ${saleToDelete.customer?.name}) via Cash (Payment ${index + 1} of ${totalPayments}). Account: ${formatAccountLabel(account)}`,
                   transactionType: "Expense",
                   amount: payment.amount,
                   source: "Auto",
                   category: "Sales Reversal",
-                  paymentMethod: payment.method,
+                  paymentMethod: "Cash",
                   reference: saleToDelete._id,
                   referenceModel: "Sale",
                   miscReference: {
@@ -1231,6 +1329,18 @@ async function deleteSale(req, res, next) {
               ],
               { session },
             );
+          } else {
+            // Bank / Mobile Banking — reverse all 3 pass-through legs
+            await _reverseSalesPaymentPassThrough({
+              bankAccount: account,
+              amount: payment.amount,
+              paymentMethod: payment.method,
+              saleId: saleToDelete.saleId,
+              saleRef: saleToDelete._id,
+              customerName: saleToDelete.customer?.name || "Guest",
+              paymentId: payment._id,
+              session,
+            });
           }
         }
       }
@@ -1742,34 +1852,49 @@ async function addPartialPayment(req, res, next) {
           );
         }
 
-        account.balance = mathUtil.add(account.balance, parsedAmount);
-        await account.save({ session });
+        if (paymentMethod === "Cash") {
+          // Direct Cash payment — single transaction
+          account.balance = mathUtil.add(account.balance, parsedAmount);
+          await account.save({ session });
 
-        await Transaction.create(
-          [
-            {
-              accountId: accountId,
-              date,
-              description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via ${paymentMethod} Account: ${formatAccountLabel(account)}.${parsedDiscount > 0 ? ` (Discount given: ${parsedDiscount})` : ""}`,
-              transactionType: "Income",
-              amount: parsedAmount,
-              name: "Sales Partial Payment",
-              source: "Auto",
-              category: "Sales",
-              paymentMethod: paymentMethod,
-              reference: sale._id,
-              referenceModel: "Sale",
-              miscReference: {
-                saleId: sale.saleId,
-                customerName: sale.customer.name,
-                paymentAmount: parsedAmount,
-                paymentMethod: paymentMethod,
-                discountGiven: parsedDiscount,
+          await Transaction.create(
+            [
+              {
+                accountId: accountId,
+                date,
+                description: `Partial payment received for Sale ID: ${sale.saleId} from ${sale.customer.name} via Cash Account: ${formatAccountLabel(account)}.${parsedDiscount > 0 ? ` (Discount given: ${parsedDiscount})` : ""}`,
+                transactionType: "Income",
+                amount: parsedAmount,
+                name: "Sales Partial Payment",
+                source: "Auto",
+                category: "Sales",
+                paymentMethod: "Cash",
+                reference: sale._id,
+                referenceModel: "Sale",
+                miscReference: {
+                  saleId: sale.saleId,
+                  customerName: sale.customer.name,
+                  paymentAmount: parsedAmount,
+                  paymentMethod: "Cash",
+                  discountGiven: parsedDiscount,
+                },
               },
-            },
-          ],
-          { session },
-        );
+            ],
+            { session },
+          );
+        } else {
+          // Bank / Mobile Banking — cash pass-through (3 transactions)
+          await _handleSalesPaymentWithPassThrough({
+            bankAccount: account,
+            amount: parsedAmount,
+            paymentMethod,
+            date,
+            saleId: sale.saleId,
+            saleRef: sale._id,
+            customerName: sale.customer.name,
+            session,
+          });
+        }
       }
     } // End of parsedAmount > 0 block
 
@@ -1922,36 +2047,49 @@ async function reversePayment(req, res, next) {
           );
         }
 
-        // Decrease account balance
-        account.balance = mathUtil.sub(account.balance, payment.amount);
-        await account.save({ session });
+        if (payment.method === "Cash") {
+          // Direct Cash reversal — single transaction
+          account.balance = mathUtil.sub(account.balance, payment.amount);
+          await account.save({ session });
 
-        // Create reversal Transaction record
-        await Transaction.create(
-          [
-            {
-              name: "Sales Payment Reversal",
-              accountId: payment.accountId,
-              date: now(),
-              description: `Reversed payment for Sale ID: ${sale.saleId} (Customer: ${sale.customer?.name || "Guest"}) via ${payment.method}. Account: ${formatAccountLabel(account)}.`,
-              transactionType: "Expense",
-              amount: payment.amount,
-              source: "Auto",
-              category: "Sales Reversal",
-              paymentMethod: payment.method,
-              reference: sale._id,
-              referenceModel: "Sale",
-              miscReference: {
-                saleId: sale.saleId,
-                customerName: sale.customer?.name,
-                paymentId: payment._id,
-                reversedAmount: payment.amount,
-                reversedMethod: payment.method,
+          await Transaction.create(
+            [
+              {
+                name: "Sales Payment Reversal",
+                accountId: payment.accountId,
+                date: now(),
+                description: `Reversed payment for Sale ID: ${sale.saleId} (Customer: ${sale.customer?.name || "Guest"}) via Cash. Account: ${formatAccountLabel(account)}.`,
+                transactionType: "Expense",
+                amount: payment.amount,
+                source: "Auto",
+                category: "Sales Reversal",
+                paymentMethod: "Cash",
+                reference: sale._id,
+                referenceModel: "Sale",
+                miscReference: {
+                  saleId: sale.saleId,
+                  customerName: sale.customer?.name,
+                  paymentId: payment._id,
+                  reversedAmount: payment.amount,
+                  reversedMethod: "Cash",
+                },
               },
-            },
-          ],
-          { session }
-        );
+            ],
+            { session }
+          );
+        } else {
+          // Bank / Mobile Banking — reverse all 3 pass-through legs
+          await _reverseSalesPaymentPassThrough({
+            bankAccount: account,
+            amount: payment.amount,
+            paymentMethod: payment.method,
+            saleId: sale.saleId,
+            saleRef: sale._id,
+            customerName: sale.customer?.name || "Guest",
+            paymentId: payment._id,
+            session,
+          });
+        }
       }
     }
 
@@ -2365,7 +2503,10 @@ async function cancelSale(req, res, next) {
         const account = await Account.findById(payment.accountId).session(
           session,
         );
-        if (account) {
+        if (!account) {
+          logger.warn(`cancelSale: Account ${payment.accountId} not found for payment reversal on sale ${saleToCancel.saleId}. Skipping.`);
+        } else if (payment.method === "Cash") {
+          // Direct Cash reversal — single transaction
           account.balance = mathUtil.sub(account.balance, payment.amount);
           await account.save({ session });
 
@@ -2375,19 +2516,19 @@ async function cancelSale(req, res, next) {
                 name: "Sales Cancellation Reversal",
                 accountId: payment.accountId,
                 date: now(),
-                description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via ${payment.method} (Payment ${index + 1} of ${totalPayments}). Account: ${formatAccountLabel(account)}`,
-                transactionType: "Expense", // To reverse the Income
+                description: `Reversal of payment for cancelled Sale ID: ${saleToCancel.saleId} (Customer: ${saleToCancel.customer.name}) via Cash (Payment ${index + 1} of ${totalPayments}). Account: ${formatAccountLabel(account)}`,
+                transactionType: "Expense",
                 amount: payment.amount,
-                source: "Auto", // Auto generated reversal
+                source: "Auto",
                 category: "Sales Reversal (Cancelled)",
-                paymentMethod: payment.method,
+                paymentMethod: "Cash",
                 reference: saleToCancel._id,
                 referenceModel: "Sale",
                 miscReference: {
                   saleId: saleToCancel.saleId,
                   customerName: saleToCancel.customer.name,
                   originalPaymentAmount: payment.amount,
-                  originalPaymentMethod: payment.method,
+                  originalPaymentMethod: "Cash",
                   paymentId: payment._id,
                   paymentIndex: index,
                 },
@@ -2395,6 +2536,18 @@ async function cancelSale(req, res, next) {
             ],
             { session },
           );
+        } else {
+          // Bank / Mobile Banking — reverse all 3 pass-through legs
+          await _reverseSalesPaymentPassThrough({
+            bankAccount: account,
+            amount: payment.amount,
+            paymentMethod: payment.method,
+            saleId: saleToCancel.saleId,
+            saleRef: saleToCancel._id,
+            customerName: saleToCancel.customer?.name || "Guest",
+            paymentId: payment._id,
+            session,
+          });
         }
       }
     }
