@@ -308,7 +308,7 @@ const restoreFromTrash = async (req, res, next) => {
                 category: "Sale Restoration", paymentMethod: payment.method, reference: restoredDoc._id, referenceModel: "Sale",
                 miscReference: { saleId: restoredDoc.saleId, customerName: restoredDoc.customer?.name, isCashPassThrough: true, passThroughLeg: "bank-in" },
               },
-            ], { session });
+            ], { session, ordered: true });
           }
         }
         // Handle Customer Credit

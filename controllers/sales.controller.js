@@ -56,7 +56,7 @@ async function _handleSalesPaymentWithPassThrough({
       category: "Sales", paymentMethod, reference: saleRef, referenceModel: "Sale",
       miscReference: { saleId, customerName, paymentAmount: amount, paymentMethod, isCashPassThrough: true, passThroughLeg: "bank-in" },
     },
-  ], { session });
+  ], { session, ordered: true });
 }
 
 /**
@@ -97,7 +97,7 @@ async function _reverseSalesPaymentPassThrough({
       category: "Sales Reversal", paymentMethod, reference: saleRef, referenceModel: "Sale",
       miscReference: { saleId, customerName, paymentId, reversedAmount: amount, reversedMethod: paymentMethod, isCashPassThrough: true, passThroughLeg: "reverse-bank-in" },
     },
-  ], { session });
+  ], { session, ordered: true });
 }
 
 async function createSale(req, res, next) {
