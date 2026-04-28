@@ -1724,10 +1724,88 @@ async function getActiveLcs(req, res, next) {
   }
 }
 
+/**
+ * Lightweight endpoint to update only the LC status field.
+ * Validates that the LC meets all requirements for the target status
+ * (e.g., can't set Active if supplier/financial fields are missing).
+ */
+async function updateLCStatus(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const VALID_STATUSES = ["Draft", "Active", "Completed", "Cancelled"];
+    if (!status || !VALID_STATUSES.includes(status)) {
+      throw new ApiError(400, `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}`);
+    }
+
+    const lc = await LC.findById(id);
+    if (!lc || lc.isDeleted) {
+      throw new ApiError(404, "LC not found");
+    }
+
+    const oldStatus = lc.basicInfo.status;
+    if (oldStatus === status) {
+      return res.status(200).json(new ApiResponse(200, lc, "Status is already up to date."));
+    }
+
+    // For non-Draft/Cancelled target statuses, validate required fields exist
+    const isDraftTarget = status === "Draft" || status === "Cancelled";
+    if (!isDraftTarget) {
+      if (!lc.basicInfo.supplierName?.trim()) {
+        throw new ApiError(400, "Cannot set status to '" + status + "': Supplier Name is required. Please edit the LC first.");
+      }
+      if (!lc.basicInfo.supplierCountry?.trim()) {
+        throw new ApiError(400, "Cannot set status to '" + status + "': Supplier Country is required. Please edit the LC first.");
+      }
+      if (!lc.basicInfo.accountId) {
+        throw new ApiError(400, "Cannot set status to '" + status + "': Bank Account is required. Please edit the LC first.");
+      }
+      if (!lc.financialInfo?.lcAmountUsd || lc.financialInfo.lcAmountUsd <= 0) {
+        throw new ApiError(400, "Cannot set status to '" + status + "': LC Amount (USD) is required. Please edit the LC first.");
+      }
+      if (!lc.financialInfo?.exchangeRate || lc.financialInfo.exchangeRate <= 0) {
+        throw new ApiError(400, "Cannot set status to '" + status + "': Exchange Rate is required. Please edit the LC first.");
+      }
+    }
+
+    lc.basicInfo.status = status;
+    lc.modifiedBy = req.user?._id || null;
+    await lc.save();
+
+    // Audit: LC status changed
+    auditService.log({
+      action: "UPDATE",
+      module: "LC",
+      documentId: lc._id,
+      displayId: lc.basicInfo.lcNumber,
+      userId: req.user?._id,
+      description: `Changed LC ${lc.basicInfo.lcNumber} status from "${oldStatus}" to "${status}"`,
+      changes: [{ field: "basicInfo.status", oldValue: oldStatus, newValue: status }],
+      req,
+    });
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, lc, `LC status updated to "${status}" successfully.`));
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    if (error.name === "ValidationError") {
+      const firstErrorField = Object.keys(error.errors)[0];
+      const msg = error.errors[firstErrorField]?.message || "Validation failed.";
+      return next(new ApiError(400, msg, error.errors));
+    }
+    next(new ApiError(500, error.message || "Something went wrong updating LC status."));
+  }
+}
+
 module.exports = {
   createLC,
   getLCById,
   updateLC,
+  updateLCStatus,
   deleteLC,
   getAllCompletedLCs,
   upload,

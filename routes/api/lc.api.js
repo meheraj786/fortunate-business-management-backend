@@ -4,6 +4,7 @@ const {
   getAllLCs,
   getLCById,
   updateLC,
+  updateLCStatus,
   deleteLC,
   addExpenseToLC,
   getAllCompletedLCs,
@@ -43,6 +44,12 @@ lcRoutes.patch(
   authorize(PERMISSIONS.LC_UPDATE),
   upload.array("documents"),
   updateLC,
+);
+lcRoutes.patch(
+  "/update-status/:id",
+  authenticate,
+  authorize(PERMISSIONS.LC_UPDATE),
+  updateLCStatus,
 );
 lcRoutes.delete(
   "/delete-lc/:id",
