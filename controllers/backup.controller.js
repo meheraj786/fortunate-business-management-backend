@@ -12,6 +12,25 @@ const { ApiResponse } = require("../utils/ApiResponse");
 const auditService = require("../services/audit.service");
 const BackupHistory = require("../models/backupHistory.model");
 const SystemSettings = require("../models/systemSettings.model");
+const {
+    BACKUP_FILENAME_REGEX,
+    gatherManifestFromDump,
+    gatherDirectoryManifest,
+} = require("../utils/backup.util");
+const {
+    computeFileChecksum,
+    openBackupArchive,
+} = require("../services/backupArchive.service");
+const {
+    acquireOperationLock,
+    renewOperationLock,
+    releaseOperationLock,
+    getActiveOperation,
+} = require("../services/backupOperation.service");
+const {
+    writeOperationMarker,
+    clearRestoreMarker,
+} = require("../middleware/restoreMaintenance.middleware");
 
 // Async version of pbkdf2
 const pbkdf2Async = promisify(crypto.pbkdf2);
@@ -21,6 +40,10 @@ const BACKUP_DIR = path.join(__dirname, "..", "backups");
 const UPLOADS_DIR = path.join(__dirname, "..", "uploads");
 const DB_URI = process.env.MONGODB_URI;
 const APP_VERSION = require("../package.json").version || "1.0.0";
+const BACKUP_COMMAND_TIMEOUT_MS = Math.max(
+    5 * 60 * 1000,
+    Number(process.env.BACKUP_COMMAND_TIMEOUT_MS) || 60 * 60 * 1000,
+);
 
 // Ensure backup directory exists (async, runs on module load)
 (async () => {
@@ -30,8 +53,6 @@ const APP_VERSION = require("../package.json").version || "1.0.0";
         logger.error("Failed to create backup directory:", err);
     }
 })();
-
-const BACKUP_FILENAME_REGEX = /^backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip(\.enc)?$/;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -47,51 +68,6 @@ async function pathExists(filePath) {
     } catch {
         return false;
     }
-}
-
-/**
- * Compute SHA-256 checksum of a file using streams (memory-efficient).
- */
-async function computeFileChecksum(filePath) {
-    return new Promise((resolve, reject) => {
-        const hash = crypto.createHash("sha256");
-        const stream = fs.createReadStream(filePath);
-        stream.on("data", (data) => hash.update(data));
-        stream.on("end", () => resolve(hash.digest("hex")));
-        stream.on("error", reject);
-    });
-}
-
-/**
- * Gather manifest data — queries every collection for document counts.
- */
-async function gatherManifest() {
-    const db = mongoose.connection.db;
-    const dbName = db.databaseName;
-    const collectionInfos = await db.listCollections().toArray();
-    const collections = [];
-    let totalDocuments = 0;
-
-    for (const col of collectionInfos) {
-        try {
-            const count = await db.collection(col.name).estimatedDocumentCount();
-            collections.push({ name: col.name, documentCount: count });
-            totalDocuments += count;
-        } catch (err) {
-            logger.warn(`Could not count collection ${col.name}: ${err.message}`);
-            collections.push({ name: col.name, documentCount: -1 });
-        }
-    }
-
-    // Sort alphabetically for consistent ordering
-    collections.sort((a, b) => a.name.localeCompare(b.name));
-
-    return {
-        appVersion: APP_VERSION,
-        dbName,
-        collections,
-        totalDocuments,
-    };
 }
 
 /**
@@ -138,31 +114,39 @@ function determineRetentionTag(type, settings) {
  */
 async function createBackup(req, res, next, options = {}) {
     const startTime = Date.now();
-    const timestamp = format(new Date(), "yyyy-MM-dd_HH-mm-ss");
+    const timestamp = format(new Date(), "yyyy-MM-dd_HH-mm-ss-SSS");
     const backupFolderName = `backup_${timestamp}`;
     const backupFolderPath = path.join(BACKUP_DIR, backupFolderName);
-    const backupType = req ? "manual" : "scheduled";
+    const backupType = options.backupType || (req ? "manual" : "scheduled");
     let historyRecord = null;
+    let operationLock = options.operationLock || null;
+    let ownsOperationLock = false;
+    let operationMarkerWritten = false;
 
     try {
-        // ── Step 0: Cluster-safe distributed lock ────────────────────────
-        if (!options.skipLockCheck) {
-            // Clean up any stale locks first (backups running > 30 min)
-            const staleCount = await BackupHistory.cleanupStaleLocks();
-            if (staleCount > 0) {
-                logger.warn(`Cleaned up ${staleCount} stale backup lock(s).`);
-            }
-
-            // Check if another backup is currently running (across all PM2 instances)
-            const isLocked = await BackupHistory.isBackupLocked();
-            if (isLocked) {
-                const errorMsg = "A backup process is already running. Please wait.";
+        // ── Step 0: Atomically acquire the cross-process operation lock ─
+        if (!operationLock) {
+            operationLock = await acquireOperationLock("backup", {
+                initiatedBy: req?.user?._id?.toString() || null,
+            });
+            ownsOperationLock = !!operationLock;
+            if (!operationLock) {
+                const errorMsg = "A backup or restore process is already running. Please wait.";
                 logger.warn(errorMsg);
                 if (res) {
                     return res.status(409).json(new ApiError(409, errorMsg));
                 }
-                return; // For cron — silently skip
+                return null;
             }
+        }
+
+        if (ownsOperationLock) {
+            writeOperationMarker({
+                operation: "backup",
+                owner: operationLock.owner,
+                expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+            });
+            operationMarkerWritten = true;
         }
 
         // ── Step 1: Fetch settings ───────────────────────────────────────
@@ -178,30 +162,32 @@ async function createBackup(req, res, next, options = {}) {
         const finalFilePath = path.join(BACKUP_DIR, `${backupFolderName}${extension}`);
         const retentionTag = determineRetentionTag(backupType, settings);
 
-        // ── Step 2: Create history record (acts as distributed lock) ─────
+        // ── Step 2: Create durable operation history ─────────────────────
         historyRecord = await BackupHistory.create({
             filename: `${backupFolderName}${extension}`,
             type: backupType,
             status: "running",
-            initiatedBy: req?.user?._id || null,
+            initiatedBy: options.initiatedBy || req?.user?._id || null,
             encrypted: !!isEncryptionEnabled,
             includesFiles: !!settings.backup?.includeFiles,
             retentionTag,
+            notes: options.notes || "",
         });
 
         logger.info(`[Backup] Starting ${backupType} backup: ${backupFolderName} (tag: ${retentionTag})`);
 
-        // ── Step 3: Gather manifest data ─────────────────────────────────
-        const manifest = await gatherManifest();
-        logger.info(`[Backup] Manifest: ${manifest.collections.length} collections, ${manifest.totalDocuments} documents`);
-
-        // ── Step 4: Create temporary backup folder ───────────────────────
+        // ── Step 3: Create temporary backup folder ───────────────────────
         await fsp.mkdir(backupFolderPath, { recursive: true });
 
-        // ── Step 5: Dump Database ────────────────────────────────────────
+        // ── Step 4: Dump business data. Operational lock/history data is
+        // intentionally excluded so a restore cannot overwrite its own lock.
         const dumpArgs = [
             "--uri", DB_URI,
+            "--db", mongoose.connection.db.databaseName,
             "--out", path.join(backupFolderPath, "db_dump"),
+            "--excludeCollection", "backupoperationlocks",
+            "--excludeCollection", "backuphistories",
+            "--excludeCollection", "refreshtokens",
         ];
 
         const { spawn } = require("child_process");
@@ -209,6 +195,14 @@ async function createBackup(req, res, next, options = {}) {
 
         await new Promise((resolve, reject) => {
             let stderr = "";
+            let settled = false;
+            let timer;
+            const finish = (callback) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                callback();
+            };
 
             mongodump.stderr.on("data", (data) => {
                 stderr += data.toString();
@@ -216,27 +210,41 @@ async function createBackup(req, res, next, options = {}) {
 
             mongodump.on("error", (error) => {
                 logger.error(`mongodump process error: ${error.message}`);
-                reject(error);
+                finish(() => reject(error));
             });
 
             mongodump.on("close", (code) => {
                 if (code !== 0) {
                     logger.error(`mongodump failed with code ${code}: ${stderr}`);
-                    return reject(new Error(`mongodump failed with code ${code}`));
+                    return finish(() => reject(new Error(`mongodump failed with code ${code}`)));
                 }
-                resolve();
+                finish(resolve);
             });
 
             // 15 minute timeout for the process
-            setTimeout(() => {
-                mongodump.kill();
-                reject(new Error("Backup process timed out after 15 minutes"));
-            }, 15 * 60 * 1000);
+            timer = setTimeout(() => {
+                mongodump.kill("SIGTERM");
+                finish(() => reject(new Error(`Backup process timed out after ${BACKUP_COMMAND_TIMEOUT_MS / 60000} minutes`)));
+            }, BACKUP_COMMAND_TIMEOUT_MS);
         });
 
         logger.info("[Backup] Database dump completed.");
+        await renewOperationLock(operationLock);
 
-        // ── Step 6: Write manifest.json into the backup folder ───────────
+        // Build the manifest from the BSON dump itself, not from a live count.
+        // This makes post-restore document reconciliation exact.
+        const manifest = await gatherManifestFromDump(
+            path.join(backupFolderPath, "db_dump"),
+            { appVersion: APP_VERSION },
+        );
+        if ((await pathExists(UPLOADS_DIR)) && settings.backup?.includeFiles) {
+            manifest.uploads = await gatherDirectoryManifest(UPLOADS_DIR);
+        } else {
+            manifest.uploads = null;
+        }
+        logger.info(`[Backup] Manifest: ${manifest.collections.length} collections, ${manifest.totalDocuments} documents`);
+
+        // ── Step 5: Write manifest.json into the backup folder ───────────
         const manifestWithMeta = {
             ...manifest,
             backupTimestamp: new Date().toISOString(),
@@ -252,7 +260,7 @@ async function createBackup(req, res, next, options = {}) {
             "utf8"
         );
 
-        // ── Step 7: Create Archive ───────────────────────────────────────
+        // ── Step 6: Create Archive ───────────────────────────────────────
         const archive = archiver("zip", {
             zlib: { level: 9 },
         });
@@ -327,7 +335,7 @@ async function createBackup(req, res, next, options = {}) {
             archive.finalize();
         });
 
-        // ── Step 8: Verify file integrity ────────────────────────────────
+        // ── Step 7: Verify file integrity ────────────────────────────────
         const stats = await fsp.stat(finalFilePath);
         if (stats.size === 0) {
             throw new Error("Backup created but file is empty. Integrity check failed.");
@@ -337,27 +345,62 @@ async function createBackup(req, res, next, options = {}) {
         const checksum = await computeFileChecksum(finalFilePath);
         logger.info(`[Backup] Checksum (SHA-256): ${checksum}`);
 
-        // ── Step 9: Cleanup temp folder ──────────────────────────────────
+        // Re-open the finished artifact. This catches archive/encryption errors
+        // before a backup is ever presented as successful.
+        const archiveValidation = await openBackupArchive(finalFilePath, {
+            password,
+            tempDirectory: backupFolderPath,
+        });
+        if (
+            archiveValidation.manifest?.totalDocuments !== manifest.totalDocuments ||
+            archiveValidation.sourceDatabase !== manifest.dbName
+        ) {
+            throw new Error("Created backup failed manifest reconciliation");
+        }
+
+        // ── Step 8: Cleanup temp folder ──────────────────────────────────
         await fsp.rm(backupFolderPath, { recursive: true, force: true });
         logger.info("[Backup] Temporary folder cleaned up.");
 
-        // ── Step 10: Update history record with success ──────────────────
+        // ── Step 9: Update history record with success ───────────────────
         const durationMs = Date.now() - startTime;
-        historyRecord.status = "completed";
+        historyRecord.status = "verified";
         historyRecord.sizeBytes = stats.size;
         historyRecord.durationMs = durationMs;
         historyRecord.checksum = checksum;
         historyRecord.manifest = manifest;
+        historyRecord.verifiedAt = new Date();
         await historyRecord.save();
 
-        // ── Step 11: Smart retention policy ──────────────────────────────
-        await enforceSmartRetention(settings);
+        // Safety backups are manual recovery points and never trigger rotation.
+        if (!options.isSafetyBackup) {
+            await enforceSmartRetention(settings);
+        }
 
         const successMessage = isEncryptionEnabled
             ? "Encrypted backup created successfully"
             : "Backup created successfully";
 
         logger.info(`[Backup] ${successMessage} in ${(durationMs / 1000).toFixed(1)}s`);
+
+        const result = {
+            filename: `${backupFolderName}${extension}`,
+            checksum,
+            sizeBytes: stats.size,
+            durationMs,
+            manifest,
+            retentionTag,
+            historyRecord: historyRecord.toObject(),
+        };
+
+        if (ownsOperationLock) {
+            if (operationMarkerWritten) {
+                clearRestoreMarker();
+                operationMarkerWritten = false;
+            }
+            await releaseOperationLock(operationLock);
+            ownsOperationLock = false;
+        }
 
         // If called via API, return response
         if (res) {
@@ -371,17 +414,13 @@ async function createBackup(req, res, next, options = {}) {
 
             return res.status(200).json(
                 new ApiResponse(200, {
-                    filename: `${backupFolderName}${extension}`,
-                    checksum,
-                    sizeBytes: stats.size,
-                    durationMs,
-                    manifest,
-                    retentionTag,
+                    ...result,
+                    historyRecord: undefined,
                 }, successMessage)
             );
         }
 
-        return true; // For cron
+        return result;
 
     } catch (error) {
         logger.error("[Backup] Backup failed:", error);
@@ -415,6 +454,15 @@ async function createBackup(req, res, next, options = {}) {
                 if (await pathExists(enc)) await fsp.unlink(enc);
             } catch (cleanupErr) {
                 logger.error("[Backup] Error cleaning up partial files:", cleanupErr);
+            }
+        }
+
+        if (ownsOperationLock) {
+            try {
+                if (operationMarkerWritten) clearRestoreMarker();
+                await releaseOperationLock(operationLock);
+            } catch (lockError) {
+                logger.error("[Backup] Failed to release operation lock:", lockError);
             }
         }
 
@@ -477,9 +525,14 @@ async function enforceSmartRetention(settings) {
                     logger.error(`[Retention] Failed to delete file ${backup.filename}:`, delErr);
                 }
 
-                // Update the history record status (don't delete the record — keep for audit)
+                // Keep an explicit audit record without presenting retention as a failure.
                 await BackupHistory.findByIdAndUpdate(backup._id, {
-                    $set: { status: "failed", errorMessage: `Auto-deleted by ${tag} retention policy (limit: ${limit})` },
+                    $set: {
+                        status: "deleted",
+                        errorMessage: null,
+                        completedAt: new Date(),
+                        notes: `Auto-deleted by ${tag} retention policy (limit: ${limit})`,
+                    },
                 });
             }
         } catch (err) {
@@ -490,7 +543,7 @@ async function enforceSmartRetention(settings) {
     // Also clean up any orphaned files on disk that don't have a history record
     try {
         const allFiles = await fsp.readdir(BACKUP_DIR);
-        const backupFiles = allFiles.filter(file => file.endsWith(".zip") || file.endsWith(".zip.enc"));
+        const backupFiles = allFiles.filter(file => BACKUP_FILENAME_REGEX.test(file));
 
         for (const file of backupFiles) {
             const hasRecord = await BackupHistory.findOne({ filename: file });
@@ -518,7 +571,7 @@ async function getBackups(req, res, next) {
         }
 
         const allFiles = await fsp.readdir(BACKUP_DIR);
-        const backupFileNames = allFiles.filter(file => file.endsWith(".zip") || file.endsWith(".zip.enc"));
+        const backupFileNames = allFiles.filter(file => BACKUP_FILENAME_REGEX.test(file));
 
         const files = await Promise.all(
             backupFileNames.map(async (file) => {
@@ -544,8 +597,10 @@ async function getBackups(req, res, next) {
                     notes: history?.notes || "",
                     initiatedBy: history?.initiatedBy || null,
                     manifest: history?.manifest ? {
+                        formatVersion: history.manifest.formatVersion || 1,
                         collectionsCount: history.manifest.collections?.length || 0,
                         totalDocuments: history.manifest.totalDocuments || 0,
+                        uploads: history.manifest.uploads || null,
                     } : null,
                 };
             })
@@ -568,8 +623,8 @@ async function getBackups(req, res, next) {
  */
 async function getBackupHistory(req, res, next) {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
         const skip = (page - 1) * limit;
 
         const [history, total] = await Promise.all([
@@ -606,6 +661,7 @@ async function getBackupHistory(req, res, next) {
  * Re-computes SHA-256 of a backup file and compares against stored checksum.
  */
 async function verifyBackup(req, res, next) {
+    let verifyTempDir = null;
     try {
         const { filename } = req.params;
 
@@ -629,8 +685,35 @@ async function verifyBackup(req, res, next) {
         const currentChecksum = await computeFileChecksum(filePath);
         const isValid = currentChecksum === history.checksum;
 
+        let archiveValidation = null;
+        if (isValid) {
+            verifyTempDir = await fsp.mkdtemp(path.join(BACKUP_DIR, "_verify-"));
+            let archive;
+            try {
+                archive = await openBackupArchive(filePath, {
+                    password: process.env.BACKUP_ENCRYPTION_PASSWORD,
+                    tempDirectory: verifyTempDir,
+                });
+            } catch (archiveError) {
+                history.errorMessage = archiveError.message;
+                await history.save();
+                throw new ApiError(400, `Backup archive verification failed: ${archiveError.message}`);
+            }
+            if (!archive.manifest?.collections?.length) {
+                throw new ApiError(400, "Backup archive has no usable collection manifest");
+            }
+            archiveValidation = {
+                archiveReadable: true,
+                sourceDatabase: archive.sourceDatabase,
+                bsonFileCount: archive.bsonFileCount,
+                includesUploads: archive.hasUploads,
+            };
+        }
+
         // Update status
         history.status = isValid ? "verified" : "corrupted";
+        history.verifiedAt = isValid ? new Date() : null;
+        history.errorMessage = isValid ? null : "SHA-256 checksum mismatch";
         await history.save();
 
         const stats = await fsp.stat(filePath);
@@ -653,6 +736,7 @@ async function verifyBackup(req, res, next) {
                 status: history.status,
                 sizeBytes: stats.size,
                 verifiedAt: new Date().toISOString(),
+                archiveValidation,
             }, isValid
                 ? "Backup integrity verified — file is intact"
                 : "BACKUP CORRUPTED — checksum mismatch detected!"
@@ -660,6 +744,81 @@ async function verifyBackup(req, res, next) {
         );
     } catch (error) {
         next(error instanceof ApiError ? error : new ApiError(500, "Verification failed", [], error.message));
+    } finally {
+        if (verifyTempDir) {
+            try { await fsp.rm(verifyTempDir, { recursive: true, force: true }); } catch { /* best effort */ }
+        }
+    }
+}
+
+async function commandVersion(command) {
+    return new Promise((resolve) => {
+        const proc = require("child_process").spawn(command, ["--version"]);
+        let output = "";
+        const timer = setTimeout(() => {
+            proc.kill("SIGTERM");
+            resolve({ available: false, version: null });
+        }, 5000);
+        proc.stdout.on("data", (data) => { output += data.toString(); });
+        proc.stderr.on("data", (data) => { output += data.toString(); });
+        proc.on("error", () => {
+            clearTimeout(timer);
+            resolve({ available: false, version: null });
+        });
+        proc.on("close", (code) => {
+            clearTimeout(timer);
+            const versionLine = output.split(/\r?\n/).find(Boolean) || null;
+            resolve({ available: code === 0, version: versionLine });
+        });
+    });
+}
+
+async function getBackupReadiness(req, res, next) {
+    try {
+        await fsp.mkdir(BACKUP_DIR, { recursive: true });
+        await fsp.access(BACKUP_DIR, fs.constants.R_OK | fs.constants.W_OK);
+        const [mongodump, mongorestore, settings, latestSuccessful, activeOperation] = await Promise.all([
+            commandVersion("mongodump"),
+            commandVersion("mongorestore"),
+            SystemSettings.getSingleton(),
+            BackupHistory.findOne({ status: { $in: ["completed", "verified"] }, type: { $in: ["manual", "scheduled"] } })
+                .sort({ createdAt: -1 }).lean(),
+            getActiveOperation(),
+        ]);
+
+        const disk = typeof fsp.statfs === "function" ? await fsp.statfs(BACKUP_DIR) : null;
+        const freeBytes = disk ? Number(disk.bavail) * Number(disk.bsize) : null;
+        const encryptionReady = !settings.backup?.encryption?.enabled || !!process.env.BACKUP_ENCRYPTION_PASSWORD;
+        const ready = mongodump.available && mongorestore.available && encryptionReady;
+
+        return res.status(200).json(new ApiResponse(200, {
+            ready,
+            tools: { mongodump, mongorestore },
+            storage: { writable: true, freeBytes },
+            encryption: {
+                enabled: !!settings.backup?.encryption?.enabled,
+                configured: encryptionReady,
+            },
+            schedule: {
+                frequency: settings.backup?.frequency,
+                time: settings.backup?.time,
+                weeklyDay: settings.backup?.weeklyDay,
+                timezone: process.env.TZ || "Asia/Dhaka",
+            },
+            latestSuccessfulBackup: latestSuccessful ? {
+                filename: latestSuccessful.filename,
+                createdAt: latestSuccessful.createdAt,
+                status: latestSuccessful.status,
+                sizeBytes: latestSuccessful.sizeBytes,
+            } : null,
+            activeOperation: activeOperation ? {
+                operation: activeOperation.operation,
+                startedAt: activeOperation.createdAt,
+                expiresAt: activeOperation.expiresAt,
+            } : null,
+        }, ready ? "Backup system is ready" : "Backup system needs attention"));
+    } catch (error) {
+        next(new ApiError(500, "Failed to check backup readiness", [], error.message));
     }
 }
 
@@ -724,7 +883,7 @@ async function deleteBackup(req, res, next) {
         // Update history record (mark as deleted but keep the record for audit trail)
         await BackupHistory.findOneAndUpdate(
             { filename },
-            { $set: { status: "failed", errorMessage: `Manually deleted by user` } }
+            { $set: { status: "deleted", errorMessage: null, completedAt: new Date() } }
         );
 
         // Audit: Backup deleted
@@ -790,4 +949,5 @@ module.exports = {
     deleteBackup,
     verifyBackup,
     updateBackupNotes,
+    getBackupReadiness,
 };

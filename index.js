@@ -31,6 +31,10 @@ const {
 const { initBackupJob } = require("./services/backupScheduler.service"); // Backup controller
 const { attachTimezone } = require("./middleware/timezone.middleware"); // Timezone middleware
 const { checkDbStatus } = require("./middleware/dbStatus.middleware"); // DB status middleware
+const {
+  blockRequestsDuringRestore,
+  getActiveMarker,
+} = require("./middleware/restoreMaintenance.middleware");
 
 // Create express app
 const app = express(); // Initialize express app
@@ -95,6 +99,7 @@ app.use(attachTimezone);
 
 // Check database status before processing routes
 app.use(checkDbStatus);
+app.use(blockRequestsDuringRestore);
 
 // Register routes
 app.use(routers); // Use all API routes
@@ -132,6 +137,7 @@ app.listen(PORT, () => {
   try {
     await dbConnect(); // Connect database
     await initializeStorage(); // Ensure upload directories exist
+    await initBackupJob(); // Settings can only be loaded after MongoDB connects
     // Puppeteer is lazily initialized on first PDF request via getBrowser() singleton
     await closeMissedDailyCashEntries(); // Fix missed cash entries
     logger.info("Background startup tasks completed"); // Log success
@@ -144,6 +150,10 @@ app.listen(PORT, () => {
 cron.schedule(
   "59 23 * * *",
   () => {
+    if (getActiveMarker()) {
+      logger.warn("Skipping daily cash auto close while a data-protection operation is running");
+      return;
+    }
     logger.info("Running daily cash auto close job");
     autoCloseDailyCashForCron(); // Run cron task
   },
@@ -152,7 +162,3 @@ cron.schedule(
     timezone: "Asia/Dhaka", // Set timezone
   },
 );
-
-// Backup Cron Job (runs daily at 02:00)
-// Initialize dynamic backup job
-initBackupJob();

@@ -5,7 +5,7 @@
   "scripts": {
     "start": "nodemon index.js",
     "start:prod": "cross-env TZ=Asia/Dhaka NODE_ENV=production pm2 start index.js --name fortunate-business-management-backend",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test tests/*.test.js",
     "seed": "node ./utils/seed.js"
   },
   "keywords": [],
@@ -13,7 +13,6 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",
@@ -39,6 +38,7 @@
     "pdfkit": "^0.17.2",
     "pm2": "^6.0.14",
     "puppeteer": "^24.34.0",
+    "unzipper": "^0.12.5",
     "uuid": "^13.0.0",
     "winston": "^3.13.1"
   },

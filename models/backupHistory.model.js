@@ -15,7 +15,17 @@ const backupHistorySchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["running", "completed", "failed", "verified", "corrupted"],
+      enum: [
+        "running",
+        "completed",
+        "failed",
+        "verified",
+        "corrupted",
+        "deleted",
+        "restored",
+        "rolled_back",
+        "rollback_failed",
+      ],
       required: true,
       default: "running",
       index: true,
@@ -46,6 +56,7 @@ const backupHistorySchema = new mongoose.Schema(
       default: null,
     },
     manifest: {
+      formatVersion: { type: Number, default: 1 },
       appVersion: { type: String, default: null },
       dbName: { type: String, default: null },
       collections: [
@@ -56,6 +67,11 @@ const backupHistorySchema = new mongoose.Schema(
         },
       ],
       totalDocuments: { type: Number, default: 0 },
+      uploads: {
+        fileCount: { type: Number, default: 0 },
+        totalBytes: { type: Number, default: 0 },
+        checksum: { type: String, default: null },
+      },
     },
     retentionTag: {
       type: String,
@@ -80,55 +96,39 @@ const backupHistorySchema = new mongoose.Schema(
       type: String, // Auto-created safety backup before restore
       default: null,
     },
+    phase: { type: String, default: null },
+    sourceDatabase: { type: String, default: null },
+    targetDatabase: { type: String, default: null },
+    completedAt: { type: Date, default: null },
+    verifiedAt: { type: Date, default: null },
+    validation: {
+      verified: { type: Boolean, default: false },
+      expectedTotal: { type: Number, default: null },
+      actualTotal: { type: Number, default: null },
+      mismatches: [{
+        name: String,
+        expected: Number,
+        actual: Number,
+        _id: false,
+      }],
+    },
+    rollback: {
+      attempted: { type: Boolean, default: false },
+      succeeded: { type: Boolean, default: false },
+      errorMessage: { type: String, default: null },
+    },
+    warnings: [{ type: String }],
   },
   {
     timestamps: true,
   }
 );
 
-// Index for finding stale running backups (cluster-safe lock)
+// Index for operation/history status views.
 backupHistorySchema.index({ status: 1, createdAt: -1 });
 
 // Index for retention queries
 backupHistorySchema.index({ retentionTag: 1, createdAt: -1 });
-
-/**
- * Check if any backup is currently running (distributed lock).
- * A backup is considered stale if it's been running for > 30 minutes.
- */
-backupHistorySchema.statics.isBackupLocked = async function () {
-  const staleThreshold = new Date(Date.now() - 30 * 60 * 1000);
-
-  const runningBackup = await this.findOne({
-    status: "running",
-    createdAt: { $gt: staleThreshold },
-  });
-
-  return !!runningBackup;
-};
-
-/**
- * Mark stale backups (running > 30 mins) as failed.
- * Called before checking lock to clean up orphaned locks.
- */
-backupHistorySchema.statics.cleanupStaleLocks = async function () {
-  const staleThreshold = new Date(Date.now() - 30 * 60 * 1000);
-
-  const result = await this.updateMany(
-    {
-      status: "running",
-      createdAt: { $lte: staleThreshold },
-    },
-    {
-      $set: {
-        status: "failed",
-        errorMessage: "Backup timed out (stale lock — exceeded 30 minutes)",
-      },
-    }
-  );
-
-  return result.modifiedCount;
-};
 
 const BackupHistory = mongoose.model("BackupHistory", backupHistorySchema);
 

@@ -8,6 +8,7 @@ const {
     deleteBackup,
     verifyBackup,
     updateBackupNotes,
+    getBackupReadiness,
 } = require("../../controllers/backup.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
 const { authorize } = require("../../middleware/authorize.middleware");
@@ -19,6 +20,7 @@ router.use(authenticate);
 // Core CRUD
 router.post("/", authorize(PERMISSIONS.BACKUP_CREATE), createBackup);
 router.get("/", authorize(PERMISSIONS.BACKUP_VIEW), getBackups);
+router.get("/readiness", authorize(PERMISSIONS.BACKUP_VIEW), getBackupReadiness);
 router.get("/download/:filename", authorize(PERMISSIONS.BACKUP_DOWNLOAD), downloadBackup);
 router.delete("/:filename", authorize(PERMISSIONS.BACKUP_DELETE), deleteBackup);
 

@@ -4,6 +4,8 @@ const { createBackup } = require("../controllers/backup.controller");
 const logger = require("../utils/logger");
 
 let backupTask = null;
+let settingsRefreshTask = null;
+let activeSignature = null;
 
 /**
  * Converts settings into a cron expression
@@ -13,10 +15,11 @@ let backupTask = null;
  */
 const getCronExpression = (frequency, time, weeklyDay) => {
     const [hour, minute] = time.split(":");
-
-    // Validate time format roughly
-    const h = parseInt(hour) || 2;
-    const m = parseInt(minute) || 0;
+    const h = Number(hour);
+    const m = Number(minute);
+    if (!Number.isInteger(h) || h < 0 || h > 23 || !Number.isInteger(m) || m < 0 || m > 59) {
+        throw new Error(`Invalid backup schedule time: ${time}`);
+    }
 
     if (frequency === "Weekly") {
         // Map day name to cron day number (0=Sunday, 6=Saturday)
@@ -39,6 +42,10 @@ const getCronExpression = (frequency, time, weeklyDay) => {
  * Initializes the backup job on server startup.
  */
 const initBackupJob = async () => {
+    if (!settingsRefreshTask) {
+        settingsRefreshTask = setInterval(refreshScheduleFromDatabase, 60 * 1000);
+        settingsRefreshTask.unref?.();
+    }
     try {
         const settings = await SystemSettings.getSingleton();
         const { frequency, time, weeklyDay } = settings.backup;
@@ -49,6 +56,7 @@ const initBackupJob = async () => {
         const day = weeklyDay || "Saturday";
 
         scheduleJob(freq, t, day);
+
     } catch (error) {
         logger.error("Failed to init backup job:", error);
     }
@@ -68,6 +76,17 @@ const rescheduleBackupJob = async () => {
     }
 };
 
+const refreshScheduleFromDatabase = async () => {
+    try {
+        const settings = await SystemSettings.getSingleton();
+        const { frequency = "Daily", time = "02:00", weeklyDay = "Saturday" } = settings.backup || {};
+        const signature = `${frequency}|${time}|${weeklyDay}`;
+        if (signature !== activeSignature) scheduleJob(frequency, time, weeklyDay);
+    } catch (error) {
+        logger.error("Failed to refresh backup schedule:", error);
+    }
+};
+
 /**
  * Internal: Creates and starts the cron job.
  *
@@ -78,6 +97,8 @@ const rescheduleBackupJob = async () => {
  * actually runs the backup. All others are harmlessly rejected.
  */
 const scheduleJob = (frequency, time, weeklyDay) => {
+    const signature = `${frequency}|${time}|${weeklyDay || "Saturday"}`;
+    if (backupTask && activeSignature === signature) return;
     if (backupTask) {
         backupTask.stop();
         logger.info("Previous backup job stopped.");
@@ -103,9 +124,11 @@ const scheduleJob = (frequency, time, weeklyDay) => {
             timezone,
         }
     );
+    activeSignature = signature;
 };
 
 module.exports = {
     initBackupJob,
     rescheduleBackupJob,
+    getCronExpression,
 };
