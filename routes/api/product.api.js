@@ -4,6 +4,8 @@ const {
   getProductsByWarehouse,
   getProductInWarehouse,
   updateProductInWarehouse,
+  restockProductInWarehouse,
+  getProductRestockHistory,
   deleteProductInWarehouse,
   getProductSalesHistory,
   getProductsForSale,
@@ -55,6 +57,16 @@ productRoutes.patch(
   "/:productId",
   authorizeWarehouseAccess(PERMISSIONS.PRODUCT_UPDATE),
   updateProductInWarehouse
+);
+productRoutes.post(
+  "/:productId/restocks",
+  authorizeWarehouseAccess(PERMISSIONS.PRODUCT_UPDATE),
+  restockProductInWarehouse,
+);
+productRoutes.get(
+  "/:productId/restocks",
+  authorizeWarehouseAccess(PERMISSIONS.PRODUCT_VIEW_DETAILS),
+  getProductRestockHistory,
 );
 productRoutes.delete(
   "/:productId",

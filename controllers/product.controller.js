@@ -162,6 +162,41 @@ async function updateProductInWarehouse(req, res, next) {
   }
 }
 
+async function restockProductInWarehouse(req, res, next) {
+  try {
+    const { warehouseId, productId } = req.params;
+    const result = await productService.restockProduct(productId, warehouseId, req.body, req.user?._id || null);
+    if (!result.idempotent) {
+      auditService.log({
+        action: "RESTOCK",
+        module: "Product",
+        documentId: result.product._id,
+        userId: req.user?._id,
+        description: `Added ${result.restock.quantityAdded} stock to product ${result.product.name}`,
+        changes: { before: { quantity: result.restock.quantityBefore }, after: { quantity: result.restock.quantityAfter } },
+        metadata: { restockId: result.restock._id, quantityAdded: result.restock.quantityAdded, receivedAt: result.restock.receivedAt, notes: result.restock.notes },
+        req,
+      });
+    }
+    return res.status(200).json(new ApiResponse(200, result, result.idempotent ? "Restock already recorded" : "Stock added successfully"));
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    logger.error(error);
+    next(new ApiError(500, "Unable to add stock. Please try again.", [], error.message));
+  }
+}
+
+async function getProductRestockHistory(req, res, next) {
+  try {
+    const result = await productService.getProductRestockHistory(req.params.productId, req.params.warehouseId, req.query);
+    return res.status(200).json(new ApiResponse(200, result, "Restock history fetched successfully"));
+  } catch (error) {
+    if (error instanceof ApiError) return next(error);
+    logger.error(error);
+    next(new ApiError(500, "Unable to fetch restock history. Please try again.", [], error.message));
+  }
+}
+
 // New function to delete a product, ensuring data consistency
 async function deleteProductInWarehouse(req, res, next) {
   try {
@@ -276,6 +311,8 @@ module.exports = {
   getProductsByWarehouse,
   getProductInWarehouse,
   updateProductInWarehouse,
+  restockProductInWarehouse,
+  getProductRestockHistory,
   deleteProductInWarehouse,
   getProductsForSale,
   getProductSalesHistory,

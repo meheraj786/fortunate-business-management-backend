@@ -24,6 +24,7 @@ const auditLogSchema = new mongoose.Schema(
                 "LOGIN_FAILED",
                 "PERMISSION_CHANGE",
                 "DOWNLOAD",
+                "RESTOCK",
             ],
             index: true,
         },

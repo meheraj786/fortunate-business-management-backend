@@ -6,7 +6,9 @@ const Unit = require("../models/unit.model");
 const LcModel = require("../models/lc.model");
 const Category = require("../models/category.model");
 const Trash = require("../models/trash.model");
+const StockRestock = require("../models/stockRestock.model");
 const { ApiError } = require("../utils/ApiError");
+const mathUtil = require("../utils/math.util");
 
 /**
  * Validates product input data
@@ -57,6 +59,7 @@ const createProduct = async (data, warehouseId) => {
 
   const product = await Product.create({
     ...data,
+    initialQuantity: data.quantity,
     warehouse: warehouseId,
   });
 
@@ -76,6 +79,12 @@ const createProduct = async (data, warehouseId) => {
  * @returns {Promise<Object>} - Updated product
  */
 const updateProduct = async (productId, warehouseId, data, userId) => {
+  if (Object.prototype.hasOwnProperty.call(data, "quantity")) {
+    throw new ApiError(
+      400,
+      "Stock quantity cannot be changed from Edit Product. Use Add Stock so the receiving history is preserved.",
+    );
+  }
   // Prevent changing the warehouse via this endpoint
   if (data.warehouse && data.warehouse !== warehouseId) {
     throw new ApiError(
@@ -100,6 +109,102 @@ const updateProduct = async (productId, warehouseId, data, userId) => {
   }
 
   return updatedProduct;
+};
+
+/** Adds received stock and records the before/after balance in one transaction. */
+const restockProduct = async (productId, warehouseId, data, userId) => {
+  const quantityAdded = Number(data.quantityAdded);
+  if (!Number.isFinite(quantityAdded) || quantityAdded <= 0) {
+    throw new ApiError(400, "Quantity to add must be greater than zero.");
+  }
+  if (quantityAdded !== mathUtil.round(quantityAdded, 6)) {
+    throw new ApiError(400, "Quantity to add can have at most 6 decimal places.");
+  }
+
+  const receivedAt = data.receivedAt ? new Date(data.receivedAt) : new Date();
+  if (Number.isNaN(receivedAt.getTime())) {
+    throw new ApiError(400, "Received date is invalid.");
+  }
+  if (receivedAt > new Date()) {
+    throw new ApiError(400, "Received date cannot be in the future.");
+  }
+
+  const notes = typeof data.notes === "string" ? data.notes.trim() : "";
+  if (notes.length > 1000) throw new ApiError(400, "Notes cannot exceed 1000 characters.");
+  const idempotencyKey = typeof data.idempotencyKey === "string" ? data.idempotencyKey.trim() : "";
+  if (idempotencyKey.length > 120) throw new ApiError(400, "Invalid restock request key.");
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    if (idempotencyKey) {
+      const existing = await StockRestock.findOne({ product: productId, idempotencyKey }).session(session);
+      if (existing) {
+        const product = await Product.findOne({ _id: productId, warehouse: warehouseId, isDeleted: false }).session(session);
+        if (!product) throw new ApiError(404, "Product not found in this warehouse.");
+        await session.abortTransaction();
+        session.endSession();
+        return { product, restock: existing, idempotent: true };
+      }
+    }
+
+    const product = await Product.findOne({ _id: productId, warehouse: warehouseId, isDeleted: false }).session(session);
+    if (!product) throw new ApiError(404, "Product not found in this warehouse.");
+    if (product.lotClosed) throw new ApiError(400, "Cannot add stock to a closed lot. Create a new product lot instead.");
+
+    const roundedQuantity = mathUtil.round(quantityAdded, 6);
+    const quantityBefore = product.quantity;
+    const updatedProduct = await Product.findOneAndUpdate(
+      { _id: productId, warehouse: warehouseId, isDeleted: false, lotClosed: { $ne: true } },
+      { $inc: { quantity: roundedQuantity }, $set: { modifiedBy: userId || null } },
+      { new: true, session, runValidators: true },
+    );
+    if (!updatedProduct) throw new ApiError(409, "Stock changed while receiving. Please refresh and try again.");
+
+    const [restock] = await StockRestock.create([{
+      product: productId,
+      warehouse: warehouseId,
+      quantityAdded: roundedQuantity,
+      quantityBefore,
+      quantityAfter: updatedProduct.quantity,
+      receivedAt,
+      notes,
+      performedBy: userId || null,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+    }], { session });
+
+    await session.commitTransaction();
+    session.endSession();
+    return { product: updatedProduct, restock, idempotent: false };
+  } catch (error) {
+    try { await session.abortTransaction(); } catch (_error) { /* already ended */ }
+    session.endSession();
+    if (error?.code === 11000 && idempotencyKey) {
+      const existing = await StockRestock.findOne({ product: productId, idempotencyKey });
+      if (existing) {
+        const product = await Product.findOne({ _id: productId, warehouse: warehouseId, isDeleted: false });
+        if (product) return { product, restock: existing, idempotent: true };
+      }
+    }
+    throw error;
+  }
+};
+
+const getProductRestockHistory = async (productId, warehouseId, queryParams) => {
+  const product = await Product.exists({ _id: productId, warehouse: warehouseId, isDeleted: false });
+  if (!product) throw new ApiError(404, "Product not found in this warehouse.");
+  const page = Math.max(Number(queryParams.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(queryParams.limit) || 20, 1), 100);
+  const [restocks, total] = await Promise.all([
+    StockRestock.find({ product: productId, warehouse: warehouseId })
+      .populate("performedBy", "name email")
+      .sort({ receivedAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    StockRestock.countDocuments({ product: productId, warehouse: warehouseId }),
+  ]);
+  return { restocks, total, page, limit, totalPages: Math.ceil(total / limit) };
 };
 
 /**
@@ -641,6 +746,7 @@ const getProductWithStatsById = async (productId, warehouseId) => {
         color: 1,
         grade: 1,
         quantity: 1,
+        initialQuantity: 1,
         unitPrice: 1,
         supplierName: { $ifNull: ["$LC.basicInfo.supplierName", "$supplierName"] },
         totalUnitsSold: 1,
@@ -822,6 +928,8 @@ const getProductSalesHistory = async (warehouseId, productId, queryParams) => {
 module.exports = {
   createProduct,
   updateProduct,
+  restockProduct,
+  getProductRestockHistory,
   deleteProduct,
   closeLot,
   getProductsWithStats,

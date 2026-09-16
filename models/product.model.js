@@ -18,6 +18,9 @@ const productSchema = new mongoose.Schema(
     color: { type: String, trim: true },
     grade: { type: String, trim: true },
     quantity: { type: Number, required: true, min: 0 },
+    // Captured for newly created products. Older production products deliberately
+    // remain null because their original receiving quantity cannot be inferred safely.
+    initialQuantity: { type: Number, min: 0, default: null, immutable: true },
     unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
     unitPrice: { type: Number, required: true, min: 0 },
     warehouse: {
