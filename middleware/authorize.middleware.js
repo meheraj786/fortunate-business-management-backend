@@ -56,14 +56,18 @@ const authorize = (requiredPermission) => (req, res, next) => {
 
     // Create a set of all permissions the user has for quick lookups.
     const userPermissions = new Set();
-    user.access.forEach((module) => {
-      module.permissions.forEach((p) => userPermissions.add(p));
+    (user.access || []).forEach((module) => {
+      (module.permissions || []).forEach((p) => userPermissions.add(p));
     });
 
-    if (!userPermissions.has(requiredPermission)) {
+    const requiredPermissions = Array.isArray(requiredPermission)
+      ? requiredPermission
+      : [requiredPermission];
+
+    if (!requiredPermissions.some((permission) => userPermissions.has(permission))) {
       return res.status(403).json({
         success: false,
-        message: `Forbidden - You don't have the required '${requiredPermission}' permission.`,
+        message: `Forbidden - You need one of these permissions: ${requiredPermissions.join(", ")}.`,
       });
     }
 
@@ -94,7 +98,7 @@ const authorizeWarehouseAccess = (requiredPermission) => (req, res, next) => {
 
     // 1. Check if user has access to this specific warehouse
 
-    const hasWarehouseAccess = user.warehouse.some(
+    const hasWarehouseAccess = user.hasAllWarehouseAccess === true || (user.warehouse || []).some(
       (wh) => wh.toString() === warehouseId
     );
 
@@ -118,8 +122,8 @@ const authorizeWarehouseAccess = (requiredPermission) => (req, res, next) => {
     if (requiredPermission) {
       const userPermissions = new Set();
 
-      user.access.forEach((module) => {
-        module.permissions.forEach((p) => userPermissions.add(p));
+      (user.access || []).forEach((module) => {
+        (module.permissions || []).forEach((p) => userPermissions.add(p));
       });
 
       if (!userPermissions.has(requiredPermission)) {
@@ -169,8 +173,8 @@ const authorizeTrashAccess = (action) => (req, res, next) => {
 
     const userPermissions = new Set();
 
-    user.access.forEach((module) => {
-      module.permissions.forEach((p) => userPermissions.add(p));
+    (user.access || []).forEach((module) => {
+      (module.permissions || []).forEach((p) => userPermissions.add(p));
     });
 
     if (!userPermissions.has(requiredPermission)) {

@@ -89,7 +89,7 @@ const getAllWarehouses = async (req, res, next) => {
         },
       },
       // Conditionally add match stage for non-SUPER_ADMIN users
-      ...(req.user.roleName !== "SUPER_ADMIN"
+      ...(!["ADMIN", "SUPER_ADMIN"].includes(req.user.roleName) && !req.user.hasAllWarehouseAccess
         ? [
           {
             $match: {
@@ -211,7 +211,7 @@ const getAllWarehouses = async (req, res, next) => {
     // Separate, efficient pipeline for calculating global stats across all products
     const globalStatsPipeline = [
       // Conditionally add match stage for non-SUPER_ADMIN users
-      ...(req.user.roleName !== "SUPER_ADMIN"
+      ...(!["ADMIN", "SUPER_ADMIN"].includes(req.user.roleName) && !req.user.hasAllWarehouseAccess
         ? [
           {
             $match: {
@@ -651,7 +651,7 @@ const transferStock = async (req, res, next) => {
     // (Source warehouse access is already checked by authorizeWarehouseAccess middleware)
     const user = req.user;
     if (user.roleName !== "ADMIN" && user.roleName !== "SUPER_ADMIN") {
-      const hasDestAccess = user.warehouse.some(
+      const hasDestAccess = user.hasAllWarehouseAccess === true || (user.warehouse || []).some(
         (wh) => wh.toString() === destinationWarehouseId,
       );
       if (!hasDestAccess) {

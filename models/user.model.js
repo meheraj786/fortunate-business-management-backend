@@ -73,6 +73,7 @@ const userSchema = new mongoose.Schema(
             "TRANSACTION",
             "CUSTOMER",
             "CATEGORY",
+            "COUNTRY",
             "UNIT",
             "SETTINGS",
             "TRASH",
@@ -90,6 +91,13 @@ const userSchema = new mongoose.Schema(
         default: null,
       },
     ],
+    // When enabled, warehouse-scoped operations apply to every current and
+    // future warehouse. Keep the explicit list for users with limited scope.
+    hasAllWarehouseAccess: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

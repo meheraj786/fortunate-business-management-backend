@@ -637,7 +637,9 @@ const getAllTrash = async (req, res, next) => {
     if (warehouseId) {
       if (
         req.user.roleName !== "SUPER_ADMIN" &&
-        !req.user.warehouse.map(String).includes(String(warehouseId))
+        req.user.roleName !== "ADMIN" &&
+        !req.user.hasAllWarehouseAccess &&
+        !(req.user.warehouse || []).map(String).includes(String(warehouseId))
       ) {
         return next(
           new ApiError(
@@ -647,8 +649,8 @@ const getAllTrash = async (req, res, next) => {
         );
       }
       filter["metadata.warehouseId"] = new mongoose.Types.ObjectId(warehouseId);
-    } else if (req.user.roleName !== "SUPER_ADMIN") {
-      const accessibleWarehouseObjectIds = req.user.warehouse.map(
+    } else if (req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN" && !req.user.hasAllWarehouseAccess) {
+      const accessibleWarehouseObjectIds = (req.user.warehouse || []).map(
         (id) => new mongoose.Types.ObjectId(id),
       );
       filter["metadata.warehouseId"] = { $in: accessibleWarehouseObjectIds };

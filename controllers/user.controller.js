@@ -15,6 +15,9 @@ const Trash = require("../models/trash.model");
 const auditService = require("../services/audit.service");
 const RefreshToken = require("../models/refreshToken.model");
 
+const isPrivilegedRole = (roleName) =>
+  roleName === "ADMIN" || roleName === "SUPER_ADMIN";
+
 /**
  * Determine which module a permission string belongs to.
  * e.g. "TRANSACTION_VIEW_ALL" → "TRANSACTION", "ADVANCE_PAYMENT_VIEW" → "ADVANCE_PAYMENT"
@@ -83,6 +86,10 @@ const getRefreshCookieOptions = () => ({
 
 const registerUser = async (req, res, next) => {
   try {
+    if (isPrivilegedRole(req.body.roleName) && req.user?.roleName !== "SUPER_ADMIN") {
+      return next(new ApiError(403, "Only a Super Admin can create an ADMIN or SUPER_ADMIN account."));
+    }
+
     const user = new User(req.body);
 
     // Ensure access array exists
@@ -534,13 +541,16 @@ const updateUser = async (req, res, next) => {
     const { id } = req.params;
     const updates = req.body;
 
-    if (req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN") {
-      return next(new ApiError(403, "You are not authorized to update users"));
-    }
-
     const user = await User.findById(id);
     if (!user) {
       return next(new ApiError(404, "User not found"));
+    }
+
+    if (
+      req.user.roleName !== "SUPER_ADMIN" &&
+      (isPrivilegedRole(user.roleName) || isPrivilegedRole(updates.roleName))
+    ) {
+      return next(new ApiError(403, "Only a Super Admin can modify an ADMIN or SUPER_ADMIN account."));
     }
 
     // Capture snapshots for audit diff (before any mutation)
@@ -559,7 +569,7 @@ const updateUser = async (req, res, next) => {
     }
 
     // Only allow updating specific fields (allowlist)
-    const allowedFields = ['name', 'email', 'phone', 'roleName', 'description', 'location', 'address', 'access', 'warehouse', 'password', 'avatar'];
+    const allowedFields = ['name', 'email', 'phone', 'roleName', 'description', 'location', 'address', 'access', 'warehouse', 'hasAllWarehouseAccess', 'password', 'avatar'];
     Object.keys(updates).forEach((key) => {
       if (allowedFields.includes(key)) {
         user[key] = updates[key];

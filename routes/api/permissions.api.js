@@ -3,14 +3,15 @@ const {
   getAllPermissions,
 } = require("../../controllers/permissions.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
-const { authorizeRole } = require("../../middleware/authorize.middleware");
+const { authorize } = require("../../middleware/authorize.middleware");
+const { PERMISSIONS } = require("../../utils/permissions.constants");
 
 const permissionsRouter = express.Router();
 
 permissionsRouter.get(
   "/",
   authenticate,
-  authorizeRole("SUPER_ADMIN"),
+  authorize([PERMISSIONS.USER_CREATE, PERMISSIONS.USER_UPDATE]),
   getAllPermissions
 );
 

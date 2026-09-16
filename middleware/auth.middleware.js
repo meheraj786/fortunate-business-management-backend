@@ -23,7 +23,7 @@ exports.authenticate = async (req, res, next) => {
     // OPTIMIZATION: Select only needed fields and use .lean() for faster queries
     // Include lastLogoutAt for token revocation check
     const user = await User.findById(decoded._id)
-      .select("_id name email roleName access warehouse isDeleted +lastLogoutAt")
+      .select("_id name email roleName access warehouse hasAllWarehouseAccess isDeleted +lastLogoutAt")
       .lean();
 
     if (!user || user.isDeleted) {

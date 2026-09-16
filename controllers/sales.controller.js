@@ -1469,7 +1469,7 @@ async function getSalesSummary(req, res, next) {
   try {
     const initialMatch = { isDeleted: { $ne: true } };
 
-    if (req.user && req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN") {
+    if (req.user && req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN" && !req.user.hasAllWarehouseAccess) {
       const allowedWarehouses = req.user.warehouse?.map(id => new mongoose.Types.ObjectId(id)) || [];
       if (req.query.warehouseId) {
         if (!req.user.warehouse?.map(String).includes(String(req.query.warehouseId))) {
@@ -1590,7 +1590,7 @@ async function getAll_invoices_status_count(req, res, next) {
   try {
     const initialMatch = { isDeleted: { $ne: true } };
 
-    if (req.user && req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN") {
+    if (req.user && req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN" && !req.user.hasAllWarehouseAccess) {
       const allowedWarehouses = req.user.warehouse?.map(id => new mongoose.Types.ObjectId(id)) || [];
       if (req.query.warehouseId) {
         if (!req.user.warehouse?.map(String).includes(String(req.query.warehouseId))) {
@@ -2710,7 +2710,7 @@ async function getPaginatedSalesSummary(req, res, next) {
     if (paymentStatus) initialMatch.paymentStatus = paymentStatus;
 
     // Role-Based Access Control + Optional Warehouse filter
-    if (req.user && req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN") {
+    if (req.user && req.user.roleName !== "SUPER_ADMIN" && req.user.roleName !== "ADMIN" && !req.user.hasAllWarehouseAccess) {
       const allowedWarehouses = req.user.warehouse?.map(id => new mongoose.Types.ObjectId(id)) || [];
       if (warehouseId) {
         if (!req.user.warehouse?.map(String).includes(String(warehouseId))) {
