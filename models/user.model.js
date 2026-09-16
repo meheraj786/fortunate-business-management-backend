@@ -77,8 +77,6 @@ const userSchema = new mongoose.Schema(
             "UNIT",
             "SETTINGS",
             "BACKUP",
-            "RESTORE",
-            "CLEANUP",
             "TRASH",
             "AUDIT",
             "ADVANCE_PAYMENT",

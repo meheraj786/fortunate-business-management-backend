@@ -8,11 +8,11 @@ const {
     uploadBackup,
 } = require("../../controllers/restore.controller");
 const { authenticate } = require("../../middleware/auth.middleware");
-const { authorize } = require("../../middleware/authorize.middleware");
-const { PERMISSIONS } = require("../../utils/permissions.constants");
+const { authorizeRole } = require("../../middleware/authorize.middleware");
 
-// Recovery remains explicitly permission-gated; it is not tied to a role name.
+// Restoring replaces production data and can never be delegated.
 router.use(authenticate);
+router.use(authorizeRole("SUPER_ADMIN"));
 
 // Configure multer for backup file uploads
 const BACKUP_DIR = path.join(__dirname, "..", "..", "backups");
@@ -32,13 +32,13 @@ const upload = multer({
 });
 
 // Inspect a backup's manifest before restoring
-router.get("/inspect/:filename", authorize(PERMISSIONS.RESTORE_INSPECT), inspectBackup);
+router.get("/inspect/:filename", inspectBackup);
 
 // Upload an external backup file
-router.post("/upload", authorize(PERMISSIONS.RESTORE_UPLOAD), upload.single("backupFile"), uploadBackup);
+router.post("/upload", upload.single("backupFile"), uploadBackup);
 
 // Execute restore from a backup (body: { restoreUploads: bool }). This must
 // follow the explicit /upload route so Express does not treat "upload" as a filename.
-router.post("/:filename", authorize(PERMISSIONS.RESTORE_EXECUTE), restoreFromBackup);
+router.post("/:filename", restoreFromBackup);
 
 module.exports = router;

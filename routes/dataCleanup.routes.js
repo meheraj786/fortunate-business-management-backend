@@ -2,18 +2,18 @@ const express = require("express");
 const router = express.Router();
 const cleanupController = require("../controllers/dataCleanup.controller");
 const { authenticate } = require("../middleware/auth.middleware");
-const { authorize } = require("../middleware/authorize.middleware");
-const { PERMISSIONS } = require("../utils/permissions.constants");
+const { authorizeRole } = require("../middleware/authorize.middleware");
 
 router.use(authenticate);
+router.use(authorizeRole("SUPER_ADMIN"));
 
 // Clear specific module
-router.post("/module/:moduleName", authorize(PERMISSIONS.CLEANUP_MODULE), cleanupController.clearModuleData);
+router.post("/module/:moduleName", cleanupController.clearModuleData);
 
 // Clear all business data (keep users/settings)
-router.post("/business-data", authorize(PERMISSIONS.CLEANUP_BUSINESS_DATA), cleanupController.clearBusinessData);
+router.post("/business-data", cleanupController.clearBusinessData);
 
 // Factory Reset (Delete Everything)
-router.post("/factory-reset", authorize(PERMISSIONS.CLEANUP_FACTORY_RESET), cleanupController.factoryReset);
+router.post("/factory-reset", cleanupController.factoryReset);
 
 module.exports = router;
