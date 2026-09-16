@@ -9,7 +9,7 @@ const {
 const { authenticate } = require("../../middleware/auth.middleware");
 const {
   authorize,
-  authorizeRole,
+  authorizeWarehouseAccess,
 } = require("../../middleware/authorize.middleware");
 const { PERMISSIONS } = require("../../utils/permissions.constants");
 const productRoutes = require("./product.api");
@@ -27,11 +27,11 @@ warehouseRoutes.get(
 );
 warehouseRoutes.get(
   "/:id",
-  authorize(PERMISSIONS.WAREHOUSE_VIEW),
+  authorizeWarehouseAccess(PERMISSIONS.WAREHOUSE_VIEW, "id"),
   getWarehouseById
 );
-warehouseRoutes.patch("/:id", authorize(PERMISSIONS.WAREHOUSE_UPDATE), updateWarehouse);
-warehouseRoutes.delete("/:id", authorize(PERMISSIONS.WAREHOUSE_DELETE), deleteWarehouse);
+warehouseRoutes.patch("/:id", authorizeWarehouseAccess(PERMISSIONS.WAREHOUSE_UPDATE, "id"), updateWarehouse);
+warehouseRoutes.delete("/:id", authorizeWarehouseAccess(PERMISSIONS.WAREHOUSE_DELETE, "id"), deleteWarehouse);
 
 // Nest the product routes under a specific warehouse
 warehouseRoutes.use("/:warehouseId/products", productRoutes);

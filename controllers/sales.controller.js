@@ -18,6 +18,25 @@ const mathUtil = require("../utils/math.util");
 const auditService = require("../services/audit.service");
 const { PERMISSIONS } = require("../utils/permissions.constants");
 
+const hasWarehouseScope = (user, warehouseId) =>
+  ["ADMIN", "SUPER_ADMIN"].includes(user?.roleName) ||
+  user?.hasAllWarehouseAccess === true ||
+  (user?.warehouse || []).some((id) => String(id) === String(warehouseId));
+
+const assertWarehouseScope = (user, warehouseId) => {
+  if (!hasWarehouseScope(user, warehouseId)) {
+    throw new ApiError(403, "You do not have access to this warehouse.");
+  }
+};
+
+const applyWarehouseScope = (filter, user) => {
+  if (!hasWarehouseScope(user, null)) {
+    filter.warehouse = {
+      $in: (user?.warehouse || []).map((id) => new mongoose.Types.ObjectId(id)),
+    };
+  }
+};
+
 /**
  * Cash pass-through for Bank/Mobile Banking sales payments.
  * Creates 3 transactions: Cash In, Cash Out (transfer), Bank/Mobile In.
@@ -151,6 +170,8 @@ async function createSale(req, res, next) {
         field: "warehouse",
         message: "Warehouse is required",
       });
+
+    if (warehouse) assertWarehouseScope(req.user, warehouse);
     /* Category is now optional for multi-item sales
     if (!category && !req.body.category) {
        validationErrors.push({
@@ -596,6 +617,8 @@ async function getAllSales(req, res, next) {
     if (paymentStatus) matchFilter.paymentStatus = paymentStatus;
     if (invoiceStatus) matchFilter.invoiceStatus = invoiceStatus;
 
+    applyWarehouseScope(matchFilter, req.user);
+
     // Data pipeline: populate all relationships
     const dataPipeline = [
       // Sort by date desc
@@ -821,6 +844,8 @@ async function getSaleById(req, res, next) {
       return next(new ApiError(404, "Sale not found"));
     }
 
+    assertWarehouseScope(req.user, sale.warehouse?._id || sale.warehouse);
+
     // Check isDeleted if necessary, or return 404
     /* if (sale.isDeleted) {
        return next(new ApiError(404, "Sale not found"));
@@ -882,6 +907,7 @@ async function updateSale(req, res, next) {
       throw new ApiError(400, "Changing warehouse during edit is not allowed. Please delete and recreate the sale if you need to switch warehouses.");
     }
     const warehouseId = sale.warehouse;
+    assertWarehouseScope(req.user, warehouseId);
 
     // 1.5 Invoice / Cancelled Status Guard — Block item modifications on finalized sales
     const isInvoiced = sale.invoiceStatus === "Invoiced";
@@ -1198,6 +1224,8 @@ async function deleteSale(req, res, next) {
     if (!saleToDelete) {
       throw new ApiError(404, "Sale not found");
     }
+
+    assertWarehouseScope(req.user, saleToDelete.warehouse);
 
     if (saleToDelete.isDeleted) {
       throw new ApiError(400, "Sale is already in the trash");
@@ -1735,6 +1763,7 @@ async function addPartialPayment(req, res, next) {
     if (!sale) {
       throw new ApiError(404, "Sale not found");
     }
+    assertWarehouseScope(req.user, sale.warehouse);
     if (sale.isDeleted) {
       throw new ApiError(
         400,
@@ -1977,6 +2006,7 @@ async function reversePayment(req, res, next) {
     if (!sale) {
       throw new ApiError(404, "Sale not found");
     }
+    assertWarehouseScope(req.user, sale.warehouse);
     if (sale.isDeleted) {
       throw new ApiError(400, "Cannot reverse payment on a deleted sale.");
     }
@@ -2177,6 +2207,8 @@ async function getSalesByCustomerId(req, res, next) {
     };
     if (invoiceStatus && invoiceStatus !== "All") matchQuery.invoiceStatus = invoiceStatus;
     if (paymentStatus && paymentStatus !== "All") matchQuery.paymentStatus = paymentStatus;
+
+    applyWarehouseScope(matchQuery, req.user);
 
     if (search && search.trim() !== "") {
       matchQuery.saleId = { $regex: search.trim(), $options: "i" };
@@ -2412,6 +2444,8 @@ async function cancelSale(req, res, next) {
     if (!saleToCancel) {
       throw new ApiError(404, "Sale not found");
     }
+
+    assertWarehouseScope(req.user, saleToCancel.warehouse);
 
     if (saleToCancel.isDeleted) {
       throw new ApiError(

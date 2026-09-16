@@ -80,11 +80,11 @@ const authorize = (requiredPermission) => (req, res, next) => {
   }
 };
 
-const authorizeWarehouseAccess = (requiredPermission) => (req, res, next) => {
+const authorizeWarehouseAccess = (requiredPermission, warehouseParam = "warehouseId") => (req, res, next) => {
   try {
     const user = req.user;
 
-    const { warehouseId } = req.params;
+    const warehouseId = req.params[warehouseParam];
 
     if (!user) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
